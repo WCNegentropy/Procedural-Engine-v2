@@ -1,0 +1,81 @@
+# AGENTS.md — Procedural Game Engine (Flagship Studio Ecosystem)
+
+## Purpose
+This document binds every human contributor and automated agent (e.g., ChatGPT Codex, CI bots) to the core constraints, architecture, and best-practice workflow defined in **Procedural Game Engine – Architecture v1** (see `/docs/Architecture_v1.md`).
+Paste this file into the root of the game-studio repository so that any context-aware tools inherit these rules automatically.
+
+---
+
+## 1 · Guiding Principles
+- **Determinism First** — All runtime output must be a pure function of the designated seeds and engine version. No hidden randomness or non-replayable state.
+- **Hybrid Discipline** — Python ≙ author-time generators & tooling; C++ ≙ real-time execution. Cross only at the defined FFI API.
+- **One Source of Truth** — The RootSeed governs every subsystem via the SeedRegistry; diverging PRNGs are forbidden.
+- **Immutability After Hand-Off** — Once a buffer crosses the Python → C++ boundary, its contents are read-only. C++ mutates runtime state via ECS, never the original generator data.
+- **Fail Fast, Fail Loud** — Any determinism hash mismatch, FPS regression, or physics NaN terminates the build or CI run.
+
+---
+
+## 2 · Language Ownership Matrix
+
+| Subsystem         | Python Responsibilities | C++ Responsibilities |
+|-------------------|--------------------------|-----------------------|
+| **Seeds & PRNG**  | Call `SeedRegistry.get_subseed()`; never instantiate local RNGs. | Master `SeedRegistry`, expose PCG64 stream to Python via FFI. |
+| **Terrain**       | Height/Biome/River mask generation, macro-plates, simplex FBM, biome LUT ✅ | GeoClipmap mesh, GPU erosion, collider heightfield. |
+| **Props & Creatures** | Generate JSON descriptors (CSG trees, L-systems, genomes). | Mesh synthesis, LODs, skeleton rigs, GPU upload. |
+| **Materials**     | Emit material graph DSL (JSON). | DSL→SPIR-V compile, virtual texture paging. |
+| **Physics**       | 2D reference solver + broad-phase/heightfield ✅ | Bullet-style solver, fluid voxels, wind fields. |
+| **Testing/Tooling** | Seed mining, dashboards, live editors. | Headless mode, hot-reload endpoint. |
+
+> Do **NOT** add gameplay logic that requires per-frame Python execution. Script only large-grain events.
+
+---
+
+## 3 · Determinism Contract
+- Use **PCG64** for every random sample.
+- Fixed Δt = 1/60 s physics step.
+- **SHA-256** hash every buffer passed over FFI and assert equality on C++ side.
+- Regression test hashes at frames 0, 100, 500 in CI.
+
+---
+
+## 4 · FFI API Surface (Canonical)
+```python
+Engine.enqueue_heightmap(memview h16, memview biome8, memview river1)
+Engine.enqueue_prop_descriptor(list[dict])
+Engine.hot_reload(uint64 descriptorHash)
+Engine.step(float dt)
+Engine.reset()
+Engine.snapshot_state(frame:int) -> bytes   # returns deterministic hash
+```
+
+---
+
+## 5 · Best Practices & CI Pipeline
+- Adhere to PEP 8 style and type annotate new Python code.
+- Run `pytest` and ensure all tests pass before submitting a change.
+- Update `TEST_RESULTS.md` with the latest `pytest` results after meaningful changes.
+- The GitHub Actions workflow runs tests on Python 3.10 and 3.11 and builds the package; keep these jobs green.
+- Each commit must leave the repository in a clean state with all checks passing.
+- Maintain the root `requirements.txt` with all core dependencies (currently `numpy` and `pytest`).
+- Respect the repository `.gitignore`; avoid committing build artifacts or virtual environments.
+
+---
+
+## 6 · Implementation Notes
+- Python `Engine` stub provides deterministic buffer hashing and state snapshot API ✅
+- Hot-reload descriptor hash tracking (`engine.py`) ✅
+- State hash regression helper (`Engine.run_and_snapshot`) ✅
+- Reset to initial state (`Engine.reset`) ✅
+- Deterministic rock descriptor generator (`props.py`) ✅
+- Material graph specification emitter (`materials.py`) ✅
+- Deterministic tree L-system descriptor generator (`props.py`) ✅
+- Deterministic building shape grammar descriptor generator (`props.py`) ✅
+- Deterministic creature metaball + skeleton descriptor generator (`props.py`) ✅
+- Deterministic 2D sequential impulse physics solver (`physics.py`) ✅
+- Uniform grid broad-phase and heightfield proxy (`physics.py`) ✅
+- Constant gravity option in physics solver (`physics.py`) ✅
+- Linear velocity damping option in physics solver (`physics.py`) ✅
+- Hierarchical seed registry spawning (`seed_registry.py`) ✅
+- Multi-chunk world generator with configurable macro plates and erosion (`world.py`) ✅
+- Deterministic slope map generator (`terrain.py`) ✅
+- Deterministic Sobol seed batch generator (`seed_sweeper.py`) ✅
