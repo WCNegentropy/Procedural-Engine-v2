@@ -103,6 +103,7 @@ runtime.
 ## 7 · Build & Packaging
 - C++ built as shared lib (`libprocengine.so/.dll/.dylib`)
 - Python wheel bundles shared lib via `setup.py` + pybind11
+- Initial C++ runtime scaffold lives under `cpp/` with a `CMakeLists.txt` for building the `procengine_cpp` module
 - CI targets: Windows x64 (MSVC), Linux x64 (GCC 13), macOS Apple Silicon (clang)
 
 ---
