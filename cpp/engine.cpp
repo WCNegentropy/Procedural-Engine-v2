@@ -7,6 +7,7 @@
 #include "seed_registry.h"
 #include "terrain.h"
 #include "physics.h"
+#include "props.h"
 
 namespace py = pybind11;
 
@@ -264,4 +265,205 @@ PYBIND11_MODULE(procengine_cpp, m) {
     py::arg("damping") = 0.0f,
     py::arg("heightfield") = py::none(),
     "Step physics simulation (modifies bodies in-place)");
+
+    // Props bindings
+    py::class_<props::Vec3>(m, "Vec3")
+        .def(py::init<>())
+        .def(py::init<float, float, float>())
+        .def_readwrite("x", &props::Vec3::x)
+        .def_readwrite("y", &props::Vec3::y)
+        .def_readwrite("z", &props::Vec3::z)
+        .def("length", &props::Vec3::length)
+        .def("dot", &props::Vec3::dot)
+        .def("cross", &props::Vec3::cross)
+        .def("normalized", &props::Vec3::normalized)
+        .def("__repr__", [](const props::Vec3& v) {
+            return "Vec3(" + std::to_string(v.x) + ", " +
+                   std::to_string(v.y) + ", " + std::to_string(v.z) + ")";
+        });
+
+    py::class_<props::Mesh>(m, "Mesh")
+        .def(py::init<>())
+        .def_readonly("vertices", &props::Mesh::vertices)
+        .def_readonly("normals", &props::Mesh::normals)
+        .def_readonly("indices", &props::Mesh::indices)
+        .def("vertex_count", &props::Mesh::vertex_count)
+        .def("triangle_count", &props::Mesh::triangle_count)
+        .def("clear", &props::Mesh::clear)
+        .def("append", &props::Mesh::append)
+        .def("get_vertices_numpy", [](const props::Mesh& mesh) {
+            auto arr = py::array_t<float>({mesh.vertices.size(), size_t(3)});
+            auto ptr = arr.mutable_data();
+            for (size_t i = 0; i < mesh.vertices.size(); ++i) {
+                ptr[i * 3 + 0] = mesh.vertices[i].x;
+                ptr[i * 3 + 1] = mesh.vertices[i].y;
+                ptr[i * 3 + 2] = mesh.vertices[i].z;
+            }
+            return arr;
+        })
+        .def("get_normals_numpy", [](const props::Mesh& mesh) {
+            auto arr = py::array_t<float>({mesh.normals.size(), size_t(3)});
+            auto ptr = arr.mutable_data();
+            for (size_t i = 0; i < mesh.normals.size(); ++i) {
+                ptr[i * 3 + 0] = mesh.normals[i].x;
+                ptr[i * 3 + 1] = mesh.normals[i].y;
+                ptr[i * 3 + 2] = mesh.normals[i].z;
+            }
+            return arr;
+        })
+        .def("get_indices_numpy", [](const props::Mesh& mesh) {
+            auto arr = py::array_t<uint32_t>(mesh.indices.size());
+            std::memcpy(arr.mutable_data(), mesh.indices.data(),
+                        mesh.indices.size() * sizeof(uint32_t));
+            return arr;
+        });
+
+    // Rock mesh generation
+    py::class_<props::RockDescriptor>(m, "RockDescriptor")
+        .def(py::init<>())
+        .def_readwrite("position", &props::RockDescriptor::position)
+        .def_readwrite("radius", &props::RockDescriptor::radius);
+
+    m.def("generate_rock_mesh", &props::generate_rock_mesh,
+          py::arg("desc"),
+          py::arg("segments") = 16,
+          py::arg("rings") = 12,
+          "Generate a sphere mesh for a rock");
+
+    // Tree mesh generation
+    py::class_<props::LSystemRules>(m, "LSystemRules")
+        .def(py::init<>())
+        .def_readwrite("axiom", &props::LSystemRules::axiom)
+        .def_readwrite("rules", &props::LSystemRules::rules);
+
+    py::class_<props::TreeDescriptor>(m, "TreeDescriptor")
+        .def(py::init<>())
+        .def_readwrite("lsystem", &props::TreeDescriptor::lsystem)
+        .def_readwrite("angle", &props::TreeDescriptor::angle)
+        .def_readwrite("iterations", &props::TreeDescriptor::iterations);
+
+    py::class_<props::TreeSegment>(m, "TreeSegment")
+        .def(py::init<>())
+        .def_readwrite("start", &props::TreeSegment::start)
+        .def_readwrite("end", &props::TreeSegment::end)
+        .def_readwrite("start_radius", &props::TreeSegment::start_radius)
+        .def_readwrite("end_radius", &props::TreeSegment::end_radius);
+
+    m.def("evaluate_lsystem", &props::evaluate_lsystem,
+          py::arg("rules"), py::arg("iterations"),
+          "Evaluate L-system string after N iterations");
+
+    m.def("generate_tree_skeleton", &props::generate_tree_skeleton,
+          py::arg("lstring"), py::arg("angle"),
+          py::arg("segment_length") = 1.0f,
+          py::arg("base_radius") = 0.1f,
+          py::arg("taper") = 0.85f,
+          "Generate tree skeleton from L-system string");
+
+    m.def("generate_tree_mesh", &props::generate_tree_mesh,
+          py::arg("desc"),
+          py::arg("segments_per_ring") = 8,
+          "Generate tree mesh from descriptor");
+
+    // Building mesh generation
+    py::class_<props::BuildingBlock>(m, "BuildingBlock")
+        .def(py::init<>())
+        .def_readwrite("size", &props::BuildingBlock::size)
+        .def_readwrite("position", &props::BuildingBlock::position)
+        .def_readwrite("children", &props::BuildingBlock::children);
+
+    py::class_<props::BuildingDescriptor>(m, "BuildingDescriptor")
+        .def(py::init<>())
+        .def_readwrite("root", &props::BuildingDescriptor::root);
+
+    m.def("generate_building_mesh", &props::generate_building_mesh,
+          py::arg("desc"),
+          "Generate building mesh from BSP descriptor");
+
+    // Creature mesh generation
+    py::class_<props::Bone>(m, "Bone")
+        .def(py::init<>())
+        .def_readwrite("length", &props::Bone::length)
+        .def_readwrite("angle", &props::Bone::angle);
+
+    py::class_<props::Metaball>(m, "Metaball")
+        .def(py::init<>())
+        .def_readwrite("center", &props::Metaball::center)
+        .def_readwrite("radius", &props::Metaball::radius)
+        .def_readwrite("strength", &props::Metaball::strength);
+
+    py::class_<props::CreatureDescriptor>(m, "CreatureDescriptor")
+        .def(py::init<>())
+        .def_readwrite("skeleton", &props::CreatureDescriptor::skeleton)
+        .def_readwrite("metaballs", &props::CreatureDescriptor::metaballs);
+
+    m.def("evaluate_metaball_field", &props::evaluate_metaball_field,
+          py::arg("metaballs"), py::arg("point"),
+          "Evaluate metaball field strength at a point");
+
+    m.def("generate_creature_mesh", &props::generate_creature_mesh,
+          py::arg("desc"),
+          py::arg("grid_resolution") = 32,
+          py::arg("threshold") = 1.0f,
+          "Generate creature mesh using marching cubes");
+
+    // LOD generation
+    m.def("generate_lod", &props::generate_lod,
+          py::arg("mesh"), py::arg("target_ratio"),
+          "Generate simplified LOD version of mesh");
+
+    // Helper function to create descriptors from Python dicts
+    m.def("create_rock_from_dict", [](py::dict d) {
+        props::RockDescriptor desc;
+        auto pos = d["position"].cast<py::list>();
+        desc.position = props::Vec3(
+            pos[0].cast<float>(),
+            pos[1].cast<float>(),
+            pos[2].cast<float>()
+        );
+        desc.radius = d["radius"].cast<float>();
+        return desc;
+    }, "Create RockDescriptor from Python dict");
+
+    m.def("create_tree_from_dict", [](py::dict d) {
+        props::TreeDescriptor desc;
+        desc.lsystem.axiom = d["axiom"].cast<std::string>();
+        auto rules = d["rules"].cast<py::dict>();
+        for (auto item : rules) {
+            char key = item.first.cast<std::string>()[0];
+            desc.lsystem.rules[key] = item.second.cast<std::string>();
+        }
+        desc.angle = d["angle"].cast<float>();
+        desc.iterations = d["iterations"].cast<uint32_t>();
+        return desc;
+    }, "Create TreeDescriptor from Python dict");
+
+    m.def("create_creature_from_dict", [](py::dict d) {
+        props::CreatureDescriptor desc;
+
+        auto skeleton = d["skeleton"].cast<py::list>();
+        for (auto bone : skeleton) {
+            auto b = bone.cast<py::dict>();
+            props::Bone bone_data;
+            bone_data.length = b["length"].cast<float>();
+            bone_data.angle = b["angle"].cast<float>();
+            desc.skeleton.push_back(bone_data);
+        }
+
+        auto metaballs = d["metaballs"].cast<py::list>();
+        for (auto mb : metaballs) {
+            auto m_dict = mb.cast<py::dict>();
+            props::Metaball ball;
+            auto center = m_dict["center"].cast<py::list>();
+            ball.center = props::Vec3(
+                center[0].cast<float>(),
+                center[1].cast<float>(),
+                center[2].cast<float>()
+            );
+            ball.radius = m_dict["radius"].cast<float>();
+            desc.metaballs.push_back(ball);
+        }
+
+        return desc;
+    }, "Create CreatureDescriptor from Python dict");
 }
