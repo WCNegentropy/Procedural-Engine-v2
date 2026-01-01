@@ -11,7 +11,9 @@
 #include "physics.h"
 #include "props.h"
 #include "materials.h"
+#ifndef NO_GRAPHICS
 #include "graphics.h"
+#endif
 
 namespace py = pybind11;
 
@@ -818,6 +820,7 @@ PYBIND11_MODULE(procengine_cpp, m) {
         return compiler.compile(graph);
     }, "Compile material graph from Python dict to GLSL shaders");
 
+#ifndef NO_GRAPHICS
     // ========================================================================
     // Graphics bindings
     // ========================================================================
@@ -902,4 +905,5 @@ PYBIND11_MODULE(procengine_cpp, m) {
              "Get render statistics")
         .def("is_initialized", &graphics::GraphicsSystem::is_initialized,
              "Check if graphics system is initialized");
+#endif // NO_GRAPHICS
 }
