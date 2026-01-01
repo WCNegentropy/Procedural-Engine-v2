@@ -8,6 +8,7 @@
 #include "terrain.h"
 #include "physics.h"
 #include "props.h"
+#include "materials.h"
 
 namespace py = pybind11;
 
@@ -466,4 +467,138 @@ PYBIND11_MODULE(procengine_cpp, m) {
 
         return desc;
     }, "Create CreatureDescriptor from Python dict");
+
+    // ========================================================================
+    // Materials bindings
+    // ========================================================================
+
+    // Node types
+    py::class_<materials::NoiseNode>(m, "NoiseNode")
+        .def(py::init<>())
+        .def_readwrite("seed", &materials::NoiseNode::seed)
+        .def_readwrite("frequency", &materials::NoiseNode::frequency)
+        .def_readwrite("octaves", &materials::NoiseNode::octaves)
+        .def_readwrite("persistence", &materials::NoiseNode::persistence);
+
+    py::class_<materials::WarpNode>(m, "WarpNode")
+        .def(py::init<>())
+        .def_readwrite("input", &materials::WarpNode::input)
+        .def_readwrite("strength", &materials::WarpNode::strength);
+
+    py::class_<materials::BlendNode>(m, "BlendNode")
+        .def(py::init<>())
+        .def_readwrite("input_a", &materials::BlendNode::input_a)
+        .def_readwrite("input_b", &materials::BlendNode::input_b)
+        .def_readwrite("factor", &materials::BlendNode::factor)
+        .def_readwrite("blend_mode", &materials::BlendNode::blend_mode);
+
+    py::class_<materials::PBRConstNode>(m, "PBRConstNode")
+        .def(py::init<>())
+        .def_readwrite("albedo", &materials::PBRConstNode::albedo)
+        .def_readwrite("roughness", &materials::PBRConstNode::roughness)
+        .def_readwrite("metallic", &materials::PBRConstNode::metallic);
+
+    // Material graph
+    py::class_<materials::MaterialNode>(m, "MaterialNode")
+        .def(py::init<>())
+        .def_readwrite("name", &materials::MaterialNode::name)
+        .def_readwrite("type", &materials::MaterialNode::type);
+
+    py::class_<materials::MaterialGraph>(m, "MaterialGraph")
+        .def(py::init<>())
+        .def_readwrite("output_node", &materials::MaterialGraph::output_node)
+        .def_readonly("evaluation_order", &materials::MaterialGraph::evaluation_order);
+
+    // Compiled shader
+    py::class_<materials::CompiledShader>(m, "CompiledShader")
+        .def(py::init<>())
+        .def_readonly("vertex_source", &materials::CompiledShader::vertex_source)
+        .def_readonly("fragment_source", &materials::CompiledShader::fragment_source)
+        .def_readonly("hash", &materials::CompiledShader::hash)
+        .def_readonly("valid", &materials::CompiledShader::valid)
+        .def_readonly("error_message", &materials::CompiledShader::error_message);
+
+    // Compiler options
+    py::class_<materials::CompilerOptions>(m, "CompilerOptions")
+        .def(py::init<>())
+        .def_readwrite("include_noise_functions", &materials::CompilerOptions::include_noise_functions)
+        .def_readwrite("include_pbr_lighting", &materials::CompilerOptions::include_pbr_lighting)
+        .def_readwrite("optimize", &materials::CompilerOptions::optimize)
+        .def_readwrite("glsl_version", &materials::CompilerOptions::glsl_version);
+
+    // Material compiler
+    py::class_<materials::MaterialCompiler>(m, "MaterialCompiler")
+        .def(py::init<>())
+        .def("compile", &materials::MaterialCompiler::compile,
+             py::arg("graph"),
+             py::arg("options") = materials::CompilerOptions(),
+             "Compile material graph to GLSL shaders")
+        .def_static("compute_hash", &materials::MaterialCompiler::compute_hash,
+                    "Compute hash for material graph");
+
+    // Shader cache
+    py::class_<materials::ShaderCache>(m, "ShaderCache")
+        .def(py::init<>())
+        .def("get", &materials::ShaderCache::get, py::return_value_policy::reference)
+        .def("put", &materials::ShaderCache::put)
+        .def("clear", &materials::ShaderCache::clear)
+        .def("size", &materials::ShaderCache::size);
+
+    // Utility functions
+    m.def("create_noise_material", &materials::create_noise_material,
+          py::arg("seed"), py::arg("frequency"),
+          "Create a simple noise material graph");
+
+    m.def("create_pbr_material", &materials::create_pbr_material,
+          py::arg("albedo"), py::arg("roughness"), py::arg("metallic") = 0.0f,
+          "Create a PBR constant material graph");
+
+    // Helper to create material graph from Python dict (matching materials.py format)
+    m.def("compile_material_from_dict", [](py::dict graph_dict) {
+        materials::MaterialGraph graph;
+
+        auto nodes_dict = graph_dict["nodes"].cast<py::dict>();
+        graph.output_node = graph_dict["output"].cast<std::string>();
+
+        for (auto item : nodes_dict) {
+            std::string node_name = item.first.cast<std::string>();
+            auto node_data = item.second.cast<py::dict>();
+            std::string node_type = node_data["type"].cast<std::string>();
+
+            materials::MaterialNode node;
+            node.name = node_name;
+            node.type = node_type;
+
+            if (node_type == "noise") {
+                materials::NoiseNode noise;
+                noise.seed = node_data["seed"].cast<uint32_t>();
+                noise.frequency = node_data["frequency"].cast<float>();
+                node.data = noise;
+            } else if (node_type == "warp") {
+                materials::WarpNode warp;
+                warp.input = node_data["input"].cast<std::string>();
+                warp.strength = node_data["strength"].cast<float>();
+                node.data = warp;
+            } else if (node_type == "blend") {
+                materials::BlendNode blend;
+                blend.input_a = node_data["input_a"].cast<std::string>();
+                blend.input_b = node_data["input_b"].cast<std::string>();
+                blend.factor = node_data["factor"].cast<float>();
+                node.data = blend;
+            } else if (node_type == "pbr_const") {
+                materials::PBRConstNode pbr;
+                auto albedo = node_data["albedo"].cast<py::list>();
+                pbr.albedo[0] = albedo[0].cast<float>();
+                pbr.albedo[1] = albedo[1].cast<float>();
+                pbr.albedo[2] = albedo[2].cast<float>();
+                pbr.roughness = node_data["roughness"].cast<float>();
+                node.data = pbr;
+            }
+
+            graph.nodes[node_name] = node;
+        }
+
+        materials::MaterialCompiler compiler;
+        return compiler.compile(graph);
+    }, "Compile material graph from Python dict to GLSL shaders");
 }
