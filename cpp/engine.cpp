@@ -9,6 +9,7 @@
 #include "physics.h"
 #include "props.h"
 #include "materials.h"
+#include "graphics.h"
 
 namespace py = pybind11;
 
@@ -601,4 +602,89 @@ PYBIND11_MODULE(procengine_cpp, m) {
         materials::MaterialCompiler compiler;
         return compiler.compile(graph);
     }, "Compile material graph from Python dict to GLSL shaders");
+
+    // ========================================================================
+    // Graphics bindings
+    // ========================================================================
+
+    // GPU resources
+    py::class_<graphics::GPUBuffer>(m, "GPUBuffer")
+        .def(py::init<>())
+        .def("is_valid", &graphics::GPUBuffer::is_valid);
+
+    py::class_<graphics::GPUImage>(m, "GPUImage")
+        .def(py::init<>())
+        .def("is_valid", &graphics::GPUImage::is_valid);
+
+    py::class_<graphics::GPUMesh>(m, "GPUMesh")
+        .def(py::init<>())
+        .def("is_valid", &graphics::GPUMesh::is_valid)
+        .def_readonly("vertex_count", &graphics::GPUMesh::vertex_count)
+        .def_readonly("index_count", &graphics::GPUMesh::index_count);
+
+    // Pipeline
+    py::class_<graphics::Pipeline>(m, "GraphicsPipeline")
+        .def(py::init<>())
+        .def("is_valid", &graphics::Pipeline::is_valid)
+        .def_readonly("hash", &graphics::Pipeline::hash);
+
+    // Camera
+    py::class_<graphics::Camera>(m, "Camera")
+        .def(py::init<>())
+        .def_readwrite("position", &graphics::Camera::position)
+        .def_readwrite("target", &graphics::Camera::target)
+        .def_readwrite("up", &graphics::Camera::up)
+        .def_readwrite("fov", &graphics::Camera::fov)
+        .def_readwrite("near_plane", &graphics::Camera::near_plane)
+        .def_readwrite("far_plane", &graphics::Camera::far_plane);
+
+    // Light
+    py::class_<graphics::Light>(m, "Light")
+        .def(py::init<>())
+        .def_readwrite("position", &graphics::Light::position)
+        .def_readwrite("radius", &graphics::Light::radius)
+        .def_readwrite("color", &graphics::Light::color)
+        .def_readwrite("intensity", &graphics::Light::intensity);
+
+    // Render statistics
+    py::class_<graphics::RenderStats>(m, "RenderStats")
+        .def(py::init<>())
+        .def_readonly("draw_calls", &graphics::RenderStats::draw_calls)
+        .def_readonly("triangles", &graphics::RenderStats::triangles)
+        .def_readonly("vertices", &graphics::RenderStats::vertices)
+        .def_readonly("frame_time_ms", &graphics::RenderStats::frame_time_ms);
+
+    // Graphics system
+    py::class_<graphics::GraphicsSystem>(m, "GraphicsSystem")
+        .def(py::init<>())
+        .def("initialize", &graphics::GraphicsSystem::initialize,
+             py::arg("width") = 1920,
+             py::arg("height") = 1080,
+             py::arg("enable_validation") = false,
+             "Initialize the graphics system")
+        .def("shutdown", &graphics::GraphicsSystem::shutdown,
+             "Shutdown the graphics system")
+        .def("upload_mesh", &graphics::GraphicsSystem::upload_mesh,
+             "Upload a mesh to GPU")
+        .def("create_material_pipeline", &graphics::GraphicsSystem::create_material_pipeline,
+             py::arg("vertex_glsl"),
+             py::arg("fragment_glsl"),
+             "Create a material pipeline from GLSL shaders")
+        .def("begin_frame", &graphics::GraphicsSystem::begin_frame,
+             "Begin rendering a frame")
+        .def("draw_mesh", &graphics::GraphicsSystem::draw_mesh,
+             py::arg("mesh"),
+             py::arg("pipeline"),
+             py::arg("transform"),
+             "Draw a mesh with transform")
+        .def("end_frame", &graphics::GraphicsSystem::end_frame,
+             "End frame and present")
+        .def("set_camera", &graphics::GraphicsSystem::set_camera,
+             "Set camera parameters")
+        .def("add_light", &graphics::GraphicsSystem::add_light,
+             "Add light to scene")
+        .def("get_stats", &graphics::GraphicsSystem::get_stats,
+             "Get render statistics")
+        .def("is_initialized", &graphics::GraphicsSystem::is_initialized,
+             "Check if graphics system is initialized");
 }
