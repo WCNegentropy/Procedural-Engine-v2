@@ -9,5 +9,5 @@ list(APPEND CMAKE_PREFIX_PATH ${pybind11_DIR})
 find_package(pybind11 CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED)
 
-pybind11_add_module(procengine_cpp engine.cpp seed_registry.cpp terrain.cpp)
+pybind11_add_module(procengine_cpp engine.cpp seed_registry.cpp terrain.cpp physics.cpp)
 target_link_libraries(procengine_cpp PRIVATE OpenSSL::Crypto)

@@ -6,6 +6,7 @@
 #include <string>
 #include "seed_registry.h"
 #include "terrain.h"
+#include "physics.h"
 
 namespace py = pybind11;
 
@@ -170,4 +171,97 @@ PYBIND11_MODULE(procengine_cpp, m) {
     py::arg("erosion_iters") = 0,
     py::arg("return_slope") = false,
     "Generate terrain maps from a seed (standalone function for testing)");
+
+    // Physics bindings
+    py::class_<physics::Vec2>(m, "Vec2")
+        .def(py::init<>())
+        .def(py::init<float, float>())
+        .def_readwrite("x", &physics::Vec2::x)
+        .def_readwrite("y", &physics::Vec2::y)
+        .def("length", &physics::Vec2::length)
+        .def("dot", &physics::Vec2::dot)
+        .def("__repr__", [](const physics::Vec2& v) {
+            return "Vec2(" + std::to_string(v.x) + ", " + std::to_string(v.y) + ")";
+        });
+
+    py::class_<physics::RigidBody>(m, "RigidBody")
+        .def(py::init<>())
+        .def(py::init<physics::Vec2, physics::Vec2, float, float>(),
+             py::arg("position"), py::arg("velocity"), py::arg("mass"), py::arg("radius"))
+        .def_readwrite("position", &physics::RigidBody::position)
+        .def_readwrite("velocity", &physics::RigidBody::velocity)
+        .def_readwrite("mass", &physics::RigidBody::mass)
+        .def_readwrite("radius", &physics::RigidBody::radius);
+
+    py::class_<physics::HeightField>(m, "HeightField")
+        .def(py::init<>())
+        .def(py::init<const std::vector<float>&, float, float>(),
+             py::arg("heights"), py::arg("x0") = 0.0f, py::arg("cell_size") = 1.0f)
+        .def("sample", &physics::HeightField::sample)
+        .def("empty", &physics::HeightField::empty);
+
+    py::class_<physics::PhysicsConfig>(m, "PhysicsConfig")
+        .def(py::init<>())
+        .def_readwrite("dt", &physics::PhysicsConfig::dt)
+        .def_readwrite("iterations", &physics::PhysicsConfig::iterations)
+        .def_readwrite("restitution", &physics::PhysicsConfig::restitution)
+        .def_readwrite("cell_size", &physics::PhysicsConfig::cell_size)
+        .def_readwrite("gravity", &physics::PhysicsConfig::gravity)
+        .def_readwrite("damping", &physics::PhysicsConfig::damping);
+
+    py::class_<physics::PhysicsWorld>(m, "PhysicsWorld")
+        .def(py::init<>())
+        .def("add_body", &physics::PhysicsWorld::add_body)
+        .def("get_body", py::overload_cast<size_t>(&physics::PhysicsWorld::get_body),
+             py::return_value_policy::reference_internal)
+        .def("step", &physics::PhysicsWorld::step,
+             py::arg("config") = physics::PhysicsConfig())
+        .def("reset", &physics::PhysicsWorld::reset)
+        .def("body_count", &physics::PhysicsWorld::body_count)
+        .def("set_heightfield", &physics::PhysicsWorld::set_heightfield)
+        .def("clear_heightfield", &physics::PhysicsWorld::clear_heightfield);
+
+    // Standalone physics step function for testing
+    m.def("step_physics", [](py::list body_list, float dt, uint32_t iterations,
+                              float restitution, float cell_size, float gravity,
+                              float damping, py::object heightfield_obj) {
+        // Convert Python list to C++ vector
+        std::vector<physics::RigidBody> bodies;
+        for (auto item : body_list) {
+            auto body = item.cast<physics::RigidBody>();
+            bodies.push_back(body);
+        }
+
+        physics::PhysicsConfig config;
+        config.dt = dt;
+        config.iterations = iterations;
+        config.restitution = restitution;
+        config.cell_size = cell_size;
+        config.gravity = gravity;
+        config.damping = damping;
+
+        const physics::HeightField* hf = nullptr;
+        physics::HeightField hf_storage;
+        if (!heightfield_obj.is_none()) {
+            hf_storage = heightfield_obj.cast<physics::HeightField>();
+            hf = &hf_storage;
+        }
+
+        physics::step_physics(bodies, config, hf);
+
+        // Update the original list with new positions/velocities
+        for (size_t i = 0; i < bodies.size(); ++i) {
+            body_list[i].attr("position") = bodies[i].position;
+            body_list[i].attr("velocity") = bodies[i].velocity;
+        }
+    },
+    py::arg("bodies"),
+    py::arg("dt") = physics::DEFAULT_DT,
+    py::arg("iterations") = 10,
+    py::arg("restitution") = 1.0f,
+    py::arg("cell_size") = 0.0f,
+    py::arg("gravity") = 0.0f,
+    py::arg("damping") = 0.0f,
+    py::arg("heightfield") = py::none(),
+    "Step physics simulation (modifies bodies in-place)");
 }
