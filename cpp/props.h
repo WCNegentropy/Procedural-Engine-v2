@@ -66,6 +66,42 @@ struct Mesh {
     size_t vertex_count() const { return vertices.size(); }
     size_t triangle_count() const { return indices.size() / 3; }
 
+    /**
+     * Validate mesh integrity.
+     * Returns true if mesh is valid, false otherwise.
+     */
+    bool validate() const {
+        // Vertices and normals must have same count
+        if (vertices.size() != normals.size()) {
+            return false;
+        }
+        // Indices must be multiple of 3 (complete triangles)
+        if (indices.size() % 3 != 0) {
+            return false;
+        }
+        // All indices must be valid
+        for (uint32_t idx : indices) {
+            if (idx >= vertices.size()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Ensure normals array matches vertices array size.
+     * Fills missing normals with default (0, 1, 0).
+     */
+    void ensure_normals() {
+        while (normals.size() < vertices.size()) {
+            normals.push_back(Vec3(0.0f, 1.0f, 0.0f));
+        }
+        // Trim excess normals if any
+        if (normals.size() > vertices.size()) {
+            normals.resize(vertices.size());
+        }
+    }
+
     // Append another mesh (for combining multiple props)
     void append(const Mesh& other) {
         uint32_t base_idx = static_cast<uint32_t>(vertices.size());
@@ -74,6 +110,8 @@ struct Mesh {
         for (uint32_t idx : other.indices) {
             indices.push_back(base_idx + idx);
         }
+        // Ensure normals match after append
+        ensure_normals();
     }
 };
 

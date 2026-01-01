@@ -16,7 +16,8 @@ uint64_t PCG64::operator()() {
     return (xorshifted >> rot) | (xorshifted << ((-rot) & 63u));
 }
 
-SeedRegistry::SeedRegistry(uint64_t root) : sm_state_(root), rng_(root) {}
+SeedRegistry::SeedRegistry(uint64_t root)
+    : root_seed_(root), sm_state_(root), counter_(0), rng_(root) {}
 
 uint64_t SeedRegistry::splitmix64(uint64_t &state) {
     uint64_t z = (state += 0x9E3779B97f4A7C15ULL);
@@ -25,7 +26,25 @@ uint64_t SeedRegistry::splitmix64(uint64_t &state) {
     return z ^ (z >> 31);
 }
 
-uint64_t SeedRegistry::get_subseed() {
+uint64_t SeedRegistry::get_subseed(const std::string& name) {
+    // Check if we already have a seed for this name
+    auto it = named_seeds_.find(name);
+    if (it != named_seeds_.end()) {
+        return it->second;
+    }
+
+    // Generate a new deterministic seed for this name
+    // Matches Python: seed_input = self.root_seed + self._counter
+    counter_ += 1;
+    uint64_t seed_input = root_seed_ + counter_;
+    uint64_t subseed = splitmix64(seed_input);
+
+    // Cache and return
+    named_seeds_[name] = subseed;
+    return subseed;
+}
+
+uint64_t SeedRegistry::get_subseed_sequential() {
     return splitmix64(sm_state_);
 }
 

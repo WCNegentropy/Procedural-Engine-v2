@@ -87,13 +87,43 @@ public:
         : heights_(heights), x0_(x0), cell_size_(cell_size) {}
 
     /**
-     * Sample height at horizontal coordinate x.
+     * Sample height at horizontal coordinate x with linear interpolation.
+     * Returns interpolated height for smoother boundary handling.
      */
     float sample(float x) const {
         if (heights_.empty()) return 0.0f;
-        int idx = static_cast<int>(std::floor((x - x0_) / cell_size_));
-        idx = std::max(0, std::min(idx, static_cast<int>(heights_.size()) - 1));
-        return heights_[idx];
+
+        float local_x = (x - x0_) / cell_size_;
+        int idx0 = static_cast<int>(std::floor(local_x));
+        int idx1 = idx0 + 1;
+
+        // Clamp indices
+        idx0 = std::max(0, std::min(idx0, static_cast<int>(heights_.size()) - 1));
+        idx1 = std::max(0, std::min(idx1, static_cast<int>(heights_.size()) - 1));
+
+        // Linear interpolation between samples for smoother transitions
+        float t = local_x - std::floor(local_x);
+        t = std::max(0.0f, std::min(t, 1.0f));
+
+        return heights_[idx0] * (1.0f - t) + heights_[idx1] * t;
+    }
+
+    /**
+     * Check if coordinate x is within the heightfield bounds.
+     */
+    bool in_bounds(float x) const {
+        if (heights_.empty()) return false;
+        float x_max = x0_ + cell_size_ * static_cast<float>(heights_.size() - 1);
+        return x >= x0_ && x <= x_max;
+    }
+
+    /**
+     * Get the X coordinate range of the heightfield.
+     */
+    float x_min() const { return x0_; }
+    float x_max() const {
+        if (heights_.empty()) return x0_;
+        return x0_ + cell_size_ * static_cast<float>(heights_.size() - 1);
     }
 
     bool empty() const { return heights_.empty(); }

@@ -298,22 +298,27 @@ std::vector<uint8_t> generate_biome_map(const std::vector<float>& temperature,
     std::vector<uint8_t> biome(size * size);
 
     for (size_t i = 0; i < size * size; ++i) {
+        // Clamp inputs to [0, 1] to ensure valid LUT indices
+        float temp_clamped = std::clamp(temperature[i], 0.0f, 1.0f);
+        float humid_clamped = std::clamp(humidity[i], 0.0f, 1.0f);
+        float height_clamped = std::clamp(height[i], 0.0f, 1.0f);
+
         // Digitize temperature: [0, 0.33) -> 0, [0.33, 0.66) -> 1, [0.66, 1] -> 2
         int temp_idx;
-        if (temperature[i] < 0.33f) temp_idx = 0;
-        else if (temperature[i] < 0.66f) temp_idx = 1;
+        if (temp_clamped < 0.33f) temp_idx = 0;
+        else if (temp_clamped < 0.66f) temp_idx = 1;
         else temp_idx = 2;
 
         // Digitize humidity
         int humid_idx;
-        if (humidity[i] < 0.33f) humid_idx = 0;
-        else if (humidity[i] < 0.66f) humid_idx = 1;
+        if (humid_clamped < 0.33f) humid_idx = 0;
+        else if (humid_clamped < 0.66f) humid_idx = 1;
         else humid_idx = 2;
 
         // Digitize height
         int height_idx;
-        if (height[i] < 0.3f) height_idx = 0;
-        else if (height[i] < 0.6f) height_idx = 1;
+        if (height_clamped < 0.3f) height_idx = 0;
+        else if (height_clamped < 0.6f) height_idx = 1;
         else height_idx = 2;
 
         biome[i] = BIOME_LUT[temp_idx][humid_idx][height_idx];
@@ -340,14 +345,14 @@ TerrainMaps generate_terrain_maps(SeedRegistry& registry, const TerrainConfig& c
     maps.size = config.size;
     maps.has_slope = config.compute_slope;
 
-    // Create child registry for height generation
-    uint64_t height_seed = registry.get_subseed();
+    // Create child registry for height generation using named subseed
+    uint64_t height_seed = registry.get_subseed("height");
     SeedRegistry height_reg(height_seed);
     maps.height = generate_fbm(height_reg, config.size, config.octaves);
 
     // Apply macro plates if enabled
     if (config.macro_points > 0) {
-        uint64_t macro_seed = registry.get_subseed();
+        uint64_t macro_seed = registry.get_subseed("macro");
         SeedRegistry macro_reg(macro_seed);
         auto macro = generate_voronoi_ridged(macro_reg, config.size, config.macro_points);
 
@@ -359,18 +364,18 @@ TerrainMaps generate_terrain_maps(SeedRegistry& registry, const TerrainConfig& c
 
     // Apply erosion if enabled
     if (config.erosion_iters > 0) {
-        uint64_t erosion_seed = registry.get_subseed();
+        uint64_t erosion_seed = registry.get_subseed("erosion");
         SeedRegistry erosion_reg(erosion_seed);
         apply_hydraulic_erosion(maps.height, config.size, erosion_reg, config.erosion_iters);
     }
 
     // Generate temperature map (2 octaves)
-    uint64_t temp_seed = registry.get_subseed();
+    uint64_t temp_seed = registry.get_subseed("temperature");
     SeedRegistry temp_reg(temp_seed);
     auto temperature = generate_fbm(temp_reg, config.size, 2);
 
     // Generate humidity map (2 octaves)
-    uint64_t humid_seed = registry.get_subseed();
+    uint64_t humid_seed = registry.get_subseed("humidity");
     SeedRegistry humid_reg(humid_seed);
     auto humidity = generate_fbm(humid_reg, config.size, 2);
 
@@ -378,7 +383,7 @@ TerrainMaps generate_terrain_maps(SeedRegistry& registry, const TerrainConfig& c
     maps.biome = generate_biome_map(temperature, humidity, maps.height, config.size);
 
     // Generate river mask
-    uint64_t river_seed = registry.get_subseed();
+    uint64_t river_seed = registry.get_subseed("river");
     SeedRegistry river_reg(river_seed);
     maps.river = generate_river_mask(river_reg, config.size);
 

@@ -62,12 +62,22 @@ Mesh generate_rock_mesh(const RockDescriptor& desc, uint32_t segments, uint32_t 
 // Tree Mesh Generation (L-System + Sweep Mesh)
 // ============================================================================
 
+// Maximum L-system string length to prevent memory exhaustion
+static constexpr size_t MAX_LSYSTEM_LENGTH = 10 * 1024 * 1024;  // 10 MB
+// Maximum L-system iterations to prevent runaway growth
+static constexpr uint32_t MAX_LSYSTEM_ITERATIONS = 15;
+
 std::string evaluate_lsystem(const LSystemRules& rules, uint32_t iterations) {
     std::string current = rules.axiom;
 
-    for (uint32_t iter = 0; iter < iterations; ++iter) {
+    // Clamp iterations to prevent runaway growth
+    uint32_t safe_iterations = std::min(iterations, MAX_LSYSTEM_ITERATIONS);
+
+    for (uint32_t iter = 0; iter < safe_iterations; ++iter) {
         std::string next;
-        next.reserve(current.size() * 4);  // Estimate growth
+        // Estimate growth but don't exceed max length
+        size_t estimated_size = std::min(current.size() * 4, MAX_LSYSTEM_LENGTH);
+        next.reserve(estimated_size);
 
         for (char c : current) {
             auto it = rules.rules.find(c);
@@ -75,6 +85,12 @@ std::string evaluate_lsystem(const LSystemRules& rules, uint32_t iterations) {
                 next += it->second;
             } else {
                 next += c;
+            }
+
+            // Check if we've exceeded maximum length
+            if (next.size() > MAX_LSYSTEM_LENGTH) {
+                // Return truncated result
+                return next.substr(0, MAX_LSYSTEM_LENGTH);
             }
         }
         current = std::move(next);
@@ -519,9 +535,10 @@ Mesh generate_creature_mesh(
                         mesh.vertices.push_back(edge_verts[e]);
                     }
 
-                    // Compute normals using gradient of field
-                    for (const auto& v : mesh.vertices) {
-                        float eps = cell_size * 0.1f;
+                    // Compute normals for newly added vertices only
+                    float eps = cell_size * 0.1f;
+                    for (size_t vi = base; vi < mesh.vertices.size(); ++vi) {
+                        const Vec3& v = mesh.vertices[vi];
                         float fx = evaluate_metaball_field(desc.metaballs, v + Vec3(eps, 0, 0))
                                  - evaluate_metaball_field(desc.metaballs, v - Vec3(eps, 0, 0));
                         float fy = evaluate_metaball_field(desc.metaballs, v + Vec3(0, eps, 0))

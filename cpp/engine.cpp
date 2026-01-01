@@ -159,8 +159,8 @@ public:
     py::tuple generate_terrain(uint32_t size = 64, uint32_t octaves = 6,
                                uint32_t macro_points = 8, uint32_t erosion_iters = 0,
                                bool return_slope = false) {
-        // Create a child registry for terrain generation
-        uint64_t terrain_seed = registry_.get_subseed();
+        // Create a child registry for terrain generation using named subseed
+        uint64_t terrain_seed = registry_.get_subseed("terrain");
         SeedRegistry terrain_reg(terrain_seed);
 
         terrain::TerrainConfig config;
@@ -209,8 +209,13 @@ private:
 PYBIND11_MODULE(procengine_cpp, m) {
     py::class_<SeedRegistry>(m, "SeedRegistry")
         .def(py::init<uint64_t>())
-        .def("get_subseed", &SeedRegistry::get_subseed)
-        .def("next_u64", &SeedRegistry::next_u64);
+        .def("get_subseed", &SeedRegistry::get_subseed,
+             py::arg("name"),
+             "Get a deterministic sub-seed for a named subsystem")
+        .def("get_subseed_sequential", &SeedRegistry::get_subseed_sequential,
+             "Get a sequential sub-seed (legacy API)")
+        .def("next_u64", &SeedRegistry::next_u64)
+        .def("root_seed", &SeedRegistry::root_seed);
 
     py::class_<Engine>(m, "Engine")
         .def(py::init<uint64_t>())
@@ -301,7 +306,14 @@ PYBIND11_MODULE(procengine_cpp, m) {
         .def(py::init<>())
         .def(py::init<const std::vector<float>&, float, float>(),
              py::arg("heights"), py::arg("x0") = 0.0f, py::arg("cell_size") = 1.0f)
-        .def("sample", &physics::HeightField::sample)
+        .def("sample", &physics::HeightField::sample,
+             "Sample height at x with linear interpolation")
+        .def("in_bounds", &physics::HeightField::in_bounds,
+             "Check if x is within heightfield bounds")
+        .def("x_min", &physics::HeightField::x_min,
+             "Get minimum x coordinate")
+        .def("x_max", &physics::HeightField::x_max,
+             "Get maximum x coordinate")
         .def("empty", &physics::HeightField::empty);
 
     py::class_<physics::PhysicsConfig>(m, "PhysicsConfig")
@@ -354,9 +366,12 @@ PYBIND11_MODULE(procengine_cpp, m) {
         physics::step_physics(bodies, config, hf);
 
         // Update the original list with new positions/velocities
+        // Create new Vec2 objects for proper type conversion
         for (size_t i = 0; i < bodies.size(); ++i) {
-            body_list[i].attr("position") = bodies[i].position;
-            body_list[i].attr("velocity") = bodies[i].velocity;
+            physics::Vec2 new_pos = bodies[i].position;
+            physics::Vec2 new_vel = bodies[i].velocity;
+            body_list[i].attr("position") = py::cast(new_pos);
+            body_list[i].attr("velocity") = py::cast(new_vel);
         }
     },
     py::arg("bodies"),
@@ -394,6 +409,10 @@ PYBIND11_MODULE(procengine_cpp, m) {
         .def("triangle_count", &props::Mesh::triangle_count)
         .def("clear", &props::Mesh::clear)
         .def("append", &props::Mesh::append)
+        .def("validate", &props::Mesh::validate,
+             "Validate mesh integrity (vertices/normals count, index bounds)")
+        .def("ensure_normals", &props::Mesh::ensure_normals,
+             "Ensure normals array matches vertices array size")
         .def("get_vertices_numpy", [](const props::Mesh& mesh) {
             auto arr = py::array_t<float>({mesh.vertices.size(), size_t(3)});
             auto ptr = arr.mutable_data();
@@ -515,58 +534,109 @@ PYBIND11_MODULE(procengine_cpp, m) {
           py::arg("mesh"), py::arg("target_ratio"),
           "Generate simplified LOD version of mesh");
 
-    // Helper function to create descriptors from Python dicts
+    // Helper function to create descriptors from Python dicts with error handling
     m.def("create_rock_from_dict", [](py::dict d) {
         props::RockDescriptor desc;
-        auto pos = d["position"].cast<py::list>();
-        desc.position = props::Vec3(
-            pos[0].cast<float>(),
-            pos[1].cast<float>(),
-            pos[2].cast<float>()
-        );
-        desc.radius = d["radius"].cast<float>();
+        try {
+            if (!d.contains("position")) {
+                throw std::runtime_error("Missing required key 'position'");
+            }
+            if (!d.contains("radius")) {
+                throw std::runtime_error("Missing required key 'radius'");
+            }
+            auto pos = d["position"].cast<py::list>();
+            if (py::len(pos) < 3) {
+                throw std::runtime_error("'position' must have at least 3 elements");
+            }
+            desc.position = props::Vec3(
+                pos[0].cast<float>(),
+                pos[1].cast<float>(),
+                pos[2].cast<float>()
+            );
+            desc.radius = d["radius"].cast<float>();
+        } catch (const py::cast_error& e) {
+            throw std::runtime_error(std::string("Type conversion error in create_rock_from_dict: ") + e.what());
+        }
         return desc;
     }, "Create RockDescriptor from Python dict");
 
     m.def("create_tree_from_dict", [](py::dict d) {
         props::TreeDescriptor desc;
-        desc.lsystem.axiom = d["axiom"].cast<std::string>();
-        auto rules = d["rules"].cast<py::dict>();
-        for (auto item : rules) {
-            char key = item.first.cast<std::string>()[0];
-            desc.lsystem.rules[key] = item.second.cast<std::string>();
+        try {
+            if (!d.contains("axiom")) {
+                throw std::runtime_error("Missing required key 'axiom'");
+            }
+            if (!d.contains("rules")) {
+                throw std::runtime_error("Missing required key 'rules'");
+            }
+            if (!d.contains("angle")) {
+                throw std::runtime_error("Missing required key 'angle'");
+            }
+            if (!d.contains("iterations")) {
+                throw std::runtime_error("Missing required key 'iterations'");
+            }
+            desc.lsystem.axiom = d["axiom"].cast<std::string>();
+            auto rules = d["rules"].cast<py::dict>();
+            for (auto item : rules) {
+                std::string key_str = item.first.cast<std::string>();
+                if (key_str.empty()) {
+                    throw std::runtime_error("Empty key in rules dictionary");
+                }
+                char key = key_str[0];
+                desc.lsystem.rules[key] = item.second.cast<std::string>();
+            }
+            desc.angle = d["angle"].cast<float>();
+            desc.iterations = d["iterations"].cast<uint32_t>();
+        } catch (const py::cast_error& e) {
+            throw std::runtime_error(std::string("Type conversion error in create_tree_from_dict: ") + e.what());
         }
-        desc.angle = d["angle"].cast<float>();
-        desc.iterations = d["iterations"].cast<uint32_t>();
         return desc;
     }, "Create TreeDescriptor from Python dict");
 
     m.def("create_creature_from_dict", [](py::dict d) {
         props::CreatureDescriptor desc;
+        try {
+            if (!d.contains("skeleton")) {
+                throw std::runtime_error("Missing required key 'skeleton'");
+            }
+            if (!d.contains("metaballs")) {
+                throw std::runtime_error("Missing required key 'metaballs'");
+            }
 
-        auto skeleton = d["skeleton"].cast<py::list>();
-        for (auto bone : skeleton) {
-            auto b = bone.cast<py::dict>();
-            props::Bone bone_data;
-            bone_data.length = b["length"].cast<float>();
-            bone_data.angle = b["angle"].cast<float>();
-            desc.skeleton.push_back(bone_data);
+            auto skeleton = d["skeleton"].cast<py::list>();
+            for (size_t i = 0; i < py::len(skeleton); ++i) {
+                auto b = skeleton[i].cast<py::dict>();
+                if (!b.contains("length") || !b.contains("angle")) {
+                    throw std::runtime_error("Bone at index " + std::to_string(i) + " missing 'length' or 'angle'");
+                }
+                props::Bone bone_data;
+                bone_data.length = b["length"].cast<float>();
+                bone_data.angle = b["angle"].cast<float>();
+                desc.skeleton.push_back(bone_data);
+            }
+
+            auto metaballs = d["metaballs"].cast<py::list>();
+            for (size_t i = 0; i < py::len(metaballs); ++i) {
+                auto m_dict = metaballs[i].cast<py::dict>();
+                if (!m_dict.contains("center") || !m_dict.contains("radius")) {
+                    throw std::runtime_error("Metaball at index " + std::to_string(i) + " missing 'center' or 'radius'");
+                }
+                props::Metaball ball;
+                auto center = m_dict["center"].cast<py::list>();
+                if (py::len(center) < 3) {
+                    throw std::runtime_error("Metaball 'center' at index " + std::to_string(i) + " must have at least 3 elements");
+                }
+                ball.center = props::Vec3(
+                    center[0].cast<float>(),
+                    center[1].cast<float>(),
+                    center[2].cast<float>()
+                );
+                ball.radius = m_dict["radius"].cast<float>();
+                desc.metaballs.push_back(ball);
+            }
+        } catch (const py::cast_error& e) {
+            throw std::runtime_error(std::string("Type conversion error in create_creature_from_dict: ") + e.what());
         }
-
-        auto metaballs = d["metaballs"].cast<py::list>();
-        for (auto mb : metaballs) {
-            auto m_dict = mb.cast<py::dict>();
-            props::Metaball ball;
-            auto center = m_dict["center"].cast<py::list>();
-            ball.center = props::Vec3(
-                center[0].cast<float>(),
-                center[1].cast<float>(),
-                center[2].cast<float>()
-            );
-            ball.radius = m_dict["radius"].cast<float>();
-            desc.metaballs.push_back(ball);
-        }
-
         return desc;
     }, "Create CreatureDescriptor from Python dict");
 
@@ -655,49 +725,93 @@ PYBIND11_MODULE(procengine_cpp, m) {
           py::arg("albedo"), py::arg("roughness"), py::arg("metallic") = 0.0f,
           "Create a PBR constant material graph");
 
+    // Helper function to extract float array from Python object (list, tuple, or numpy array)
+    auto extract_float_array = [](py::object obj, size_t expected_size) -> std::vector<float> {
+        std::vector<float> result;
+        result.reserve(expected_size);
+
+        // Try as numpy array first
+        if (py::hasattr(obj, "tolist")) {
+            // It's a numpy array, convert to list first
+            py::list lst = obj.attr("tolist")().cast<py::list>();
+            for (size_t i = 0; i < py::len(lst) && i < expected_size; ++i) {
+                result.push_back(lst[i].cast<float>());
+            }
+        } else {
+            // Try as sequence (list, tuple)
+            py::sequence seq = obj.cast<py::sequence>();
+            for (size_t i = 0; i < py::len(seq) && i < expected_size; ++i) {
+                result.push_back(seq[i].cast<float>());
+            }
+        }
+
+        // Pad with zeros if not enough elements
+        while (result.size() < expected_size) {
+            result.push_back(0.0f);
+        }
+
+        return result;
+    };
+
     // Helper to create material graph from Python dict (matching materials.py format)
-    m.def("compile_material_from_dict", [](py::dict graph_dict) {
+    m.def("compile_material_from_dict", [extract_float_array](py::dict graph_dict) {
         materials::MaterialGraph graph;
 
-        auto nodes_dict = graph_dict["nodes"].cast<py::dict>();
-        graph.output_node = graph_dict["output"].cast<std::string>();
-
-        for (auto item : nodes_dict) {
-            std::string node_name = item.first.cast<std::string>();
-            auto node_data = item.second.cast<py::dict>();
-            std::string node_type = node_data["type"].cast<std::string>();
-
-            materials::MaterialNode node;
-            node.name = node_name;
-            node.type = node_type;
-
-            if (node_type == "noise") {
-                materials::NoiseNode noise;
-                noise.seed = node_data["seed"].cast<uint32_t>();
-                noise.frequency = node_data["frequency"].cast<float>();
-                node.data = noise;
-            } else if (node_type == "warp") {
-                materials::WarpNode warp;
-                warp.input = node_data["input"].cast<std::string>();
-                warp.strength = node_data["strength"].cast<float>();
-                node.data = warp;
-            } else if (node_type == "blend") {
-                materials::BlendNode blend;
-                blend.input_a = node_data["input_a"].cast<std::string>();
-                blend.input_b = node_data["input_b"].cast<std::string>();
-                blend.factor = node_data["factor"].cast<float>();
-                node.data = blend;
-            } else if (node_type == "pbr_const") {
-                materials::PBRConstNode pbr;
-                auto albedo = node_data["albedo"].cast<py::list>();
-                pbr.albedo[0] = albedo[0].cast<float>();
-                pbr.albedo[1] = albedo[1].cast<float>();
-                pbr.albedo[2] = albedo[2].cast<float>();
-                pbr.roughness = node_data["roughness"].cast<float>();
-                node.data = pbr;
+        try {
+            if (!graph_dict.contains("nodes")) {
+                throw std::runtime_error("Missing required key 'nodes'");
+            }
+            if (!graph_dict.contains("output")) {
+                throw std::runtime_error("Missing required key 'output'");
             }
 
-            graph.nodes[node_name] = node;
+            auto nodes_dict = graph_dict["nodes"].cast<py::dict>();
+            graph.output_node = graph_dict["output"].cast<std::string>();
+
+            for (auto item : nodes_dict) {
+                std::string node_name = item.first.cast<std::string>();
+                auto node_data = item.second.cast<py::dict>();
+
+                if (!node_data.contains("type")) {
+                    throw std::runtime_error("Node '" + node_name + "' missing required key 'type'");
+                }
+                std::string node_type = node_data["type"].cast<std::string>();
+
+                materials::MaterialNode node;
+                node.name = node_name;
+                node.type = node_type;
+
+                if (node_type == "noise") {
+                    materials::NoiseNode noise;
+                    noise.seed = node_data["seed"].cast<uint32_t>();
+                    noise.frequency = node_data["frequency"].cast<float>();
+                    node.data = noise;
+                } else if (node_type == "warp") {
+                    materials::WarpNode warp;
+                    warp.input = node_data["input"].cast<std::string>();
+                    warp.strength = node_data["strength"].cast<float>();
+                    node.data = warp;
+                } else if (node_type == "blend") {
+                    materials::BlendNode blend;
+                    blend.input_a = node_data["input_a"].cast<std::string>();
+                    blend.input_b = node_data["input_b"].cast<std::string>();
+                    blend.factor = node_data["factor"].cast<float>();
+                    node.data = blend;
+                } else if (node_type == "pbr_const") {
+                    materials::PBRConstNode pbr;
+                    // Extract albedo from list, tuple, or numpy array
+                    auto albedo_vals = extract_float_array(node_data["albedo"], 3);
+                    pbr.albedo[0] = albedo_vals[0];
+                    pbr.albedo[1] = albedo_vals[1];
+                    pbr.albedo[2] = albedo_vals[2];
+                    pbr.roughness = node_data["roughness"].cast<float>();
+                    node.data = pbr;
+                }
+
+                graph.nodes[node_name] = node;
+            }
+        } catch (const py::cast_error& e) {
+            throw std::runtime_error(std::string("Type conversion error in compile_material_from_dict: ") + e.what());
         }
 
         materials::MaterialCompiler compiler;
