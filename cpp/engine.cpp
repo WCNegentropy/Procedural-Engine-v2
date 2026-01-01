@@ -4,6 +4,8 @@
 #include <openssl/sha.h>
 #include <vector>
 #include <string>
+#include <unordered_map>
+#include <memory>
 #include "seed_registry.h"
 #include "terrain.h"
 #include "physics.h"
@@ -26,9 +28,18 @@ static py::bytes digest_to_bytes(const std::array<uint8_t,32>& d) {
     return py::bytes(reinterpret_cast<const char*>(d.data()), d.size());
 }
 
+struct CachedResource {
+    uint64_t hash = 0;
+    std::string descriptor_json;
+    uint64_t last_access_frame = 0;
+    bool dirty = false;
+};
+
 class Engine {
 public:
-    explicit Engine(uint64_t root_seed) : registry_(root_seed), root_(root_seed), frame_(0) {}
+    explicit Engine(uint64_t root_seed) : registry_(root_seed), root_(root_seed), frame_(0) {
+        shader_cache_ = std::make_unique<materials::ShaderCache>();
+    }
 
     void enqueue_heightmap(py::buffer h16, py::buffer biome8, py::buffer river1) {
         auto h = h16.request();
@@ -41,29 +52,104 @@ public:
 
     void enqueue_prop_descriptor(py::list descriptors) {
         descriptor_hashes_.clear();
+        cached_descriptors_.clear();
         py::module json = py::module::import("json");
+
         for (auto item : descriptors) {
             std::string dumped = json.attr("dumps")(item, py::arg("sort_keys")=true).cast<std::string>();
-            descriptor_hashes_.push_back(sha256_bytes(dumped.data(), dumped.size()));
+            auto hash_bytes = sha256_bytes(dumped.data(), dumped.size());
+            descriptor_hashes_.push_back(hash_bytes);
+
+            // Convert hash bytes to uint64 for easier lookup
+            uint64_t hash_val = 0;
+            std::memcpy(&hash_val, hash_bytes.data(), sizeof(uint64_t));
+
+            // Cache the descriptor
+            CachedResource resource;
+            resource.hash = hash_val;
+            resource.descriptor_json = dumped;
+            resource.last_access_frame = frame_;
+            resource.dirty = false;
+
+            cached_descriptors_[hash_val] = resource;
         }
     }
 
     void hot_reload(uint64_t descriptor_hash) {
         last_hot_reload_ = descriptor_hash;
+        hot_reload_queue_.push_back(descriptor_hash);
+
+        // Mark resource as dirty if it exists in cache
+        auto it = cached_descriptors_.find(descriptor_hash);
+        if (it != cached_descriptors_.end()) {
+            it->second.dirty = true;
+        }
     }
 
     void step(double dt) {
         frame_ += 1;
+
+        // Process hot-reload queue
+        if (!hot_reload_queue_.empty()) {
+            for (uint64_t hash : hot_reload_queue_) {
+                rebuild_resource(hash);
+            }
+            hot_reload_queue_.clear();
+        }
     }
 
     void reset() {
         frame_ = 0;
+        hot_reload_queue_.clear();
+        cached_descriptors_.clear();
+        if (shader_cache_) {
+            shader_cache_->clear();
+        }
     }
 
     py::bytes snapshot_state(uint32_t frame) {
         uint64_t data[2] = {root_, frame + frame_};
         auto digest = sha256_bytes(data, sizeof(data));
         return digest_to_bytes(digest);
+    }
+
+    /**
+     * Rebuild a resource identified by its descriptor hash.
+     * This simulates the hot-reload process for materials, meshes, etc.
+     */
+    void rebuild_resource(uint64_t descriptor_hash) {
+        auto it = cached_descriptors_.find(descriptor_hash);
+        if (it != cached_descriptors_.end()) {
+            it->second.last_access_frame = frame_;
+            it->second.dirty = false;
+            // Resource has been "rebuilt" - in a full implementation, this would:
+            // 1. Parse the descriptor JSON
+            // 2. Generate/compile the resource (shader, mesh, etc.)
+            // 3. Upload to GPU
+            // 4. Swap handles in the scene graph/ECS
+        }
+    }
+
+    /**
+     * Get the number of cached resources.
+     */
+    size_t get_cached_resource_count() const {
+        return cached_descriptors_.size();
+    }
+
+    /**
+     * Check if a resource needs rebuilding.
+     */
+    bool is_resource_dirty(uint64_t descriptor_hash) const {
+        auto it = cached_descriptors_.find(descriptor_hash);
+        return it != cached_descriptors_.end() && it->second.dirty;
+    }
+
+    /**
+     * Get shader cache for material hot-reloading.
+     */
+    materials::ShaderCache* get_shader_cache() {
+        return shader_cache_.get();
     }
 
     /**
@@ -113,6 +199,11 @@ private:
     std::array<uint8_t,32> b_hash_{};
     std::array<uint8_t,32> r_hash_{};
     std::vector<std::array<uint8_t,32>> descriptor_hashes_;
+
+    // Hot-reload infrastructure
+    std::unordered_map<uint64_t, CachedResource> cached_descriptors_;
+    std::vector<uint64_t> hot_reload_queue_;
+    std::unique_ptr<materials::ShaderCache> shader_cache_;
 };
 
 PYBIND11_MODULE(procengine_cpp, m) {
@@ -125,10 +216,20 @@ PYBIND11_MODULE(procengine_cpp, m) {
         .def(py::init<uint64_t>())
         .def("enqueue_heightmap", &Engine::enqueue_heightmap)
         .def("enqueue_prop_descriptor", &Engine::enqueue_prop_descriptor)
-        .def("hot_reload", &Engine::hot_reload)
+        .def("hot_reload", &Engine::hot_reload,
+             "Queue a descriptor for hot-reloading by hash")
         .def("step", &Engine::step)
         .def("reset", &Engine::reset)
         .def("snapshot_state", &Engine::snapshot_state)
+        .def("rebuild_resource", &Engine::rebuild_resource,
+             "Rebuild a resource identified by its descriptor hash")
+        .def("get_cached_resource_count", &Engine::get_cached_resource_count,
+             "Get the number of cached resources")
+        .def("is_resource_dirty", &Engine::is_resource_dirty,
+             "Check if a resource needs rebuilding")
+        .def("get_shader_cache", &Engine::get_shader_cache,
+             py::return_value_policy::reference_internal,
+             "Get the shader cache for material hot-reloading")
         .def("generate_terrain", &Engine::generate_terrain,
              py::arg("size") = 64,
              py::arg("octaves") = 6,
