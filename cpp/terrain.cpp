@@ -1,0 +1,393 @@
+#include "terrain.h"
+#include <algorithm>
+#include <cmath>
+#include <limits>
+
+namespace terrain {
+
+// Simplex noise constants
+static constexpr float F2 = 0.3660254037844386f;   // 0.5 * (sqrt(3) - 1)
+static constexpr float G2 = 0.21132486540518713f;  // (3 - sqrt(3)) / 6
+
+// Initialize constexpr gradient table
+constexpr std::array<std::array<float, 2>, 8> SimplexNoise::GRAD2;
+
+SimplexNoise::SimplexNoise(SeedRegistry& registry) {
+    // Generate permutation table using Fisher-Yates shuffle
+    // This matches numpy's rng.permutation(256) behavior
+    std::array<uint8_t, 256> base_perm;
+    for (int i = 0; i < 256; ++i) {
+        base_perm[i] = static_cast<uint8_t>(i);
+    }
+
+    // Fisher-Yates shuffle using registry's RNG
+    for (int i = 255; i > 0; --i) {
+        uint64_t r = registry.next_u64();
+        int j = static_cast<int>(r % (i + 1));
+        std::swap(base_perm[i], base_perm[j]);
+    }
+
+    // Double the permutation table for wrapping
+    for (int i = 0; i < 256; ++i) {
+        perm_[i] = base_perm[i];
+        perm_[i + 256] = base_perm[i];
+    }
+}
+
+float SimplexNoise::noise2d(float x, float y) const {
+    // Skew input space to simplex cell
+    float s = (x + y) * F2;
+    int i = static_cast<int>(std::floor(x + s));
+    int j = static_cast<int>(std::floor(y + s));
+
+    // Unskew back to (x, y) space
+    float t = static_cast<float>(i + j) * G2;
+    float X0 = static_cast<float>(i) - t;
+    float Y0 = static_cast<float>(j) - t;
+    float x0 = x - X0;
+    float y0 = y - Y0;
+
+    // Determine which simplex we're in
+    int i1, j1;
+    if (x0 > y0) {
+        i1 = 1; j1 = 0;
+    } else {
+        i1 = 0; j1 = 1;
+    }
+
+    // Offsets for corners
+    float x1 = x0 - static_cast<float>(i1) + G2;
+    float y1 = y0 - static_cast<float>(j1) + G2;
+    float x2 = x0 - 1.0f + 2.0f * G2;
+    float y2 = y0 - 1.0f + 2.0f * G2;
+
+    // Hash coordinates to gradient indices
+    int ii = i & 255;
+    int jj = j & 255;
+    int gi0 = perm_[ii + perm_[jj]] % 8;
+    int gi1 = perm_[ii + i1 + perm_[jj + j1]] % 8;
+    int gi2 = perm_[ii + 1 + perm_[jj + 1]] % 8;
+
+    // Calculate contribution from each corner
+    float n0 = 0.0f, n1 = 0.0f, n2 = 0.0f;
+
+    float t0 = 0.5f - x0 * x0 - y0 * y0;
+    if (t0 > 0.0f) {
+        t0 *= t0;
+        n0 = t0 * t0 * (GRAD2[gi0][0] * x0 + GRAD2[gi0][1] * y0);
+    }
+
+    float t1 = 0.5f - x1 * x1 - y1 * y1;
+    if (t1 > 0.0f) {
+        t1 *= t1;
+        n1 = t1 * t1 * (GRAD2[gi1][0] * x1 + GRAD2[gi1][1] * y1);
+    }
+
+    float t2 = 0.5f - x2 * x2 - y2 * y2;
+    if (t2 > 0.0f) {
+        t2 *= t2;
+        n2 = t2 * t2 * (GRAD2[gi2][0] * x2 + GRAD2[gi2][1] * y2);
+    }
+
+    return 70.0f * (n0 + n1 + n2);
+}
+
+std::vector<float> SimplexNoise::grid(uint32_t size, float frequency) const {
+    std::vector<float> result(size * size);
+    float inv_size = 1.0f / static_cast<float>(size);
+
+    for (uint32_t y = 0; y < size; ++y) {
+        for (uint32_t x = 0; x < size; ++x) {
+            float nx = static_cast<float>(x) * inv_size * frequency;
+            float ny = static_cast<float>(y) * inv_size * frequency;
+            result[y * size + x] = noise2d(nx, ny);
+        }
+    }
+    return result;
+}
+
+std::vector<float> generate_fbm(SeedRegistry& registry, uint32_t size, uint32_t octaves) {
+    SimplexNoise noise(registry);
+
+    std::vector<float> height(size * size, 0.0f);
+    float amplitude = 1.0f;
+    float frequency = 1.0f;
+
+    for (uint32_t oct = 0; oct < octaves; ++oct) {
+        auto layer = noise.grid(size, frequency);
+        for (size_t i = 0; i < height.size(); ++i) {
+            height[i] += layer[i] * amplitude;
+        }
+        amplitude *= 0.5f;
+        frequency *= 2.0f;
+    }
+
+    // Normalize to [0, 1]
+    float h_min = *std::min_element(height.begin(), height.end());
+    float h_max = *std::max_element(height.begin(), height.end());
+
+    if (h_max - h_min > 0.0f) {
+        float inv_range = 1.0f / (h_max - h_min);
+        for (auto& h : height) {
+            h = (h - h_min) * inv_range;
+        }
+    }
+
+    return height;
+}
+
+std::vector<float> generate_voronoi_ridged(SeedRegistry& registry, uint32_t size, uint32_t points) {
+    // Generate random seed points
+    std::vector<float> seeds_x(points);
+    std::vector<float> seeds_y(points);
+
+    for (uint32_t p = 0; p < points; ++p) {
+        // Generate random float in [0, size) matching Python's rng.random() * size
+        uint64_t rx = registry.next_u64();
+        uint64_t ry = registry.next_u64();
+        // Convert to [0, 1) then scale to size
+        seeds_x[p] = static_cast<float>(rx >> 11) * (1.0f / 9007199254740992.0f) * static_cast<float>(size);
+        seeds_y[p] = static_cast<float>(ry >> 11) * (1.0f / 9007199254740992.0f) * static_cast<float>(size);
+    }
+
+    std::vector<float> result(size * size);
+    float max_dist = 0.0f;
+
+    // Compute minimum distance to any seed point for each cell
+    for (uint32_t y = 0; y < size; ++y) {
+        for (uint32_t x = 0; x < size; ++x) {
+            float min_dist = std::numeric_limits<float>::max();
+            float fx = static_cast<float>(x);
+            float fy = static_cast<float>(y);
+
+            for (uint32_t p = 0; p < points; ++p) {
+                float dx = fx - seeds_x[p];
+                float dy = fy - seeds_y[p];
+                float dist = std::sqrt(dx * dx + dy * dy);
+                min_dist = std::min(min_dist, dist);
+            }
+
+            result[y * size + x] = min_dist;
+            max_dist = std::max(max_dist, min_dist);
+        }
+    }
+
+    // Normalize and invert to get ridges
+    if (max_dist > 0.0f) {
+        float inv_max = 1.0f / max_dist;
+        for (auto& d : result) {
+            d = 1.0f - d * inv_max;  // Ridged: high at boundaries
+        }
+    }
+
+    return result;
+}
+
+void apply_hydraulic_erosion(std::vector<float>& height, uint32_t size,
+                             SeedRegistry& registry, uint32_t iterations) {
+    for (uint32_t iter = 0; iter < iterations; ++iter) {
+        // Random cell selection matching Python's rng.integers(0, size)
+        uint64_t rx = registry.next_u64();
+        uint64_t ry = registry.next_u64();
+        int x = static_cast<int>(rx % size);
+        int y = static_cast<int>(ry % size);
+
+        // Compute neighborhood bounds
+        int x0 = std::max(x - 1, 0);
+        int x1 = std::min(x + 1, static_cast<int>(size) - 1);
+        int y0 = std::max(y - 1, 0);
+        int y1 = std::min(y + 1, static_cast<int>(size) - 1);
+
+        // Compute neighborhood average
+        float sum = 0.0f;
+        int count = 0;
+        for (int ny = y0; ny <= y1; ++ny) {
+            for (int nx = x0; nx <= x1; ++nx) {
+                sum += height[ny * size + nx];
+                ++count;
+            }
+        }
+        float avg = sum / static_cast<float>(count);
+
+        // Relax toward average
+        size_t idx = static_cast<size_t>(y * size + x);
+        height[idx] = (height[idx] + avg) * 0.5f;
+    }
+
+    // Clamp to [0, 1]
+    for (auto& h : height) {
+        h = std::clamp(h, 0.0f, 1.0f);
+    }
+}
+
+std::vector<float> compute_slope_map(const std::vector<float>& height, uint32_t size) {
+    std::vector<float> slope(size * size);
+
+    // Compute gradient magnitude using central differences
+    for (uint32_t y = 0; y < size; ++y) {
+        for (uint32_t x = 0; x < size; ++x) {
+            // X gradient (central difference with boundary handling)
+            float gx;
+            if (x == 0) {
+                gx = height[y * size + 1] - height[y * size];
+            } else if (x == size - 1) {
+                gx = height[y * size + x] - height[y * size + x - 1];
+            } else {
+                gx = (height[y * size + x + 1] - height[y * size + x - 1]) * 0.5f;
+            }
+
+            // Y gradient
+            float gy;
+            if (y == 0) {
+                gy = height[size + x] - height[x];
+            } else if (y == size - 1) {
+                gy = height[y * size + x] - height[(y - 1) * size + x];
+            } else {
+                gy = (height[(y + 1) * size + x] - height[(y - 1) * size + x]) * 0.5f;
+            }
+
+            slope[y * size + x] = std::sqrt(gx * gx + gy * gy);
+        }
+    }
+
+    // Normalize to [0, 1]
+    float s_min = *std::min_element(slope.begin(), slope.end());
+    float s_max = *std::max_element(slope.begin(), slope.end());
+
+    if (s_max > s_min) {
+        float inv_range = 1.0f / (s_max - s_min);
+        for (auto& s : slope) {
+            s = (s - s_min) * inv_range;
+        }
+    } else {
+        std::fill(slope.begin(), slope.end(), 0.0f);
+    }
+
+    return slope;
+}
+
+std::vector<uint8_t> generate_biome_map(const std::vector<float>& temperature,
+                                         const std::vector<float>& humidity,
+                                         const std::vector<float>& height,
+                                         uint32_t size) {
+    // Biome LUT matching Python reference: [temp_idx][humid_idx][height_idx]
+    // temp_idx: 0=cold, 1=temperate, 2=hot
+    // humid_idx: 0=dry, 1=normal, 2=wet
+    // height_idx: 0=low, 1=mid, 2=high
+    static constexpr uint8_t BIOME_LUT[3][3][3] = {
+        // Cold
+        {
+            {0, 0, 1},    // dry  -> water, water, tundra
+            {0, 2, 3},    // normal -> water, boreal forest, snow
+            {0, 4, 5},    // wet -> water, cold swamp, glacier
+        },
+        // Temperate
+        {
+            {0, 0, 6},    // dry -> water, water, steppe
+            {0, 7, 8},    // normal -> water, forest, mountain
+            {0, 9, 10},   // wet -> water, swamp, alpine
+        },
+        // Hot
+        {
+            {0, 0, 11},   // dry -> water, water, desert plateau
+            {0, 12, 13},  // normal -> water, savanna, mesa
+            {0, 14, 15},  // wet -> water, jungle, rainforest highland
+        },
+    };
+
+    std::vector<uint8_t> biome(size * size);
+
+    for (size_t i = 0; i < size * size; ++i) {
+        // Digitize temperature: [0, 0.33) -> 0, [0.33, 0.66) -> 1, [0.66, 1] -> 2
+        int temp_idx;
+        if (temperature[i] < 0.33f) temp_idx = 0;
+        else if (temperature[i] < 0.66f) temp_idx = 1;
+        else temp_idx = 2;
+
+        // Digitize humidity
+        int humid_idx;
+        if (humidity[i] < 0.33f) humid_idx = 0;
+        else if (humidity[i] < 0.66f) humid_idx = 1;
+        else humid_idx = 2;
+
+        // Digitize height
+        int height_idx;
+        if (height[i] < 0.3f) height_idx = 0;
+        else if (height[i] < 0.6f) height_idx = 1;
+        else height_idx = 2;
+
+        biome[i] = BIOME_LUT[temp_idx][humid_idx][height_idx];
+    }
+
+    return biome;
+}
+
+std::vector<uint8_t> generate_river_mask(SeedRegistry& registry, uint32_t size, float probability) {
+    std::vector<uint8_t> river(size * size);
+
+    for (size_t i = 0; i < size * size; ++i) {
+        uint64_t r = registry.next_u64();
+        // Convert to [0, 1) float
+        float val = static_cast<float>(r >> 11) * (1.0f / 9007199254740992.0f);
+        river[i] = (val < probability) ? 1 : 0;
+    }
+
+    return river;
+}
+
+TerrainMaps generate_terrain_maps(SeedRegistry& registry, const TerrainConfig& config) {
+    TerrainMaps maps;
+    maps.size = config.size;
+    maps.has_slope = config.compute_slope;
+
+    // Create child registry for height generation
+    uint64_t height_seed = registry.get_subseed();
+    SeedRegistry height_reg(height_seed);
+    maps.height = generate_fbm(height_reg, config.size, config.octaves);
+
+    // Apply macro plates if enabled
+    if (config.macro_points > 0) {
+        uint64_t macro_seed = registry.get_subseed();
+        SeedRegistry macro_reg(macro_seed);
+        auto macro = generate_voronoi_ridged(macro_reg, config.size, config.macro_points);
+
+        // Blend height with macro plates
+        for (size_t i = 0; i < maps.height.size(); ++i) {
+            maps.height[i] = std::clamp((maps.height[i] + macro[i]) * 0.5f, 0.0f, 1.0f);
+        }
+    }
+
+    // Apply erosion if enabled
+    if (config.erosion_iters > 0) {
+        uint64_t erosion_seed = registry.get_subseed();
+        SeedRegistry erosion_reg(erosion_seed);
+        apply_hydraulic_erosion(maps.height, config.size, erosion_reg, config.erosion_iters);
+    }
+
+    // Generate temperature map (2 octaves)
+    uint64_t temp_seed = registry.get_subseed();
+    SeedRegistry temp_reg(temp_seed);
+    auto temperature = generate_fbm(temp_reg, config.size, 2);
+
+    // Generate humidity map (2 octaves)
+    uint64_t humid_seed = registry.get_subseed();
+    SeedRegistry humid_reg(humid_seed);
+    auto humidity = generate_fbm(humid_reg, config.size, 2);
+
+    // Generate biome map from temperature, humidity, and height
+    maps.biome = generate_biome_map(temperature, humidity, maps.height, config.size);
+
+    // Generate river mask
+    uint64_t river_seed = registry.get_subseed();
+    SeedRegistry river_reg(river_seed);
+    maps.river = generate_river_mask(river_reg, config.size);
+
+    // Compute slope if requested
+    if (config.compute_slope) {
+        maps.slope = compute_slope_map(maps.height, config.size);
+    }
+
+    return maps;
+}
+
+} // namespace terrain
