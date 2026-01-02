@@ -1,0 +1,269 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  # ===========================================================================
+  # Python Linting & Type Checking
+  # ===========================================================================
+  lint:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install linting tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff mypy numpy-stubs types-setuptools
+
+      - name: Run Ruff linter
+        run: ruff check . --output-format=github
+
+      - name: Run Ruff formatter check
+        run: ruff format --check .
+
+      - name: Run mypy type checker
+        run: mypy --ignore-missing-imports *.py
+        continue-on-error: true  # Type hints are advisory for this project
+
+  # ===========================================================================
+  # Python Unit Tests (No C++ required)
+  # ===========================================================================
+  test-python:
+    name: Python Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Python-only tests
+        run: |
+          python -m pytest \
+            test_engine.py \
+            test_engine_determinism.py \
+            test_hot_reload.py \
+            test_materials.py \
+            test_physics.py \
+            test_props.py \
+            test_seed_registry.py \
+            test_seed_sweeper.py \
+            test_terrain.py \
+            test_world.py \
+            -v --tb=short
+
+  # ===========================================================================
+  # C++ Build & Integration Tests (Linux)
+  # ===========================================================================
+  build-linux:
+    name: Build & Test (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            libssl-dev \
+            libvulkan-dev \
+            vulkan-validationlayers \
+            libshaderc-dev \
+            glslang-tools
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Configure CMake
+        run: |
+          mkdir -p build
+          cd build
+          cmake ../cpp -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build C++ module
+        run: |
+          cd build
+          cmake --build . --parallel $(nproc)
+
+      - name: Copy module to project root
+        run: |
+          cp build/procengine_cpp*.so .
+
+      - name: Run full test suite
+        run: |
+          python -m pytest \
+            test_*.py \
+            --ignore=test_cpp_graphics.py \
+            -v --tb=short
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: procengine-linux-x64
+          path: |
+            build/procengine_cpp*.so
+            *.py
+            !test_*.py
+            !conftest.py
+          retention-days: 7
+
+  # ===========================================================================
+  # C++ Build & Integration Tests (Windows)
+  # ===========================================================================
+  build-windows:
+    name: Build & Test (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Vulkan SDK
+        uses: humbletim/install-vulkan-sdk@v1.1.1
+        with:
+          version: latest
+          cache: true
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install OpenSSL
+        run: |
+          choco install openssl --no-progress
+
+      - name: Configure CMake
+        run: |
+          mkdir build
+          cd build
+          cmake ../cpp -DCMAKE_BUILD_TYPE=Release -DOPENSSL_ROOT_DIR="C:/Program Files/OpenSSL"
+
+      - name: Build C++ module
+        run: |
+          cd build
+          cmake --build . --config Release --parallel
+
+      - name: Copy module to project root
+        run: |
+          Copy-Item build/Release/procengine_cpp*.pyd . -ErrorAction SilentlyContinue
+          Copy-Item build/procengine_cpp*.pyd . -ErrorAction SilentlyContinue
+
+      - name: Run integration tests
+        run: |
+          python -m pytest `
+            test_cpp_engine.py `
+            test_cpp_terrain.py `
+            test_cpp_physics.py `
+            test_cpp_props.py `
+            test_cpp_materials.py `
+            test_cpp_seed_registry.py `
+            -v --tb=short
+        continue-on-error: true  # Windows build may have Vulkan issues in CI
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: procengine-windows-x64
+          path: |
+            build/Release/procengine_cpp*.pyd
+            build/procengine_cpp*.pyd
+            *.py
+            !test_*.py
+            !conftest.py
+          retention-days: 7
+
+  # ===========================================================================
+  # C++ Build (macOS)
+  # ===========================================================================
+  build-macos:
+    name: Build & Test (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          brew install openssl vulkan-headers shaderc glslang
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Configure CMake
+        run: |
+          mkdir -p build
+          cd build
+          cmake ../cpp \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DOPENSSL_ROOT_DIR=$(brew --prefix openssl)
+
+      - name: Build C++ module
+        run: |
+          cd build
+          cmake --build . --parallel $(sysctl -n hw.ncpu)
+
+      - name: Copy module to project root
+        run: |
+          cp build/procengine_cpp*.so . 2>/dev/null || true
+          cp build/procengine_cpp*.dylib . 2>/dev/null || true
+
+      - name: Run integration tests
+        run: |
+          python -m pytest \
+            test_cpp_engine.py \
+            test_cpp_terrain.py \
+            test_cpp_physics.py \
+            test_cpp_props.py \
+            test_cpp_materials.py \
+            test_cpp_seed_registry.py \
+            -v --tb=short
+        continue-on-error: true  # macOS may have MoltenVK issues
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: procengine-macos-x64
+          path: |
+            build/procengine_cpp*.so
+            build/procengine_cpp*.dylib
+            *.py
+            !test_*.py
+            !conftest.py
+          retention-days: 7

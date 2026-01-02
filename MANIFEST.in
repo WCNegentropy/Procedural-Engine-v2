@@ -1,0 +1,33 @@
+# Include essential files
+include README.md
+include AGENTS.md
+include LICENSE
+include pyproject.toml
+include setup.py
+include requirements.txt
+
+# Include C++ sources
+recursive-include cpp *.cpp *.h *.hpp
+include cpp/CMakeLists.txt
+
+# Include Python modules
+include *.py
+
+# Exclude build artifacts and caches
+global-exclude __pycache__
+global-exclude *.py[cod]
+global-exclude *.so
+global-exclude *.pyd
+global-exclude *.dylib
+global-exclude .git*
+global-exclude .DS_Store
+
+# Exclude test files from distribution
+exclude test_*.py
+exclude conftest.py
+exclude run_e2e_headless.py
+
+# Exclude build directories
+prune build
+prune dist
+prune *.egg-info

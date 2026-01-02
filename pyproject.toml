@@ -1,0 +1,126 @@
+[build-system]
+requires = [
+    "setuptools>=61.0",
+    "wheel",
+    "pybind11>=2.10",
+    "cmake>=3.14",
+    "ninja",
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "procedural-engine"
+version = "1.0.0"
+description = "A hybrid Python/C++ procedural world generation engine with Vulkan graphics"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Procedural Engine Team"}
+]
+keywords = [
+    "procedural-generation",
+    "game-engine",
+    "vulkan",
+    "terrain",
+    "world-generation",
+    "deterministic",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: C++",
+    "Topic :: Games/Entertainment",
+    "Topic :: Multimedia :: Graphics :: 3D Rendering",
+    "Topic :: Scientific/Engineering :: Visualization",
+]
+dependencies = [
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "ruff",
+    "mypy",
+    "numpy-stubs",
+]
+
+[project.scripts]
+procedural-engine = "main:main"
+
+[project.urls]
+Homepage = "https://github.com/WCNegentropy/Procedural-Engine-v2"
+Repository = "https://github.com/WCNegentropy/Procedural-Engine-v2"
+Issues = "https://github.com/WCNegentropy/Procedural-Engine-v2/issues"
+
+[tool.setuptools]
+packages = ["procedural_engine"]
+py-modules = [
+    "engine",
+    "seed_registry",
+    "terrain",
+    "physics",
+    "props",
+    "materials",
+    "world",
+    "seed_sweeper",
+    "main",
+]
+
+[tool.setuptools.package-data]
+"*" = ["*.so", "*.pyd", "*.dylib"]
+
+# Ruff configuration
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "B008",  # function call in default argument
+    "C901",  # too complex
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["engine", "seed_registry", "terrain", "physics", "props", "materials", "world"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+# Mypy configuration
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+
+# Pytest configuration
+[tool.pytest.ini_options]
+testpaths = ["."]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]

@@ -1,0 +1,352 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 1.0.0)'
+        required: true
+        type: string
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  # ===========================================================================
+  # Build Wheels for All Platforms
+  # ===========================================================================
+  build-wheels:
+    name: Build Wheel (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            artifact_suffix: linux-x64
+          - os: windows-latest
+            platform: windows
+            artifact_suffix: windows-x64
+          - os: macos-latest
+            platform: macos
+            artifact_suffix: macos-x64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      # Linux dependencies
+      - name: Install Linux dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake libssl-dev libvulkan-dev \
+            vulkan-validationlayers libshaderc-dev glslang-tools \
+            patchelf
+
+      # Windows dependencies
+      - name: Install Vulkan SDK (Windows)
+        if: matrix.platform == 'windows'
+        uses: humbletim/install-vulkan-sdk@v1.1.1
+        with:
+          version: latest
+          cache: true
+
+      - name: Install OpenSSL (Windows)
+        if: matrix.platform == 'windows'
+        run: choco install openssl --no-progress
+
+      # macOS dependencies
+      - name: Install macOS dependencies
+        if: matrix.platform == 'macos'
+        run: brew install openssl vulkan-headers shaderc glslang
+
+      - name: Install Python build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install build wheel setuptools pybind11 numpy
+
+      - name: Build wheel
+        run: python -m build --wheel
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.artifact_suffix }}
+          path: dist/*.whl
+
+  # ===========================================================================
+  # Build Standalone Executables
+  # ===========================================================================
+  build-standalone:
+    name: Build Standalone (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            ext: ""
+            artifact_name: ProceduralEngine-Linux-x64
+          - os: windows-latest
+            platform: windows
+            ext: ".exe"
+            artifact_name: ProceduralEngine-Windows-x64
+          - os: macos-latest
+            platform: macos
+            ext: ""
+            artifact_name: ProceduralEngine-macOS-x64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      # Linux dependencies
+      - name: Install Linux dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake libssl-dev libvulkan-dev \
+            vulkan-validationlayers libshaderc-dev glslang-tools
+
+      # Windows dependencies
+      - name: Install Vulkan SDK (Windows)
+        if: matrix.platform == 'windows'
+        uses: humbletim/install-vulkan-sdk@v1.1.1
+        with:
+          version: latest
+          cache: true
+
+      - name: Install OpenSSL (Windows)
+        if: matrix.platform == 'windows'
+        run: choco install openssl --no-progress
+
+      # macOS dependencies
+      - name: Install macOS dependencies
+        if: matrix.platform == 'macos'
+        run: brew install openssl vulkan-headers shaderc glslang
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build C++ module
+        run: |
+          mkdir -p build
+          cd build
+          cmake ../cpp -DCMAKE_BUILD_TYPE=Release
+          cmake --build . --config Release --parallel
+        shell: bash
+
+      - name: Copy module to project root (Unix)
+        if: matrix.platform != 'windows'
+        run: |
+          cp build/procengine_cpp*.so . 2>/dev/null || true
+          cp build/procengine_cpp*.dylib . 2>/dev/null || true
+
+      - name: Copy module to project root (Windows)
+        if: matrix.platform == 'windows'
+        run: |
+          Copy-Item build/Release/procengine_cpp*.pyd . -ErrorAction SilentlyContinue
+          Copy-Item build/procengine_cpp*.pyd . -ErrorAction SilentlyContinue
+        shell: powershell
+
+      - name: Build standalone executable
+        run: |
+          pyinstaller \
+            --name ProceduralEngine \
+            --onedir \
+            --console \
+            --add-data "*.py:." \
+            --add-binary "procengine_cpp*:." \
+            --hidden-import numpy \
+            --hidden-import pybind11 \
+            main.py
+        shell: bash
+
+      - name: Create release archive (Unix)
+        if: matrix.platform != 'windows'
+        run: |
+          cd dist
+          tar -czvf ${{ matrix.artifact_name }}.tar.gz ProceduralEngine/
+
+      - name: Create release archive (Windows)
+        if: matrix.platform == 'windows'
+        run: |
+          cd dist
+          Compress-Archive -Path ProceduralEngine -DestinationPath ${{ matrix.artifact_name }}.zip
+        shell: powershell
+
+      - name: Upload standalone artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: |
+            dist/${{ matrix.artifact_name }}.tar.gz
+            dist/${{ matrix.artifact_name }}.zip
+
+  # ===========================================================================
+  # Run Tests on Built Artifacts
+  # ===========================================================================
+  test-artifacts:
+    name: Test Artifacts
+    needs: [build-wheels]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Download wheel
+        uses: actions/download-artifact@v4
+        with:
+          name: wheel-linux-x64
+          path: dist/
+
+      - name: Install wheel
+        run: |
+          pip install dist/*.whl
+          pip install pytest numpy
+
+      - name: Run smoke tests
+        run: |
+          python -c "
+          import procengine_cpp as cpp
+
+          # Test SeedRegistry
+          reg = cpp.SeedRegistry(42)
+          assert reg.root_seed() == 42
+          print('SeedRegistry: OK')
+
+          # Test Engine
+          engine = cpp.Engine(12345)
+          print('Engine: OK')
+
+          # Test terrain generation
+          height, biome, river = cpp.generate_terrain_standalone(42, 32)
+          assert height.shape == (32, 32)
+          print('Terrain: OK')
+
+          # Test physics
+          world = cpp.PhysicsWorld()
+          body = cpp.RigidBody(cpp.Vec2(0, 0), cpp.Vec2(1, 0), 1.0, 0.5)
+          world.add_body(body)
+          print('Physics: OK')
+
+          # Test props
+          rock = cpp.RockDescriptor()
+          rock.position = cpp.Vec3(0, 0, 0)
+          rock.radius = 1.0
+          mesh = cpp.generate_rock_mesh(rock)
+          assert mesh.vertex_count() > 0
+          print('Props: OK')
+
+          # Test materials
+          shader = cpp.create_noise_material(42, 1.0)
+          print('Materials: OK')
+
+          print('All smoke tests passed!')
+          "
+
+  # ===========================================================================
+  # Create GitHub Release
+  # ===========================================================================
+  create-release:
+    name: Create Release
+    needs: [build-wheels, build-standalone, test-artifacts]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          cat << 'EOF' > release_notes.md
+          ## Procedural Engine v${{ steps.version.outputs.VERSION }}
+
+          A hybrid Python/C++ procedural world generation engine with Vulkan graphics.
+
+          ### Features
+          - 100% deterministic procedural generation from a single root seed
+          - Terrain generation with hydraulic erosion, biomes, and rivers
+          - Procedural props: rocks, trees (L-systems), buildings (BSP), creatures (metaballs)
+          - Material graph compiler (GLSL/SPIR-V)
+          - Physics: 2D sequential impulse solver
+          - Hot-reload infrastructure for live editing
+
+          ### Downloads
+
+          **Standalone Executables (recommended for end users):**
+          - `ProceduralEngine-Windows-x64.zip` - Windows 10/11 (64-bit)
+          - `ProceduralEngine-Linux-x64.tar.gz` - Linux (64-bit)
+          - `ProceduralEngine-macOS-x64.tar.gz` - macOS (64-bit)
+
+          **Python Wheels (for developers):**
+          - `wheel-windows-x64` - Windows Python wheel
+          - `wheel-linux-x64` - Linux Python wheel
+          - `wheel-macos-x64` - macOS Python wheel
+
+          Install with: `pip install procedural_engine-*.whl`
+
+          ### Requirements
+          - **Standalone:** Vulkan-compatible GPU (validation layers optional)
+          - **Python:** Python 3.10+ with NumPy
+
+          ### Quick Start
+          ```bash
+          # Standalone
+          ./ProceduralEngine --seed 42 --size 128
+
+          # Python
+          import procengine_cpp as engine
+          reg = engine.SeedRegistry(42)
+          height, biome, river = engine.generate_terrain_standalone(42, 64)
+          ```
+          EOF
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Procedural Engine v${{ steps.version.outputs.VERSION }}
+          body_path: release_notes.md
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.VERSION, 'alpha') || contains(steps.version.outputs.VERSION, 'beta') || contains(steps.version.outputs.VERSION, 'rc') }}
+          files: |
+            artifacts/wheel-*/*.whl
+            artifacts/ProceduralEngine-*/*.tar.gz
+            artifacts/ProceduralEngine-*/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
