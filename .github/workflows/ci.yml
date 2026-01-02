@@ -134,9 +134,16 @@ jobs:
           name: procengine-linux-x64
           path: |
             build/procengine_cpp*.so
+            cpp/
             *.py
             !test_*.py
             !conftest.py
+            pyproject.toml
+            setup.py
+            MANIFEST.in
+            requirements.txt
+            README.md
+            AGENTS.md
           retention-days: 7
 
   # ===========================================================================
@@ -218,9 +225,16 @@ jobs:
           path: |
             build/Release/procengine_cpp*.pyd
             build/procengine_cpp*.pyd
+            cpp/
             *.py
             !test_*.py
             !conftest.py
+            pyproject.toml
+            setup.py
+            MANIFEST.in
+            requirements.txt
+            README.md
+            AGENTS.md
           retention-days: 7
           if-no-files-found: warn
 
@@ -299,8 +313,15 @@ jobs:
           path: |
             build/procengine_cpp*.so
             build/procengine_cpp*.dylib
+            cpp/
             *.py
             !test_*.py
             !conftest.py
+            pyproject.toml
+            setup.py
+            MANIFEST.in
+            requirements.txt
+            README.md
+            AGENTS.md
           retention-days: 7
           if-no-files-found: warn
