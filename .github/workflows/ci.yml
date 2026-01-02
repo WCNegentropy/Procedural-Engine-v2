@@ -153,24 +153,12 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install Vulkan SDK
-        run: |
-          # Download and install Vulkan SDK
-          $vulkanVersion = "1.3.290.0"
-          $installerUrl = "https://sdk.lunarg.com/sdk/download/$vulkanVersion/windows/VulkanSDK-$vulkanVersion-Installer.exe"
-          $installerPath = "$env:TEMP\VulkanSDK-Installer.exe"
-
-          Write-Host "Downloading Vulkan SDK $vulkanVersion..."
-          Invoke-WebRequest -Uri $installerUrl -OutFile $installerPath
-
-          Write-Host "Installing Vulkan SDK..."
-          Start-Process -FilePath $installerPath -ArgumentList "/S" -Wait
-
-          # Set environment variables
-          $vulkanPath = "C:\VulkanSDK\$vulkanVersion"
-          echo "VULKAN_SDK=$vulkanPath" >> $env:GITHUB_ENV
-          echo "$vulkanPath\Bin" >> $env:GITHUB_PATH
-        shell: powershell
+      - name: Setup Vulkan SDK
+  uses: humbletim/setup-vulkan-sdk@v1
+  with:
+    vulkan-query-version: 1.3.250.0  # Or "latest"
+    vulkan-components: Vulkan-Headers, Vulkan-Loader
+    vulkan-use-cache: true
 
       - name: Install dependencies
         run: |
