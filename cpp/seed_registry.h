@@ -3,14 +3,60 @@
 #include <string>
 #include <unordered_map>
 
+// Portable 128-bit unsigned integer for PCG64
+// Works on MSVC, GCC, and Clang
+struct uint128_t {
+    uint64_t lo;
+    uint64_t hi;
+
+    uint128_t() : lo(0), hi(0) {}
+    uint128_t(uint64_t low) : lo(low), hi(0) {}
+    uint128_t(uint64_t high, uint64_t low) : lo(low), hi(high) {}
+
+    uint128_t operator+(const uint128_t& other) const {
+        uint128_t result;
+        result.lo = lo + other.lo;
+        result.hi = hi + other.hi + (result.lo < lo ? 1 : 0);
+        return result;
+    }
+
+    uint128_t operator*(const uint128_t& other) const {
+        // 128-bit multiplication using 64-bit parts
+        uint64_t a_lo = lo & 0xFFFFFFFF;
+        uint64_t a_hi = lo >> 32;
+        uint64_t b_lo = other.lo & 0xFFFFFFFF;
+        uint64_t b_hi = other.lo >> 32;
+
+        uint64_t p0 = a_lo * b_lo;
+        uint64_t p1 = a_lo * b_hi;
+        uint64_t p2 = a_hi * b_lo;
+        uint64_t p3 = a_hi * b_hi;
+
+        uint64_t carry = ((p0 >> 32) + (p1 & 0xFFFFFFFF) + (p2 & 0xFFFFFFFF)) >> 32;
+
+        uint128_t result;
+        result.lo = p0 + (p1 << 32) + (p2 << 32);
+        result.hi = p3 + (p1 >> 32) + (p2 >> 32) + carry + hi * other.lo + lo * other.hi;
+        return result;
+    }
+
+    uint128_t& operator+=(const uint128_t& other) {
+        *this = *this + other;
+        return *this;
+    }
+
+    uint64_t to_u64() const { return lo; }
+    uint64_t high_bits() const { return hi; }
+};
+
 // SplitMix64 and PCG64-based SeedRegistry for deterministic RNG.
 class PCG64 {
 public:
     PCG64(uint64_t seed = 0, uint64_t seq = 1);
     uint64_t operator()();
 private:
-    __uint128_t state_;
-    __uint128_t inc_;
+    uint128_t state_;
+    uint128_t inc_;
 };
 
 class SeedRegistry {
