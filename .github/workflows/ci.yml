@@ -169,6 +169,17 @@ jobs:
         run: |
           choco install openssl --no-progress
 
+      - name: Debug Vulkan SDK contents
+        shell: powershell
+        run: |
+          Write-Host "VULKAN_SDK: $env:VULKAN_SDK"
+          Write-Host "Lib directory contents:"
+          Get-ChildItem "$env:VULKAN_SDK/Lib" -ErrorAction SilentlyContinue | Select-Object Name
+          Write-Host "Include directory contents:"
+          Get-ChildItem "$env:VULKAN_SDK/Include" -ErrorAction SilentlyContinue | Select-Object Name
+          Write-Host "Shaderc in Include:"
+          Get-ChildItem "$env:VULKAN_SDK/Include/shaderc" -ErrorAction SilentlyContinue | Select-Object Name
+
       - name: Configure CMake
         shell: cmd
         run: |

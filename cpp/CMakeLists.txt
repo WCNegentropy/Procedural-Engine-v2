@@ -27,23 +27,36 @@ find_package(Vulkan REQUIRED)
 # Find shaderc - platform-specific search
 if(WIN32)
     # Windows: shaderc is part of Vulkan SDK
-    if(DEFINED ENV{VULKAN_SDK})
-        set(SHADERC_SEARCH_PATHS
-            "$ENV{VULKAN_SDK}/Lib"
-            "$ENV{VULKAN_SDK}/lib"
-        )
-        set(SHADERC_INCLUDE_PATHS
-            "$ENV{VULKAN_SDK}/Include"
-            "$ENV{VULKAN_SDK}/include"
-        )
+    # Use both CMake variable and environment variable
+    set(SHADERC_SEARCH_PATHS "")
+    set(SHADERC_INCLUDE_PATHS "")
+
+    if(DEFINED VULKAN_SDK)
+        list(APPEND SHADERC_SEARCH_PATHS "${VULKAN_SDK}/Lib" "${VULKAN_SDK}/lib")
+        list(APPEND SHADERC_INCLUDE_PATHS "${VULKAN_SDK}/Include" "${VULKAN_SDK}/include")
     endif()
+    if(DEFINED ENV{VULKAN_SDK})
+        list(APPEND SHADERC_SEARCH_PATHS "$ENV{VULKAN_SDK}/Lib" "$ENV{VULKAN_SDK}/lib")
+        list(APPEND SHADERC_INCLUDE_PATHS "$ENV{VULKAN_SDK}/Include" "$ENV{VULKAN_SDK}/include")
+    endif()
+    # Also check relative to Vulkan found location
+    if(Vulkan_INCLUDE_DIR)
+        get_filename_component(VULKAN_SDK_FROM_INCLUDE "${Vulkan_INCLUDE_DIR}" DIRECTORY)
+        list(APPEND SHADERC_SEARCH_PATHS "${VULKAN_SDK_FROM_INCLUDE}/Lib" "${VULKAN_SDK_FROM_INCLUDE}/lib")
+        list(APPEND SHADERC_INCLUDE_PATHS "${Vulkan_INCLUDE_DIR}")
+    endif()
+
+    message(STATUS "Searching for shaderc in: ${SHADERC_SEARCH_PATHS}")
+
     find_library(SHADERC_LIB
         NAMES shaderc_combined shaderc_shared shaderc
         PATHS ${SHADERC_SEARCH_PATHS}
+        NO_DEFAULT_PATH
     )
     find_path(SHADERC_INCLUDE_DIR
         NAMES shaderc/shaderc.hpp
         PATHS ${SHADERC_INCLUDE_PATHS}
+        NO_DEFAULT_PATH
     )
 elseif(APPLE)
     # macOS: shaderc from Homebrew
