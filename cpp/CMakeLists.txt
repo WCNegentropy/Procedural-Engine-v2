@@ -24,7 +24,7 @@ find_package(pybind11 CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_package(Vulkan REQUIRED)
 
-# Find shaderc - platform-specific search paths
+# Find shaderc - platform-specific search
 if(WIN32)
     # Windows: shaderc is part of Vulkan SDK
     if(DEFINED ENV{VULKAN_SDK})
@@ -46,7 +46,7 @@ if(WIN32)
         PATHS ${SHADERC_INCLUDE_PATHS}
     )
 elseif(APPLE)
-    # macOS: shaderc from Homebrew or MoltenVK
+    # macOS: shaderc from Homebrew
     execute_process(
         COMMAND brew --prefix shaderc
         OUTPUT_VARIABLE SHADERC_PREFIX
@@ -66,25 +66,15 @@ elseif(APPLE)
         PATHS ${SHADERC_INCLUDE_PATHS} /usr/local/include /opt/homebrew/include
     )
 else()
-    # Linux: standard library paths
-    find_library(SHADERC_LIB
-        NAMES shaderc_combined shaderc_shared shaderc
-        PATHS /usr/lib/x86_64-linux-gnu /usr/lib /usr/local/lib
-    )
-    find_path(SHADERC_INCLUDE_DIR
-        NAMES shaderc/shaderc.hpp
-        PATHS /usr/include /usr/local/include
-    )
+    # Linux: use standard find_library (original working approach)
+    find_library(SHADERC_LIB shaderc PATHS /usr/lib/x86_64-linux-gnu /usr/lib /usr/local/lib)
 endif()
 
 if(NOT SHADERC_LIB)
-    message(FATAL_ERROR "shaderc library not found. Searched paths: ${SHADERC_SEARCH_PATHS}")
+    message(FATAL_ERROR "shaderc library not found")
 endif()
 
 message(STATUS "Found shaderc: ${SHADERC_LIB}")
-if(SHADERC_INCLUDE_DIR)
-    message(STATUS "Found shaderc includes: ${SHADERC_INCLUDE_DIR}")
-endif()
 
 # Build module
 pybind11_add_module(procengine_cpp
@@ -97,8 +87,9 @@ pybind11_add_module(procengine_cpp
     graphics.cpp
 )
 
-# Add include directories for shaderc if found
+# Add include directories for shaderc if found (Windows/macOS)
 if(SHADERC_INCLUDE_DIR)
+    message(STATUS "Found shaderc includes: ${SHADERC_INCLUDE_DIR}")
     target_include_directories(procengine_cpp PRIVATE ${SHADERC_INCLUDE_DIR})
 endif()
 
@@ -108,9 +99,3 @@ target_link_libraries(procengine_cpp PRIVATE
     Vulkan::Vulkan
     ${SHADERC_LIB}
 )
-
-# On Windows, we may need additional libraries for shaderc
-if(WIN32)
-    # shaderc_combined includes all dependencies statically
-    # But if using shaderc_shared, we might need these
-endif()
