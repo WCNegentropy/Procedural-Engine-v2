@@ -170,10 +170,12 @@ jobs:
           choco install openssl --no-progress
 
       - name: Configure CMake
+        shell: cmd
         run: |
+          echo VULKAN_SDK=%VULKAN_SDK%
           mkdir build
           cd build
-          cmake ../cpp -DCMAKE_BUILD_TYPE=Release -DOPENSSL_ROOT_DIR="C:/Program Files/OpenSSL"
+          cmake ../cpp -DCMAKE_BUILD_TYPE=Release -DOPENSSL_ROOT_DIR="C:/Program Files/OpenSSL" -DVULKAN_SDK="%VULKAN_SDK%" -DVulkan_INCLUDE_DIR="%VULKAN_SDK%/Include" -DVulkan_LIBRARY="%VULKAN_SDK%/Lib/vulkan-1.lib"
 
       - name: Build C++ module
         run: |
@@ -237,15 +239,24 @@ jobs:
           VULKAN_SDK=$(brew --prefix molten-vk)
           echo "VULKAN_SDK=$VULKAN_SDK" >> $GITHUB_ENV
           echo "VK_ICD_FILENAMES=$VULKAN_SDK/share/vulkan/icd.d/MoltenVK_icd.json" >> $GITHUB_ENV
+          # Debug: show what's in the SDK directory
+          echo "MoltenVK prefix: $VULKAN_SDK"
+          ls -la $VULKAN_SDK/lib/ || true
+          ls -la $VULKAN_SDK/include/ || true
 
       - name: Configure CMake
         run: |
           mkdir -p build
           cd build
+          VULKAN_SDK=$(brew --prefix molten-vk)
+          OPENSSL_PREFIX=$(brew --prefix openssl)
+          # MoltenVK provides libMoltenVK.dylib, need to find Vulkan loader
           cmake ../cpp \
             -DCMAKE_BUILD_TYPE=Release \
-            -DOPENSSL_ROOT_DIR=$(brew --prefix openssl) \
-            -DVULKAN_SDK=$(brew --prefix molten-vk)
+            -DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX \
+            -DVULKAN_SDK=$VULKAN_SDK \
+            -DVulkan_INCLUDE_DIR=$VULKAN_SDK/include \
+            -DVulkan_LIBRARY=$VULKAN_SDK/lib/libMoltenVK.dylib
 
       - name: Build C++ module
         run: |
