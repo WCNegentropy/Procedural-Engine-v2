@@ -9,10 +9,16 @@ enqueue and incorporated into state snapshots so that determinism can be
 verified without a full C++ runtime.
 """
 
+from collections import deque
 from dataclasses import dataclass, field
 from hashlib import sha256
-from typing import List, Dict, Any, Iterable
+from typing import List, Dict, Any, Iterable, Deque
 import json
+
+# Maximum number of descriptor hashes to retain for state snapshots.
+# This prevents unbounded memory growth in long-running sessions while
+# maintaining enough history for determinism verification.
+MAX_DESCRIPTOR_HISTORY = 1024
 
 
 @dataclass
@@ -29,8 +35,12 @@ class Engine:
 
     _frame: int = 0
     _buffers: List[_BufferRecord] = field(default_factory=list)
-    _descriptors: List[bytes] = field(default_factory=list)
-    _hot_reload_hashes: List[int] = field(default_factory=list)
+    _descriptors: Deque[bytes] = field(
+        default_factory=lambda: deque(maxlen=MAX_DESCRIPTOR_HISTORY)
+    )
+    _hot_reload_hashes: Deque[int] = field(
+        default_factory=lambda: deque(maxlen=MAX_DESCRIPTOR_HISTORY)
+    )
 
     def reset(self) -> None:
         """Reset the engine to its initial state.

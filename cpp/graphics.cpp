@@ -608,26 +608,45 @@ GPUMesh GraphicsDevice::upload_mesh(const props::Mesh& mesh) {
 
     // Copy data to staging buffers
     void* data;
-    vkMapMemory(device_, vertex_staging.memory, 0, vertex_buffer_size, 0, &data);
+    VkResult map_result = vkMapMemory(device_, vertex_staging.memory, 0, vertex_buffer_size, 0, &data);
+    if (map_result != VK_SUCCESS) {
+        destroy_buffer(vertex_staging);
+        destroy_buffer(index_staging);
+        throw std::runtime_error("Failed to map vertex staging buffer memory");
+    }
     std::memcpy(data, vertices.data(), vertex_buffer_size);
     vkUnmapMemory(device_, vertex_staging.memory);
 
-    vkMapMemory(device_, index_staging.memory, 0, index_buffer_size, 0, &data);
+    map_result = vkMapMemory(device_, index_staging.memory, 0, index_buffer_size, 0, &data);
+    if (map_result != VK_SUCCESS) {
+        destroy_buffer(vertex_staging);
+        destroy_buffer(index_staging);
+        throw std::runtime_error("Failed to map index staging buffer memory");
+    }
     std::memcpy(data, mesh.indices.data(), index_buffer_size);
     vkUnmapMemory(device_, index_staging.memory);
 
-    // Create device-local buffers
-    gpu_mesh.vertex_buffer = create_buffer(
-        vertex_buffer_size,
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
-    );
+    // Create device-local buffers with exception safety for staging cleanup
+    try {
+        gpu_mesh.vertex_buffer = create_buffer(
+            vertex_buffer_size,
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+        );
 
-    gpu_mesh.index_buffer = create_buffer(
-        index_buffer_size,
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
-    );
+        gpu_mesh.index_buffer = create_buffer(
+            index_buffer_size,
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+        );
+    } catch (...) {
+        destroy_buffer(vertex_staging);
+        destroy_buffer(index_staging);
+        if (gpu_mesh.vertex_buffer.is_valid()) {
+            destroy_buffer(gpu_mesh.vertex_buffer);
+        }
+        throw;
+    }
 
     // Copy from staging to device-local
     VkCommandBuffer cmd = begin_single_time_commands();
@@ -658,7 +677,11 @@ void GraphicsDevice::destroy_mesh(GPUMesh& gpu_mesh) {
 
 void* GraphicsDevice::map_buffer(GPUBuffer& buffer) {
     if (buffer.mapped == nullptr) {
-        vkMapMemory(device_, buffer.memory, 0, buffer.size, 0, &buffer.mapped);
+        VkResult result = vkMapMemory(device_, buffer.memory, 0, buffer.size, 0, &buffer.mapped);
+        if (result != VK_SUCCESS) {
+            buffer.mapped = nullptr;
+            throw std::runtime_error("Failed to map buffer memory");
+        }
     }
     return buffer.mapped;
 }
@@ -752,7 +775,11 @@ Pipeline GraphicsDevice::create_pipeline(const PipelineConfig& config, VkRenderP
     layout_info.bindingCount = 0;
     layout_info.pBindings = nullptr;
 
-    vkCreateDescriptorSetLayout(device_, &layout_info, nullptr, &pipeline.descriptor_layout);
+    VkResult result = vkCreateDescriptorSetLayout(device_, &layout_info, nullptr, &pipeline.descriptor_layout);
+    if (result != VK_SUCCESS) {
+        std::cerr << "Failed to create descriptor set layout: " << result << std::endl;
+        return pipeline;  // Return invalid pipeline
+    }
 
     // Create pipeline layout
     VkPipelineLayoutCreateInfo pipeline_layout_info{};
@@ -760,7 +787,13 @@ Pipeline GraphicsDevice::create_pipeline(const PipelineConfig& config, VkRenderP
     pipeline_layout_info.setLayoutCount = 1;
     pipeline_layout_info.pSetLayouts = &pipeline.descriptor_layout;
 
-    vkCreatePipelineLayout(device_, &pipeline_layout_info, nullptr, &pipeline.layout);
+    result = vkCreatePipelineLayout(device_, &pipeline_layout_info, nullptr, &pipeline.layout);
+    if (result != VK_SUCCESS) {
+        std::cerr << "Failed to create pipeline layout: " << result << std::endl;
+        vkDestroyDescriptorSetLayout(device_, pipeline.descriptor_layout, nullptr);
+        pipeline.descriptor_layout = VK_NULL_HANDLE;
+        return pipeline;  // Return invalid pipeline
+    }
 
     // Note: Actual pipeline creation requires shader modules, which we'll create
     // in the ShaderCompiler. For now, return partially initialized pipeline.
@@ -1073,9 +1106,29 @@ bool RenderContext::create_sync_objects() {
     fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
-    vkCreateSemaphore(device_->device(), &semaphore_info, nullptr, &image_available_semaphore_);
-    vkCreateSemaphore(device_->device(), &semaphore_info, nullptr, &render_finished_semaphore_);
-    vkCreateFence(device_->device(), &fence_info, nullptr, &in_flight_fence_);
+    VkResult result = vkCreateSemaphore(device_->device(), &semaphore_info, nullptr, &image_available_semaphore_);
+    if (result != VK_SUCCESS) {
+        std::cerr << "Failed to create image available semaphore: " << result << std::endl;
+        return false;
+    }
+
+    result = vkCreateSemaphore(device_->device(), &semaphore_info, nullptr, &render_finished_semaphore_);
+    if (result != VK_SUCCESS) {
+        std::cerr << "Failed to create render finished semaphore: " << result << std::endl;
+        vkDestroySemaphore(device_->device(), image_available_semaphore_, nullptr);
+        image_available_semaphore_ = VK_NULL_HANDLE;
+        return false;
+    }
+
+    result = vkCreateFence(device_->device(), &fence_info, nullptr, &in_flight_fence_);
+    if (result != VK_SUCCESS) {
+        std::cerr << "Failed to create in-flight fence: " << result << std::endl;
+        vkDestroySemaphore(device_->device(), image_available_semaphore_, nullptr);
+        vkDestroySemaphore(device_->device(), render_finished_semaphore_, nullptr);
+        image_available_semaphore_ = VK_NULL_HANDLE;
+        render_finished_semaphore_ = VK_NULL_HANDLE;
+        return false;
+    }
 
     return true;
 }

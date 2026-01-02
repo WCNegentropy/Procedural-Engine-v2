@@ -54,6 +54,6 @@ def test_reset_clears_state():
     engine.reset()
     # After reset the frame counter and hot-reload history should be cleared
     assert engine._frame == 0
-    assert engine._hot_reload_hashes == []
+    assert len(engine._hot_reload_hashes) == 0
     # A new snapshot at frame 0 should now be valid
     assert engine.snapshot_state(0) == Engine().snapshot_state(0)
