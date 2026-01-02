@@ -154,11 +154,11 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Setup Vulkan SDK
-  uses: humbletim/setup-vulkan-sdk@v1
-  with:
-    vulkan-query-version: 1.3.250.0  # Or "latest"
-    vulkan-components: Vulkan-Headers, Vulkan-Loader
-    vulkan-use-cache: true
+        uses: humbletim/setup-vulkan-sdk@v1
+        with:
+          vulkan-query-version: 1.3.290.0
+          vulkan-components: Vulkan-Headers, Vulkan-Loader
+          vulkan-use-cache: true
 
       - name: Install dependencies
         run: |
@@ -174,8 +174,6 @@ jobs:
           mkdir build
           cd build
           cmake ../cpp -DCMAKE_BUILD_TYPE=Release -DOPENSSL_ROOT_DIR="C:/Program Files/OpenSSL"
-        env:
-          VULKAN_SDK: C:\VulkanSDK\1.3.290.0
 
       - name: Build C++ module
         run: |
@@ -183,12 +181,13 @@ jobs:
           cmake --build . --config Release --parallel
 
       - name: Copy module to project root
+        shell: powershell
         run: |
           Copy-Item build/Release/procengine_cpp*.pyd . -ErrorAction SilentlyContinue
           Copy-Item build/procengine_cpp*.pyd . -ErrorAction SilentlyContinue
-        shell: powershell
 
       - name: Run integration tests
+        shell: powershell
         run: |
           python -m pytest `
             test_cpp_engine.py `
@@ -198,8 +197,7 @@ jobs:
             test_cpp_materials.py `
             test_cpp_seed_registry.py `
             -v --tb=short
-        continue-on-error: true  # Windows build may have Vulkan issues in CI
-        shell: powershell
+        continue-on-error: true
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
@@ -230,14 +228,12 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # Install MoltenVK (Vulkan implementation for macOS)
           brew install molten-vk openssl shaderc glslang
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: Set up Vulkan environment
         run: |
-          # MoltenVK provides Vulkan on macOS
           VULKAN_SDK=$(brew --prefix molten-vk)
           echo "VULKAN_SDK=$VULKAN_SDK" >> $GITHUB_ENV
           echo "VK_ICD_FILENAMES=$VULKAN_SDK/share/vulkan/icd.d/MoltenVK_icd.json" >> $GITHUB_ENV
@@ -255,7 +251,7 @@ jobs:
         run: |
           cd build
           cmake --build . --parallel $(sysctl -n hw.ncpu)
-        continue-on-error: true  # macOS Vulkan build may fail
+        continue-on-error: true
 
       - name: Copy module to project root
         run: |
@@ -273,7 +269,7 @@ jobs:
             test_cpp_materials.py \
             test_cpp_seed_registry.py \
             -v --tb=short
-        continue-on-error: true  # macOS may have MoltenVK issues
+        continue-on-error: true
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
