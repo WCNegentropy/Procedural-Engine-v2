@@ -1,179 +1,297 @@
-# Procedural Game Engine – Architecture v1
+# Procedural Game Engine v1.1
 
-**Status:** Production Ready ✅
+**Status:** Production Ready (3D Physics Complete)
 
-All major subsystems now ship with well‑documented, deterministic Python
-reference implementations and a comprehensive test suite.  These modules
-serve as the authoritative specification for the in‑production C++
-runtime.
+Hybrid Python/C++ procedural game engine with deterministic world generation, 3D physics, Vulkan graphics, and hot-reload capability. Currently in active development toward v2.0 AI-native RPG platform.
 
 ---
 
-## 1 · Goals & Scope
-- 100% procedurally generated worlds, deterministic from a single root seed.
-- Hybrid **Python + C++** implementation:
-  - Python for rapid author-time iteration.
-  - C++ for real-time, low-latency execution.
-- Modular subsystems: **Terrain**, **Mesh/Props**, **Physics**, **Graphics**, **World Assembly**.
-- Seed reproducibility, hot-reload, and automated validation from day one.
+## Quick Start
 
----
+```bash
+# Install dependencies
+pip install numpy pybind11
 
-## 2 · Determinism Contract
-| Rule | Detail |
-|------|--------|
-| **Single RootSeed** | 64-bit value provided by user/CLI. |
-| **SeedRegistry** | C++ singleton derives deterministic sub-seeds via `splitmix64`. |
-| **Unified PRNG** | PCG64 streams exposed in both languages via FFI; no other RNGs allowed. |
-| **State Hashing** | Python hashes every buffer → C++; C++ re-hashes and asserts equality. |
-| **Fixed Step Physics** | 60 Hz; float epsilon ≤ 1e-6. |
+# Build C++ module (headless mode for CI/development)
+cd cpp && mkdir build && cd build
+cmake .. -DNO_GRAPHICS=ON && make
+cd ../..
 
----
-
-## 3 · Language Split
-| Tier | Python (Author-time) | C++ (Runtime) |
-|------|----------------------|---------------|
-| **Terrain & Biome Maps** | FBM noise, domain warp, masks | GeoClipmap mesh, GPU erosion, collision heightfield |
-| **Props & Creature Descriptors** | CSG trees, L-systems, genomes | Mesh synthesis, skeletal rigs, GPU uploads |
-| **Material Graph Specs** | JSON DSL generation | DSL → SPIR-V compiler, virtual textures |
-| **Seed-Mining & Tests** | Batch world gen, metrics, dashboards | Headless engine mode |
-| **Tooling GUIs** | Qt / DearPyGUI editors ↔ hot-reload | — |
-
----
-
-## 4 · Core Generation Pipeline (Per Chunk)
-1. **TerrainSystem (Python)** → height, biome, river, slope maps → C++
-2. **MeshSystem (C++)** → terrain mesh, props, LOD buffers
-3. **PhysicsSystem (Python reference, C++ pending)** → heightfield collider, rigid bodies
-4. **GraphicsSystem (C++)** → material graph compile, GPU residency
-5. **WorldAssembler (C++)** → ECS entities & component wiring
-
----
-
-## 5 · Subsystem Specs
-### 5.1 Terrain
-- Basic FBM heightmap + biome mask generator (Python ✅, C++ ✅)
-- Macro-plates: Voronoi fracture + ridged noise (Python ✅, C++ ✅)
-- FBM heightmap: 6–8 octaves Simplex (Python ✅, C++ ✅)
-- Hydraulic erosion: 100–200 iters (Python ✅, C++ CPU ✅; GPU compute shader future optimization)
-- Slope map derivation (Python ✅, C++ ✅)
-- Biome LUT: temperature × humidity × height (Python ✅, C++ ✅)
-- River mask generation (Python ✅, C++ ✅)
-- Chunk size: 64×64 vertices (+1 border) → geoClipmap rings (C++ ✅)
-
-### 5.2 Mesh & Props
-- Rocks: SDF descriptor generator (Python ✅), sphere mesh synthesis (C++ ✅)
-- Trees: L-system skeleton descriptor generator (Python ✅), sweep mesh (C++ ✅)
-- Buildings: deterministic shape grammar descriptor generator (Python ✅), BSP mesh synthesis (C++ ✅)
-- Creatures: deterministic metaball + skeleton descriptor generator (Python ✅), marching cubes runtime (C++ ✅)
-- LOD generation: mesh simplification (C++ ✅)
-
-### 5.3 Physics
-- Sequential impulse solver (Python ✅, C++ ✅)
-- Broad phase uniform grid per chunk (Python ✅, C++ ✅)
-- Heightfield terrain collider proxy (Python ✅, C++ ✅)
-- Configurable gravity and damping (Python ✅, C++ ✅)
-- Deterministic rigid body simulation (Python ✅, C++ ✅)
-
-### 5.4 Graphics
-- Material graph nodes: Noise, Blend, Warp, PBR constants (Python spec ✅, C++ nodes ✅)
-- Compiler: GLSL generation and SPIR-V compilation (C++ ✅)
-- Shader cache with hash-based lookup (C++ ✅)
-- Vulkan backend with device management (C++ ✅)
-- Mesh upload and GPU buffer management (C++ ✅)
-- Virtual Texture cache with 128 kB tiles, LRU paging (C++ ✅)
-- Render path: Depth pre-pass, Forward+, Post framework (C++ ✅)
-
-### 5.5 Engine
-- Deterministic buffer hashing & state snapshots (Python ✅, C++ ✅)
-- Hot-reload infrastructure with resource tracking (Python ✅, C++ ✅)
-- Descriptor caching and dirty-state management (C++ ✅)
-- Resource rebuild queue processing (C++ ✅)
-- Shader cache integration for material hot-reloading (C++ ✅)
-- Reset to initial state for deterministic tests (Python ✅, C++ ✅)
-- World chunk assembly helper with configurable macro plates and erosion (Python ✅)
-- Hierarchical `SeedRegistry.spawn` and multi-chunk world generator (Python ✅, C++ ✅)
-
----
-
-## 6 · FFI Boundary
-- **Transport:** pybind11 (CMake) or PyO3 (future Rust option).
-- **Data Flow:** zero-copy `memoryview` ⇄ `std::span<uint8_t>`.
-- **API Examples:**
-  - `Engine.enqueue_heightmap(h16, biome8, river1)`
-  - `Engine.enqueue_prop_descriptor(list[dict])`
-  - `Engine.step(dt)`
-  - `Engine.hot_reload(hash)`
-  - `Engine.reset()`
-
----
-
-## 7 · Build & Packaging
-- C++ built as shared lib (`libprocengine.so/.dll/.dylib`)
-- Python wheel bundles shared lib via `setup.py` + pybind11
-- Initial C++ runtime scaffold lives under `cpp/` with a `CMakeLists.txt` for building the `procengine_cpp` module
-- CI targets: Windows x64 (MSVC), Linux x64 (GCC 13), macOS Apple Silicon (clang)
-
----
-
-## 8 · Testing & Validation
-- **Deterministic Python Suite**: 36 tests covering all core systems (terrain, physics, props, materials, world generation)
-- **Hot-Reload Tests**: 7 tests validating resource tracking, dirty-state management, and queue processing
-- **Seed Sweeper**: `seed_sweeper.py` for Sobol sampling (10k seeds/night validation capability) ✅
-- **Determinism Verification**: Frame-by-frame state hash comparison across identical runs ✅
-- **Buffer Hash Validation**: Fail-fast on buffer hash mismatch at FFI boundary
-- **C++ Integration Tests**: Available when C++ module is built (terrain, physics, props, materials, graphics)
-- Run `python3 -m pytest -q` for the full test suite (43 tests total)
-- See `TEST_RESULTS.md` for recorded test outcomes
-
----
-
-## 9 · Hot-Reload System
-The engine implements a comprehensive hot-reload infrastructure for iterative development:
-
-### Architecture
-1. **Descriptor Tracking**: All prop/material descriptors are cached by hash in the engine
-2. **Dirty Flagging**: When `Engine.hot_reload(hash)` is called, resources are marked as dirty
-3. **Queue Processing**: The next `Engine.step()` processes all pending reloads
-4. **Resource Rebuild**: GPU resources (meshes, shaders) are regenerated and uploaded
-5. **Cache Integration**: Shader cache prevents recompilation of unchanged materials
-
-### API Usage
-```python
-# Python: Generate initial descriptor
-descriptor = generate_tree_descriptor(seed=42, height=10)
-engine.enqueue_prop_descriptor([descriptor])
-
-# Later: Edit and hot-reload
-descriptor_v2 = generate_tree_descriptor(seed=42, height=15)  # Taller
-new_hash = compute_descriptor_hash(descriptor_v2)
-engine.hot_reload(new_hash)
-engine.step(dt)  # Resources rebuilt next frame
+# Run tests (172+ tests)
+python -m pytest -q
 ```
 
-### C++ Implementation
-- `CachedResource`: Tracks descriptor JSON, hash, access time, and dirty state
-- `hot_reload_queue_`: Deferred reload requests processed on next step
-- `shader_cache_`: Material shader compilation cache
-- `rebuild_resource()`: Stub for full GPU resource regeneration pipeline
+---
+
+## Features
+
+### Core Engine
+- 100% procedurally generated worlds from a single 64-bit seed
+- Deterministic output: same seed always produces identical results
+- Hybrid Python/C++ architecture with pybind11 FFI
+- Hot-reload infrastructure for iterative development
+- SHA-256 state verification across FFI boundary
+
+### Terrain Generation
+- FBM noise heightmaps (6-8 octaves Simplex)
+- Voronoi macro-plates with ridged noise
+- Hydraulic erosion simulation (100-200 iterations)
+- Biome classification (temperature x humidity x height)
+- River mask generation
+- 64x64 vertex chunks with GeoClipmap LOD
+
+### Props & Mesh
+- Rocks: SDF-based generation with sphere mesh synthesis
+- Trees: L-system skeletons with sweep mesh
+- Buildings: Shape grammar with BSP mesh synthesis
+- Creatures: Metaball + skeleton with marching cubes
+- LOD generation with mesh simplification
+
+### Physics (3D)
+- Hybrid 2D+Height approach for efficient 3D simulation
+- Sequential impulse solver on XZ plane
+- Y-axis gravity with terrain collision
+- HeightField2D with bilinear interpolation
+- Deterministic rigid body simulation
+- Python and C++ implementations with full parity
+
+### Materials & Graphics
+- Node-based material graph DSL
+- GLSL generation and SPIR-V compilation
+- Vulkan backend with shader cache
+- Virtual texture system (128KB tiles, LRU paging)
+- Forward+ rendering pipeline
 
 ---
 
-## 10 · Implementation Status
-| Milestone | Focus | Status |
-|-----------|-------|--------|
-| **P0** | SeedRegistry, PRNG wrapper | ✅ Complete |
-| **P1** | Terrain generation (heightmap, biomes, erosion) | ✅ Complete (Python & C++) |
-| **P2** | Prop mesh generation & material compiler | ✅ Complete (Python & C++) |
-| **P3** | Physics integration (solver, colliders, determinism) | ✅ Complete (Python & C++) |
-| **P4** | Hot-reload infrastructure | ✅ Complete (resource tracking & rebuild) |
-| **P5** | Graphics system (Vulkan, materials, virtual textures) | ✅ Complete |
+## Architecture
 
-### Future Enhancements
-- GPU compute shader for hydraulic erosion (CPU version complete)
-- Full ECS implementation for world assembly
-- Tool GUIs for live editing (hot-reload API ready)
-- Clustered Forward+ lighting implementation
-- Production asset pipeline integration
+```
+Python (Author-time)              C++ (Runtime)
+--------------------              -------------
+Terrain descriptors      --->     GeoClipmap mesh, GPU erosion
+Prop descriptors         --->     Mesh synthesis, skeletal rigs
+Material graph specs     --->     SPIR-V compiler, virtual textures
+Physics reference impl   --->     Physics simulation
+Hot-reload control       --->     Resource rebuild queue
+```
+
+### Key Modules
+
+| Module | Purpose |
+|--------|---------|
+| `engine.py` | Core engine with state snapshots, hot-reload |
+| `terrain.py` | FBM noise, erosion, biome generation |
+| `physics.py` | 2D and 3D physics simulation |
+| `props.py` | Rock, tree, building, creature descriptors |
+| `materials.py` | Material graph DSL and node system |
+| `world.py` | Multi-chunk world assembly |
 
 ---
+
+## 3D Physics System
+
+The physics system uses a hybrid 2D+height approach that provides efficient 3D simulation while preserving the deterministic 2D solver:
+
+```
+Y (up)
+|
+|    Body falls under gravity
+|    v
+|    o---------- Ground collision at heightfield(x,z) + radius
+|   /|\
+|  / | \    XZ plane: 2D collision resolution
+| /  |  \
++----+-------- X
+    Z
+```
+
+### API Example
+
+```python
+from physics import Vec3, RigidBody3D, HeightField2D, step_physics_3d
+import numpy as np
+
+# Create terrain heightfield
+terrain = np.zeros((20, 20), dtype=np.float32)
+heightfield = HeightField2D(heights=terrain, cell_size=1.0)
+
+# Create a falling body
+body = RigidBody3D(
+    position=Vec3(10, 20, 10),
+    velocity=Vec3(0, 0, 0),
+    mass=1.0,
+    radius=0.5
+)
+
+# Simulate until grounded
+bodies = [body]
+for _ in range(600):
+    step_physics_3d(bodies, dt=1/60, gravity=-9.8, heightfield=heightfield)
+
+print(f"Grounded: {body.grounded}, Y: {body.position.y:.2f}")
+```
+
+### C++ Usage
+
+```python
+import procengine_cpp as cpp
+
+# Create 3D physics world
+world = cpp.PhysicsWorld3D()
+
+# Add body
+body = cpp.RigidBody3D(
+    cpp.PhysicsVec3(10, 20, 10),  # position
+    cpp.PhysicsVec3(0, 0, 0),     # velocity
+    1.0,                          # mass
+    0.5                           # radius
+)
+world.add_body(body)
+
+# Set terrain
+heights = [0.0] * 400  # 20x20 flat terrain
+hf = cpp.HeightField2D(heights, 20, 20, 0.0, 0.0, 1.0)
+world.set_heightfield(hf)
+
+# Simulate
+config = cpp.PhysicsConfig3D()
+config.gravity = -9.8
+config.dt = 1/60
+for _ in range(600):
+    world.step(config)
+```
+
+---
+
+## Build Options
+
+| CMake Option | Description |
+|--------------|-------------|
+| `NO_GRAPHICS` | Build without Vulkan (headless/CI) |
+| `BUILD_TESTS` | Build C++ unit tests |
+| `ENABLE_PROFILING` | Add timing instrumentation |
+
+```bash
+# Headless build (no Vulkan required)
+cmake .. -DNO_GRAPHICS=ON
+
+# Full build with graphics
+cmake ..
+```
+
+---
+
+## Testing
+
+```bash
+# Run all tests
+python -m pytest -q
+
+# Run specific categories
+python -m pytest test_physics_3d.py -v    # 3D physics (49 tests)
+python -m pytest test_physics.py -v       # 2D physics (18 tests)
+python -m pytest test_terrain.py -v       # Terrain generation
+python -m pytest test_hot_reload.py -v    # Hot-reload system
+```
+
+**Current Coverage:** 172+ tests passing
+
+---
+
+## Development Roadmap
+
+This project is actively developing toward v2.0, an AI-native RPG platform.
+
+### Phase 1: Physics Upgrade (Complete)
+- [x] Vec3, RigidBody3D, HeightField2D implementation
+- [x] step_physics_3d with hybrid 2D+height approach
+- [x] Python/C++ parity with pybind11 bindings
+- [x] NO_GRAPHICS CMake option for headless builds
+- [x] Comprehensive test suite (67 physics tests)
+
+### Phase 2: Game Loop & NPC Framework (Next)
+- Player controller and camera system
+- NPC agent framework (LocalAgent for offline play)
+- Dialogue, quest, and inventory systems
+- Save/load system
+- UI framework with Dear ImGui
+
+### Phase 3: MCP Integration
+- MCP server for Claude/AI integration
+- AI-powered NPC dialogue via MCPAgent
+- Game Master mode for dynamic events
+- Graceful fallback to LocalAgent
+
+### Phase 4: Command Architecture
+- Unified command registry
+- In-game console with autocomplete
+- Keybind system
+- Script execution for modding
+
+See [plan.md](plan.md) for the complete development plan.
+
+---
+
+## API Reference
+
+### Engine
+
+```python
+from engine import Engine
+
+engine = Engine()
+engine.enqueue_heightmap(height16, biome8, river1)
+engine.enqueue_prop_descriptor([{"type": "rock", "radius": 2.5}])
+engine.step(dt=1/60)
+engine.hot_reload(descriptor_hash)
+state_hash = engine.snapshot_state(frame)
+engine.reset()
+```
+
+### Terrain
+
+```python
+from terrain import terrain_chunk
+
+chunk = terrain_chunk(
+    seed=42,
+    size=65,
+    octaves=6,
+    macro_plates=True,
+    erosion_iters=100
+)
+# Returns: height, biome, river, slope arrays
+```
+
+### World
+
+```python
+from world import world_chunk
+
+chunk = world_chunk(
+    seed=42,
+    cx=0, cy=0,
+    size=65,
+    erosion=True,
+    macro_plates=True
+)
+```
+
+---
+
+## Determinism Contract
+
+| Rule | Detail |
+|------|--------|
+| Single RootSeed | 64-bit value provided by user |
+| SeedRegistry | Deterministic sub-seeds via splitmix64 |
+| Unified PRNG | PCG64 streams in both Python and C++ |
+| State Hashing | SHA-256 verification at FFI boundary |
+| Fixed Step Physics | 60 Hz with float epsilon <= 1e-6 |
+
+---
+
+## License
+
+MIT License - See LICENSE file for details.
