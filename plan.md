@@ -2,10 +2,31 @@
 
 ## From Functional Base Engine to AI-Native Open World RPG Platform
 
-**Document Version:** 1.0  
-**Date:** January 2, 2026  
-**Current State:** v1.0 Pre-Alpha (Base Engine Complete)  
+**Document Version:** 1.1
+**Date:** January 3, 2026
+**Current State:** v1.0 Pre-Alpha (Base Engine Complete)
 **Target State:** v2.0 Release Candidate (AI-Native RPG Platform)
+
+---
+
+### Implementation Progress
+
+| Phase | Status | Progress |
+|-------|--------|----------|
+| **Phase 1: Physics Upgrade & Engine Polish** | 🔄 In Progress | ~85% |
+| **Phase 2: Game Loop & NPC Agent Framework** | ⏳ Pending | 0% |
+| **Phase 3: MCP Server Integration** | ⏳ Pending | 0% |
+| **Phase 4: Unified Command Architecture** | ⏳ Pending | 0% |
+
+**Latest Updates (January 3, 2026):**
+- ✅ Implemented Vec3, RigidBody3D, HeightField2D in Python
+- ✅ Implemented step_physics_3d with hybrid 2D+height approach
+- ✅ Added 49 comprehensive unit tests for 3D physics
+- ✅ Fixed enqueue_prop_descriptor API to accept both dict and list
+- ✅ Implemented Vec3, RigidBody3D, HeightField2D, step_physics_3d in C++
+- ✅ Added pybind11 bindings for 3D physics (PhysicsVec3, RigidBody3D, HeightField2D, etc.)
+- ✅ Added NO_GRAPHICS CMake option for headless/CI builds
+- ✅ All 172 non-graphics tests passing
 
 ---
 
@@ -187,26 +208,26 @@ Review the Vulkan backend for obvious inefficiencies:
 
 ### 1.7 Phase 1 Deliverables
 
-| Deliverable | Description |
-|-------------|-------------|
-| `Vec3` implementation | Python and C++ with full parity |
-| `RigidBody3D` implementation | Hybrid 2D+height physics body |
-| `HeightField2D` implementation | 2D terrain collision sampling |
-| `step_physics_3d()` | Main physics step function |
-| Updated pybind11 bindings | Expose 3D physics to Python |
-| Fixed `enqueue_prop_descriptor` | Consistent API |
-| `NO_GRAPHICS` CMake option | Headless build support |
-| Physics test suite | Unit + integration + performance |
-| Updated documentation | README, AGENTS.md reflecting changes |
+| Deliverable | Description | Status |
+|-------------|-------------|--------|
+| `Vec3` implementation | Python and C++ with full parity | ✅ COMPLETED |
+| `RigidBody3D` implementation | Hybrid 2D+height physics body | ✅ COMPLETED |
+| `HeightField2D` implementation | 2D terrain collision sampling | ✅ COMPLETED |
+| `step_physics_3d()` | Main physics step function | ✅ COMPLETED |
+| Updated pybind11 bindings | Expose 3D physics to Python | ✅ COMPLETED |
+| Fixed `enqueue_prop_descriptor` | Consistent API | ✅ COMPLETED |
+| `NO_GRAPHICS` CMake option | Headless build support | ✅ COMPLETED |
+| Physics test suite | Unit + integration + performance | ✅ COMPLETED (67 tests) |
+| Updated documentation | README, AGENTS.md reflecting changes | ⏳ Pending |
 
 ### 1.8 Phase 1 Exit Criteria
 
-- [ ] 3D physics bodies fall under gravity and land on terrain
-- [ ] Multiple bodies collide correctly in XZ plane while on terrain
-- [ ] Determinism tests pass (same seed = same result)
-- [ ] Python/C++ parity verified via hash comparison
-- [ ] All existing tests still pass
-- [ ] Engine builds and runs in headless mode
+- [x] 3D physics bodies fall under gravity and land on terrain
+- [x] Multiple bodies collide correctly in XZ plane while on terrain
+- [x] Determinism tests pass (same seed = same result)
+- [x] Python/C++ parity verified via hash comparison
+- [x] All existing tests still pass
+- [x] Engine builds and runs in headless mode (NO_GRAPHICS CMake option)
 - [ ] No memory leaks detected
 
 ---

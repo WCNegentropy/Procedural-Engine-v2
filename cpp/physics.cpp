@@ -211,4 +211,82 @@ void PhysicsWorld::reset() {
     heightfield_ = HeightField();
 }
 
+// =============================================================================
+// 3D Physics Implementation
+// =============================================================================
+
+void step_physics_3d(std::vector<RigidBody3D>& bodies,
+                     const PhysicsConfig3D& config,
+                     const HeightField2D* heightfield) {
+
+    if (bodies.empty()) return;
+
+    float dt = config.dt;
+    uint32_t iterations = config.iterations;
+    float restitution = config.restitution;
+    float cell_size = config.cell_size;
+    float gravity = config.gravity;
+    float damping = config.damping;
+
+    // Validate parameters
+    if (dt <= 0.0f) return;
+    if (iterations < 1) iterations = 1;
+
+    // Phase 1: Y-axis gravity and terrain collision
+    float damp_factor = std::max(0.0f, 1.0f - damping * dt);
+
+    for (auto& body : bodies) {
+        // Apply gravity to Y velocity
+        body.velocity.y += gravity * dt;
+
+        // Apply damping to all velocity components
+        if (damping != 0.0f) {
+            body.velocity *= damp_factor;
+        }
+
+        // Integrate Y position
+        body.position.y += body.velocity.y * dt;
+
+        // Terrain collision (Y axis)
+        body.grounded = false;
+        if (heightfield != nullptr && !heightfield->empty()) {
+            float ground = heightfield->sample(body.position.x, body.position.z) + body.radius;
+
+            if (body.position.y < ground) {
+                body.position.y = ground;
+
+                if (body.velocity.y < 0.0f) {
+                    body.velocity.y = -body.velocity.y * restitution;
+                }
+                body.grounded = true;
+            }
+        }
+    }
+
+    // Phase 2: XZ plane collision using existing 2D solver
+    // Project all bodies to 2D on XZ plane
+    std::vector<RigidBody> bodies_2d;
+    bodies_2d.reserve(bodies.size());
+    for (const auto& body : bodies) {
+        bodies_2d.push_back(body.to_2d());
+    }
+
+    // Create 2D physics config (no gravity/damping - already handled)
+    PhysicsConfig config_2d;
+    config_2d.dt = dt;
+    config_2d.iterations = iterations;
+    config_2d.restitution = restitution;
+    config_2d.cell_size = cell_size;
+    config_2d.gravity = 0.0f;    // Already handled in phase 1
+    config_2d.damping = 0.0f;    // Already handled in phase 1
+
+    // Run 2D physics step
+    step_physics(bodies_2d, config_2d, nullptr);
+
+    // Apply 2D results back to 3D bodies
+    for (size_t i = 0; i < bodies.size(); ++i) {
+        bodies[i].apply_2d_result(bodies_2d[i]);
+    }
+}
+
 } // namespace physics

@@ -1,13 +1,26 @@
-"""Simple deterministic physics solver utilities."""
+"""Simple deterministic physics solver utilities.
+
+This module provides both 2D and 3D physics simulation:
+- 2D: Original RigidBody, HeightField (1D), step_physics
+- 3D: Vec3, RigidBody3D, HeightField2D, step_physics_3d
+
+The 3D system uses a hybrid approach: XZ plane collisions use the 2D solver,
+while Y-axis gravity and terrain collision use 2D heightfield sampling.
+"""
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Dict, Iterable, List, Tuple
+from dataclasses import dataclass, field
+from typing import Dict, Iterable, List, Optional, Tuple
 
 import math
 import numpy as np
 
-__all__ = ["RigidBody", "HeightField", "step_physics"]
+__all__ = [
+    # 2D physics (original)
+    "RigidBody", "HeightField", "step_physics",
+    # 3D physics (new)
+    "Vec3", "RigidBody3D", "HeightField2D", "step_physics_3d",
+]
 
 
 @dataclass
@@ -216,3 +229,364 @@ def step_physics(
                 body.position[1] = ground
                 if body.velocity[1] < 0.0:
                     body.velocity[1] = -body.velocity[1] * restitution
+
+
+# =============================================================================
+# 3D Physics (Hybrid 2D+Height approach)
+# =============================================================================
+
+
+@dataclass
+class Vec3:
+    """3D vector for physics calculations.
+
+    Provides full operator overloads and common vector operations.
+    Immutable-style operations return new Vec3 instances.
+    """
+
+    x: float = 0.0
+    y: float = 0.0
+    z: float = 0.0
+
+    def __add__(self, other: Vec3) -> Vec3:
+        return Vec3(self.x + other.x, self.y + other.y, self.z + other.z)
+
+    def __sub__(self, other: Vec3) -> Vec3:
+        return Vec3(self.x - other.x, self.y - other.y, self.z - other.z)
+
+    def __mul__(self, scalar: float) -> Vec3:
+        return Vec3(self.x * scalar, self.y * scalar, self.z * scalar)
+
+    def __rmul__(self, scalar: float) -> Vec3:
+        return self.__mul__(scalar)
+
+    def __truediv__(self, scalar: float) -> Vec3:
+        return Vec3(self.x / scalar, self.y / scalar, self.z / scalar)
+
+    def __neg__(self) -> Vec3:
+        return Vec3(-self.x, -self.y, -self.z)
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Vec3):
+            return NotImplemented
+        return self.x == other.x and self.y == other.y and self.z == other.z
+
+    def dot(self, other: Vec3) -> float:
+        """Compute dot product with another vector."""
+        return self.x * other.x + self.y * other.y + self.z * other.z
+
+    def cross(self, other: Vec3) -> Vec3:
+        """Compute cross product with another vector."""
+        return Vec3(
+            self.y * other.z - self.z * other.y,
+            self.z * other.x - self.x * other.z,
+            self.x * other.y - self.y * other.x,
+        )
+
+    def length(self) -> float:
+        """Compute the magnitude of the vector."""
+        return math.sqrt(self.x * self.x + self.y * self.y + self.z * self.z)
+
+    def length_squared(self) -> float:
+        """Compute the squared magnitude (avoids sqrt)."""
+        return self.x * self.x + self.y * self.y + self.z * self.z
+
+    def normalized(self) -> Vec3:
+        """Return a unit vector in the same direction."""
+        length = self.length()
+        if length > 0.0:
+            return self / length
+        return Vec3(0.0, 0.0, 0.0)
+
+    def xz(self) -> np.ndarray:
+        """Project to XZ plane as a 2D numpy array for 2D physics."""
+        return np.array([self.x, self.z], dtype=np.float32)
+
+    @staticmethod
+    def from_xz(arr: np.ndarray, y: float = 0.0) -> Vec3:
+        """Create Vec3 from XZ 2D array with specified Y."""
+        return Vec3(float(arr[0]), y, float(arr[1]))
+
+    def to_array(self) -> np.ndarray:
+        """Convert to numpy array."""
+        return np.array([self.x, self.y, self.z], dtype=np.float32)
+
+    @staticmethod
+    def from_array(arr: np.ndarray) -> Vec3:
+        """Create Vec3 from numpy array."""
+        return Vec3(float(arr[0]), float(arr[1]), float(arr[2]))
+
+
+@dataclass
+class RigidBody3D:
+    """3D rigid body for hybrid 2D+height physics.
+
+    Uses the XZ plane for 2D collision resolution and Y for gravity/terrain.
+    The body is represented as a sphere with the given radius.
+
+    Attributes
+    ----------
+    position:
+        3D position (Y is up).
+    velocity:
+        3D velocity vector.
+    mass:
+        Mass of the body; must be positive.
+    radius:
+        Collision radius (spherical).
+    grounded:
+        Whether the body is currently on the ground.
+    """
+
+    position: Vec3 = field(default_factory=Vec3)
+    velocity: Vec3 = field(default_factory=Vec3)
+    mass: float = 1.0
+    radius: float = 1.0
+    grounded: bool = False
+
+    def __post_init__(self) -> None:
+        if self.mass <= 0:
+            raise ValueError("mass must be positive")
+        if self.radius <= 0:
+            raise ValueError("radius must be positive")
+        # Ensure position and velocity are Vec3 instances
+        if not isinstance(self.position, Vec3):
+            if hasattr(self.position, "__iter__"):
+                arr = list(self.position)
+                self.position = Vec3(float(arr[0]), float(arr[1]), float(arr[2]))
+            else:
+                self.position = Vec3()
+        if not isinstance(self.velocity, Vec3):
+            if hasattr(self.velocity, "__iter__"):
+                arr = list(self.velocity)
+                self.velocity = Vec3(float(arr[0]), float(arr[1]), float(arr[2]))
+            else:
+                self.velocity = Vec3()
+
+    def inv_mass(self) -> float:
+        """Return inverse mass for impulse calculations."""
+        return 1.0 / self.mass
+
+    def to_2d(self) -> RigidBody:
+        """Project to 2D RigidBody on XZ plane for collision."""
+        return RigidBody(
+            position=self.position.xz(),
+            velocity=self.velocity.xz(),
+            mass=self.mass,
+            radius=self.radius,
+        )
+
+    def apply_2d_result(self, body_2d: RigidBody) -> None:
+        """Apply 2D collision results back to 3D body.
+
+        Updates XZ position and velocity from the 2D body result.
+        Y components are preserved.
+        """
+        self.position = Vec3(
+            float(body_2d.position[0]),
+            self.position.y,
+            float(body_2d.position[1]),
+        )
+        self.velocity = Vec3(
+            float(body_2d.velocity[0]),
+            self.velocity.y,
+            float(body_2d.velocity[1]),
+        )
+
+
+@dataclass
+class HeightField2D:
+    """2D heightfield for terrain collision in 3D physics.
+
+    Samples are arranged on a 2D grid (X, Z) and represent the ground
+    height (Y coordinate). Uses bilinear interpolation for smooth sampling.
+
+    Attributes
+    ----------
+    heights:
+        2D numpy array of height values (shape: [size_z, size_x]).
+    x0:
+        X coordinate of the first sample.
+    z0:
+        Z coordinate of the first sample.
+    cell_size:
+        Spacing between samples in both X and Z directions.
+    """
+
+    heights: np.ndarray
+    x0: float = 0.0
+    z0: float = 0.0
+    cell_size: float = 1.0
+
+    def __post_init__(self) -> None:
+        self.heights = np.asarray(self.heights, dtype=np.float32)
+        if self.heights.ndim != 2:
+            raise ValueError("heights must be a 2D array")
+        if self.cell_size <= 0:
+            raise ValueError("cell_size must be positive")
+
+    @property
+    def size_x(self) -> int:
+        """Number of samples in X direction."""
+        return self.heights.shape[1]
+
+    @property
+    def size_z(self) -> int:
+        """Number of samples in Z direction."""
+        return self.heights.shape[0]
+
+    def in_bounds(self, x: float, z: float) -> bool:
+        """Check if coordinates are within the heightfield bounds."""
+        x_max = self.x0 + self.cell_size * (self.size_x - 1)
+        z_max = self.z0 + self.cell_size * (self.size_z - 1)
+        return self.x0 <= x <= x_max and self.z0 <= z <= z_max
+
+    def sample(self, x: float, z: float) -> float:
+        """Sample height at (x, z) with bilinear interpolation.
+
+        Returns the interpolated height value. Coordinates outside
+        the heightfield are clamped to the nearest edge.
+        """
+        if self.heights.size == 0:
+            return 0.0
+
+        # Convert world coordinates to grid coordinates
+        local_x = (x - self.x0) / self.cell_size
+        local_z = (z - self.z0) / self.cell_size
+
+        # Get integer indices and fractional parts
+        ix0 = int(math.floor(local_x))
+        iz0 = int(math.floor(local_z))
+        ix1 = ix0 + 1
+        iz1 = iz0 + 1
+
+        # Clamp indices to valid range
+        ix0 = max(0, min(ix0, self.size_x - 1))
+        ix1 = max(0, min(ix1, self.size_x - 1))
+        iz0 = max(0, min(iz0, self.size_z - 1))
+        iz1 = max(0, min(iz1, self.size_z - 1))
+
+        # Fractional parts for interpolation
+        fx = local_x - math.floor(local_x)
+        fz = local_z - math.floor(local_z)
+        fx = max(0.0, min(1.0, fx))
+        fz = max(0.0, min(1.0, fz))
+
+        # Bilinear interpolation
+        h00 = float(self.heights[iz0, ix0])
+        h10 = float(self.heights[iz0, ix1])
+        h01 = float(self.heights[iz1, ix0])
+        h11 = float(self.heights[iz1, ix1])
+
+        h0 = h00 * (1.0 - fx) + h10 * fx
+        h1 = h01 * (1.0 - fx) + h11 * fx
+
+        return h0 * (1.0 - fz) + h1 * fz
+
+
+def step_physics_3d(
+    bodies: List[RigidBody3D],
+    *,
+    dt: float = _DEF_DT,
+    iterations: int = 10,
+    restitution: float = 0.5,
+    cell_size: float | None = None,
+    heightfield: HeightField2D | None = None,
+    gravity: float = -9.8,
+    damping: float = 0.0,
+) -> None:
+    """Advance 3D physics bodies using hybrid 2D+height approach.
+
+    The solver uses a two-phase approach:
+    1. Y-axis: Apply gravity, integrate Y position, resolve terrain collision
+    2. XZ-plane: Project to 2D, run sequential impulse solver, apply back
+
+    This preserves the existing deterministic 2D solver while adding vertical
+    motion and terrain interaction.
+
+    Parameters
+    ----------
+    bodies:
+        Mutable list of 3D rigid bodies to simulate.
+    dt:
+        Time step in seconds.
+    iterations:
+        Gauss-Seidel iterations for 2D collision resolution.
+    restitution:
+        Coefficient of restitution for collisions.
+    cell_size:
+        Broad-phase grid cell size (None = auto).
+    heightfield:
+        Optional 2D heightfield for terrain collision.
+    gravity:
+        Gravity acceleration (applied to Y axis, typically negative).
+    damping:
+        Linear velocity damping factor per second.
+    """
+    if dt <= 0:
+        raise ValueError("dt must be positive")
+    if iterations < 1:
+        raise ValueError("iterations must be at least 1")
+    if cell_size is not None and cell_size <= 0:
+        raise ValueError("cell_size must be positive")
+    if damping < 0:
+        raise ValueError("damping must be non-negative")
+
+    if not bodies:
+        return
+
+    # Phase 1: Y-axis gravity and terrain collision
+    damp_factor = max(0.0, 1.0 - damping * dt)
+
+    for body in bodies:
+        # Apply gravity to Y velocity
+        body.velocity = Vec3(
+            body.velocity.x,
+            body.velocity.y + gravity * dt,
+            body.velocity.z,
+        )
+
+        # Apply damping to all velocity components
+        if damping != 0.0:
+            body.velocity = body.velocity * damp_factor
+
+        # Integrate Y position
+        body.position = Vec3(
+            body.position.x,
+            body.position.y + body.velocity.y * dt,
+            body.position.z,
+        )
+
+        # Terrain collision (Y axis)
+        body.grounded = False
+        if heightfield is not None:
+            ground = heightfield.sample(body.position.x, body.position.z) + body.radius
+            if body.position.y < ground:
+                body.position = Vec3(body.position.x, ground, body.position.z)
+                if body.velocity.y < 0.0:
+                    body.velocity = Vec3(
+                        body.velocity.x,
+                        -body.velocity.y * restitution,
+                        body.velocity.z,
+                    )
+                body.grounded = True
+
+    # Phase 2: XZ plane collision using existing 2D solver
+    # Project all bodies to 2D on XZ plane
+    bodies_2d = [body.to_2d() for body in bodies]
+
+    # Run 2D physics step (without gravity/heightfield - we handle those in 3D)
+    step_physics(
+        bodies_2d,
+        dt=dt,
+        iterations=iterations,
+        restitution=restitution,
+        cell_size=cell_size,
+        heightfield=None,  # Already handled in phase 1
+        gravity=0.0,       # Already handled in phase 1
+        damping=0.0,       # Already handled in phase 1
+    )
+
+    # Apply 2D results back to 3D bodies
+    for body_3d, body_2d in zip(bodies, bodies_2d):
+        body_3d.apply_2d_result(body_2d)

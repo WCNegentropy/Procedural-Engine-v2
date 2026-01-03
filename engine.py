@@ -72,12 +72,23 @@ class Engine:
             digest = sha256(data).digest()
             self._buffers.append(_BufferRecord(name, digest))
 
-    def enqueue_prop_descriptor(self, descriptors: List[Dict[str, Any]]) -> None:
+    def enqueue_prop_descriptor(
+        self, descriptors: Dict[str, Any] | List[Dict[str, Any]]
+    ) -> None:
         """Store a deterministic hash of ``descriptors``.
 
         The descriptors are serialized with sorted keys to ensure a stable
         representation before hashing.
+
+        Parameters
+        ----------
+        descriptors:
+            A single descriptor dict or a list of descriptor dicts.
+            Single dicts are normalized to a list internally.
         """
+        # Normalize single dict to list for consistent handling
+        if isinstance(descriptors, dict):
+            descriptors = [descriptors]
 
         canonical = json.dumps(descriptors, sort_keys=True).encode("utf-8")
         self._descriptors.append(sha256(canonical).digest())

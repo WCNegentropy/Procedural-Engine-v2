@@ -339,6 +339,126 @@ PYBIND11_MODULE(procengine_cpp, m) {
         .def("set_heightfield", &physics::PhysicsWorld::set_heightfield)
         .def("clear_heightfield", &physics::PhysicsWorld::clear_heightfield);
 
+    // ========================================================================
+    // 3D Physics bindings
+    // ========================================================================
+
+    py::class_<physics::Vec3>(m, "PhysicsVec3")
+        .def(py::init<>())
+        .def(py::init<float, float, float>())
+        .def_readwrite("x", &physics::Vec3::x)
+        .def_readwrite("y", &physics::Vec3::y)
+        .def_readwrite("z", &physics::Vec3::z)
+        .def("length", &physics::Vec3::length)
+        .def("length_squared", &physics::Vec3::length_squared)
+        .def("dot", &physics::Vec3::dot)
+        .def("cross", &physics::Vec3::cross)
+        .def("normalized", &physics::Vec3::normalized)
+        .def("xz", &physics::Vec3::xz, "Project to XZ plane as Vec2")
+        .def("__add__", [](const physics::Vec3& a, const physics::Vec3& b) { return a + b; })
+        .def("__sub__", [](const physics::Vec3& a, const physics::Vec3& b) { return a - b; })
+        .def("__mul__", [](const physics::Vec3& v, float s) { return v * s; })
+        .def("__rmul__", [](const physics::Vec3& v, float s) { return v * s; })
+        .def("__truediv__", [](const physics::Vec3& v, float s) { return v / s; })
+        .def("__neg__", [](const physics::Vec3& v) { return -v; })
+        .def("__eq__", [](const physics::Vec3& a, const physics::Vec3& b) { return a == b; })
+        .def("__repr__", [](const physics::Vec3& v) {
+            return "PhysicsVec3(" + std::to_string(v.x) + ", " +
+                   std::to_string(v.y) + ", " + std::to_string(v.z) + ")";
+        });
+
+    py::class_<physics::RigidBody3D>(m, "RigidBody3D")
+        .def(py::init<>())
+        .def(py::init<physics::Vec3, physics::Vec3, float, float>(),
+             py::arg("position"), py::arg("velocity"), py::arg("mass"), py::arg("radius"))
+        .def_readwrite("position", &physics::RigidBody3D::position)
+        .def_readwrite("velocity", &physics::RigidBody3D::velocity)
+        .def_readwrite("mass", &physics::RigidBody3D::mass)
+        .def_readwrite("radius", &physics::RigidBody3D::radius)
+        .def_readwrite("grounded", &physics::RigidBody3D::grounded)
+        .def("inv_mass", &physics::RigidBody3D::inv_mass)
+        .def("to_2d", &physics::RigidBody3D::to_2d, "Project to 2D RigidBody on XZ plane");
+
+    py::class_<physics::HeightField2D>(m, "HeightField2D")
+        .def(py::init<>())
+        .def(py::init<const std::vector<float>&, size_t, size_t, float, float, float>(),
+             py::arg("heights"), py::arg("size_x"), py::arg("size_z"),
+             py::arg("x0") = 0.0f, py::arg("z0") = 0.0f, py::arg("cell_size") = 1.0f)
+        .def("sample", &physics::HeightField2D::sample,
+             py::arg("x"), py::arg("z"),
+             "Sample height at (x, z) with bilinear interpolation")
+        .def("in_bounds", &physics::HeightField2D::in_bounds,
+             "Check if (x, z) is within bounds")
+        .def("empty", &physics::HeightField2D::empty)
+        .def("size_x", &physics::HeightField2D::size_x)
+        .def("size_z", &physics::HeightField2D::size_z);
+
+    py::class_<physics::PhysicsConfig3D>(m, "PhysicsConfig3D")
+        .def(py::init<>())
+        .def_readwrite("dt", &physics::PhysicsConfig3D::dt)
+        .def_readwrite("iterations", &physics::PhysicsConfig3D::iterations)
+        .def_readwrite("restitution", &physics::PhysicsConfig3D::restitution)
+        .def_readwrite("cell_size", &physics::PhysicsConfig3D::cell_size)
+        .def_readwrite("gravity", &physics::PhysicsConfig3D::gravity)
+        .def_readwrite("damping", &physics::PhysicsConfig3D::damping);
+
+    py::class_<physics::PhysicsWorld3D>(m, "PhysicsWorld3D")
+        .def(py::init<>())
+        .def("add_body", &physics::PhysicsWorld3D::add_body)
+        .def("get_body", py::overload_cast<size_t>(&physics::PhysicsWorld3D::get_body),
+             py::return_value_policy::reference_internal)
+        .def("step", &physics::PhysicsWorld3D::step,
+             py::arg("config") = physics::PhysicsConfig3D())
+        .def("reset", &physics::PhysicsWorld3D::reset)
+        .def("body_count", &physics::PhysicsWorld3D::body_count)
+        .def("set_heightfield", &physics::PhysicsWorld3D::set_heightfield)
+        .def("clear_heightfield", &physics::PhysicsWorld3D::clear_heightfield);
+
+    // Standalone 3D physics step function for testing
+    m.def("step_physics_3d", [](py::list body_list, float dt, uint32_t iterations,
+                                 float restitution, float cell_size, float gravity,
+                                 float damping, py::object heightfield_obj) {
+        // Convert Python list to C++ vector
+        std::vector<physics::RigidBody3D> bodies;
+        for (auto item : body_list) {
+            auto body = item.cast<physics::RigidBody3D>();
+            bodies.push_back(body);
+        }
+
+        physics::PhysicsConfig3D config;
+        config.dt = dt;
+        config.iterations = iterations;
+        config.restitution = restitution;
+        config.cell_size = cell_size;
+        config.gravity = gravity;
+        config.damping = damping;
+
+        const physics::HeightField2D* hf = nullptr;
+        physics::HeightField2D hf_storage;
+        if (!heightfield_obj.is_none()) {
+            hf_storage = heightfield_obj.cast<physics::HeightField2D>();
+            hf = &hf_storage;
+        }
+
+        physics::step_physics_3d(bodies, config, hf);
+
+        // Update the original list with new positions/velocities/grounded state
+        for (size_t i = 0; i < bodies.size(); ++i) {
+            body_list[i].attr("position") = py::cast(bodies[i].position);
+            body_list[i].attr("velocity") = py::cast(bodies[i].velocity);
+            body_list[i].attr("grounded") = py::cast(bodies[i].grounded);
+        }
+    },
+    py::arg("bodies"),
+    py::arg("dt") = physics::DEFAULT_DT,
+    py::arg("iterations") = 10,
+    py::arg("restitution") = 0.5f,
+    py::arg("cell_size") = 0.0f,
+    py::arg("gravity") = -9.8f,
+    py::arg("damping") = 0.0f,
+    py::arg("heightfield") = py::none(),
+    "Step 3D physics simulation using hybrid 2D+height approach (modifies bodies in-place)");
+
     // Standalone physics step function for testing
     m.def("step_physics", [](py::list body_list, float dt, uint32_t iterations,
                               float restitution, float cell_size, float gravity,
