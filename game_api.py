@@ -1,0 +1,1699 @@
+"""Game API layer for the Procedural Engine.
+
+This module provides the game-level abstractions that sit above the engine:
+- Entity hierarchy (Entity, Character, Player, NPC, Prop, Item)
+- GameWorld for state management and entity lifecycle
+- Event system for decoupled game systems
+- Inventory and equipment management
+- Quest tracking and objectives
+
+The game layer uses the engine—it doesn't modify it. All game state flows
+through well-defined interfaces to ensure the engine remains reusable.
+"""
+from __future__ import annotations
+
+import json
+import uuid
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from enum import Enum, auto
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TypeVar
+
+from physics import Vec3, RigidBody3D, HeightField2D, step_physics_3d
+
+__all__ = [
+    # Core types
+    "EntityId",
+    "EventType",
+    "Event",
+    # Entities
+    "Entity",
+    "Character",
+    "Player",
+    "NPC",
+    "Prop",
+    "Item",
+    # Inventory
+    "Inventory",
+    "ItemDefinition",
+    # Quest system
+    "Quest",
+    "QuestObjective",
+    "QuestState",
+    "ObjectiveType",
+    # Dialogue
+    "DialogueResponse",
+    "DialogueContext",
+    # Agent framework
+    "NPCAgent",
+    "LocalAgent",
+    # Game world
+    "GameWorld",
+    "GameConfig",
+]
+
+
+# =============================================================================
+# Type Aliases
+# =============================================================================
+
+EntityId = str  # Unique identifier for entities
+
+
+# =============================================================================
+# Event System
+# =============================================================================
+
+
+class EventType(Enum):
+    """Types of events emitted by the game world."""
+
+    # Entity events
+    ENTITY_SPAWNED = auto()
+    ENTITY_DESTROYED = auto()
+    ENTITY_MOVED = auto()
+
+    # Player events
+    PLAYER_MOVED = auto()
+    PLAYER_INTERACTED = auto()
+    PLAYER_ENTERED_REGION = auto()
+
+    # NPC events
+    NPC_SPAWNED = auto()
+    NPC_BEHAVIOR_CHANGED = auto()
+    NPC_DIALOGUE_STARTED = auto()
+    NPC_DIALOGUE_ENDED = auto()
+
+    # Quest events
+    QUEST_AVAILABLE = auto()
+    QUEST_STARTED = auto()
+    QUEST_OBJECTIVE_UPDATED = auto()
+    QUEST_COMPLETED = auto()
+    QUEST_FAILED = auto()
+
+    # Inventory events
+    ITEM_ACQUIRED = auto()
+    ITEM_DROPPED = auto()
+    ITEM_USED = auto()
+
+    # World events
+    WORLD_GENERATED = auto()
+    CHUNK_LOADED = auto()
+    CHUNK_UNLOADED = auto()
+
+
+@dataclass
+class Event:
+    """Game event with type and associated data."""
+
+    event_type: EventType
+    data: Dict[str, Any] = field(default_factory=dict)
+    source_entity: Optional[EntityId] = None
+    target_entity: Optional[EntityId] = None
+
+
+EventCallback = Callable[[Event], None]
+
+
+class EventBus:
+    """Simple pub/sub event system for decoupled game systems."""
+
+    def __init__(self) -> None:
+        self._listeners: Dict[EventType, List[EventCallback]] = {}
+        self._global_listeners: List[EventCallback] = []
+
+    def subscribe(
+        self, event_type: EventType, callback: EventCallback
+    ) -> Callable[[], None]:
+        """Subscribe to a specific event type.
+
+        Returns an unsubscribe function.
+        """
+        if event_type not in self._listeners:
+            self._listeners[event_type] = []
+        self._listeners[event_type].append(callback)
+
+        def unsubscribe() -> None:
+            if callback in self._listeners.get(event_type, []):
+                self._listeners[event_type].remove(callback)
+
+        return unsubscribe
+
+    def subscribe_all(self, callback: EventCallback) -> Callable[[], None]:
+        """Subscribe to all events.
+
+        Returns an unsubscribe function.
+        """
+        self._global_listeners.append(callback)
+
+        def unsubscribe() -> None:
+            if callback in self._global_listeners:
+                self._global_listeners.remove(callback)
+
+        return unsubscribe
+
+    def emit(self, event: Event) -> None:
+        """Emit an event to all subscribed listeners."""
+        # Notify type-specific listeners
+        for callback in self._listeners.get(event.event_type, []):
+            callback(event)
+        # Notify global listeners
+        for callback in self._global_listeners:
+            callback(event)
+
+
+# =============================================================================
+# Entity Hierarchy
+# =============================================================================
+
+
+@dataclass
+class Entity:
+    """Base class for all game entities.
+
+    Entities have a unique ID, position, and can be serialized.
+    """
+
+    entity_id: EntityId = field(default_factory=lambda: str(uuid.uuid4())[:8])
+    position: Vec3 = field(default_factory=Vec3)
+    rotation: float = 0.0  # Y-axis rotation in radians
+    active: bool = True
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize entity to dictionary for save/load."""
+        return {
+            "entity_id": self.entity_id,
+            "position": {"x": self.position.x, "y": self.position.y, "z": self.position.z},
+            "rotation": self.rotation,
+            "active": self.active,
+            "type": self.__class__.__name__,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> Entity:
+        """Deserialize entity from dictionary."""
+        pos_data = data.get("position", {})
+        return cls(
+            entity_id=data.get("entity_id", str(uuid.uuid4())[:8]),
+            position=Vec3(
+                pos_data.get("x", 0.0),
+                pos_data.get("y", 0.0),
+                pos_data.get("z", 0.0),
+            ),
+            rotation=data.get("rotation", 0.0),
+            active=data.get("active", True),
+        )
+
+
+@dataclass
+class Character(Entity):
+    """Base class for entities with health, inventory, and physics body.
+
+    Characters are entities that can move, have health, and carry items.
+    """
+
+    health: float = 100.0
+    max_health: float = 100.0
+    inventory: "Inventory" = field(default_factory=lambda: Inventory())
+    velocity: Vec3 = field(default_factory=Vec3)
+    mass: float = 70.0  # kg
+    radius: float = 0.4  # meters (collision radius)
+    grounded: bool = False
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.inventory, Inventory):
+            self.inventory = Inventory()
+
+    def is_alive(self) -> bool:
+        """Check if character is alive."""
+        return self.health > 0
+
+    def take_damage(self, amount: float) -> None:
+        """Apply damage to character."""
+        self.health = max(0.0, self.health - amount)
+
+    def heal(self, amount: float) -> None:
+        """Heal character."""
+        self.health = min(self.max_health, self.health + amount)
+
+    def to_rigid_body(self) -> RigidBody3D:
+        """Create a physics body from this character."""
+        return RigidBody3D(
+            position=Vec3(self.position.x, self.position.y, self.position.z),
+            velocity=Vec3(self.velocity.x, self.velocity.y, self.velocity.z),
+            mass=self.mass,
+            radius=self.radius,
+            grounded=self.grounded,
+        )
+
+    def apply_rigid_body(self, body: RigidBody3D) -> None:
+        """Apply physics body state back to character."""
+        self.position = Vec3(body.position.x, body.position.y, body.position.z)
+        self.velocity = Vec3(body.velocity.x, body.velocity.y, body.velocity.z)
+        self.grounded = body.grounded
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize character to dictionary."""
+        data = super().to_dict()
+        data.update({
+            "health": self.health,
+            "max_health": self.max_health,
+            "inventory": self.inventory.to_dict(),
+            "velocity": {"x": self.velocity.x, "y": self.velocity.y, "z": self.velocity.z},
+            "mass": self.mass,
+            "radius": self.radius,
+        })
+        return data
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Character":
+        """Deserialize character from dictionary."""
+        entity = super().from_dict(data)
+        vel_data = data.get("velocity", {})
+        char = cls(
+            entity_id=entity.entity_id,
+            position=entity.position,
+            rotation=entity.rotation,
+            active=entity.active,
+            health=data.get("health", 100.0),
+            max_health=data.get("max_health", 100.0),
+            inventory=Inventory.from_dict(data.get("inventory", {})),
+            velocity=Vec3(
+                vel_data.get("x", 0.0),
+                vel_data.get("y", 0.0),
+                vel_data.get("z", 0.0),
+            ),
+            mass=data.get("mass", 70.0),
+            radius=data.get("radius", 0.4),
+        )
+        return char
+
+
+@dataclass
+class Player(Character):
+    """Player entity with input handling, quest log, and dialogue history.
+
+    The player is a special character that can interact with the world,
+    complete quests, and have conversations with NPCs.
+    """
+
+    name: str = "Player"
+    active_quests: List[str] = field(default_factory=list)  # Quest IDs
+    completed_quests: List[str] = field(default_factory=list)  # Quest IDs
+    dialogue_history: Dict[str, List[Dict[str, str]]] = field(default_factory=dict)
+    interaction_range: float = 2.0  # meters
+    current_interaction_target: Optional[EntityId] = None
+
+    # Movement state
+    is_jumping: bool = False
+    is_sprinting: bool = False
+    move_speed: float = 5.0  # m/s walking
+    sprint_multiplier: float = 1.5
+    jump_velocity: float = 5.0  # m/s upward
+
+    def get_move_speed(self) -> float:
+        """Get current movement speed based on state."""
+        speed = self.move_speed
+        if self.is_sprinting:
+            speed *= self.sprint_multiplier
+        return speed
+
+    def can_interact_with(self, other: Entity) -> bool:
+        """Check if player can interact with another entity."""
+        distance = (other.position - self.position).length()
+        return distance <= self.interaction_range
+
+    def add_dialogue(self, npc_id: str, role: str, content: str) -> None:
+        """Add a dialogue entry to history with an NPC."""
+        if npc_id not in self.dialogue_history:
+            self.dialogue_history[npc_id] = []
+        self.dialogue_history[npc_id].append({"role": role, "content": content})
+
+    def get_dialogue_history(self, npc_id: str) -> List[Dict[str, str]]:
+        """Get dialogue history with a specific NPC."""
+        return self.dialogue_history.get(npc_id, [])
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize player to dictionary."""
+        data = super().to_dict()
+        data.update({
+            "name": self.name,
+            "active_quests": self.active_quests.copy(),
+            "completed_quests": self.completed_quests.copy(),
+            "dialogue_history": {k: v.copy() for k, v in self.dialogue_history.items()},
+            "interaction_range": self.interaction_range,
+            "move_speed": self.move_speed,
+            "sprint_multiplier": self.sprint_multiplier,
+            "jump_velocity": self.jump_velocity,
+        })
+        return data
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Player":
+        """Deserialize player from dictionary."""
+        char = super().from_dict(data)
+        return cls(
+            entity_id=char.entity_id,
+            position=char.position,
+            rotation=char.rotation,
+            active=char.active,
+            health=char.health,
+            max_health=char.max_health,
+            inventory=char.inventory,
+            velocity=char.velocity,
+            mass=char.mass,
+            radius=char.radius,
+            name=data.get("name", "Player"),
+            active_quests=data.get("active_quests", []),
+            completed_quests=data.get("completed_quests", []),
+            dialogue_history=data.get("dialogue_history", {}),
+            interaction_range=data.get("interaction_range", 2.0),
+            move_speed=data.get("move_speed", 5.0),
+            sprint_multiplier=data.get("sprint_multiplier", 1.5),
+            jump_velocity=data.get("jump_velocity", 5.0),
+        )
+
+
+@dataclass
+class NPC(Character):
+    """Non-player character with personality, behavior, and AI agent.
+
+    NPCs have autonomous behavior via behavior trees and can engage
+    in dialogue with the player. They support both local (template-based)
+    and AI-powered (MCP) agents.
+    """
+
+    name: str = "NPC"
+    personality: str = ""  # Natural language description for AI context
+    behavior: str = "idle"  # Current behavior state
+    behavior_params: Dict[str, Any] = field(default_factory=dict)
+    memory: List[Dict[str, Any]] = field(default_factory=list)  # Conversation memory
+    relationships: Dict[str, float] = field(default_factory=dict)  # EntityId -> disposition (-1 to 1)
+    current_quest: Optional[str] = None  # Quest this NPC is associated with
+    dialogue_range: float = 3.0  # How close player must be to talk
+    is_merchant: bool = False
+    merchant_inventory: "Inventory" = field(default_factory=lambda: Inventory())
+
+    # AI agent reference (set by GameWorld)
+    _agent: Optional["NPCAgent"] = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if not isinstance(self.merchant_inventory, Inventory):
+            self.merchant_inventory = Inventory()
+
+    def get_disposition(self, entity_id: str) -> float:
+        """Get disposition toward another entity (-1 hostile to +1 friendly)."""
+        return self.relationships.get(entity_id, 0.0)
+
+    def set_disposition(self, entity_id: str, value: float) -> None:
+        """Set disposition toward another entity."""
+        self.relationships[entity_id] = max(-1.0, min(1.0, value))
+
+    def adjust_disposition(self, entity_id: str, delta: float) -> None:
+        """Adjust disposition toward another entity."""
+        current = self.get_disposition(entity_id)
+        self.set_disposition(entity_id, current + delta)
+
+    def add_memory(self, memory_entry: Dict[str, Any]) -> None:
+        """Add a memory entry (for AI context)."""
+        self.memory.append(memory_entry)
+        # Keep memory bounded
+        if len(self.memory) > 50:
+            self.memory = self.memory[-50:]
+
+    def can_talk(self, player_pos: Vec3) -> bool:
+        """Check if player is close enough to talk."""
+        distance = (player_pos - self.position).length()
+        return distance <= self.dialogue_range
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize NPC to dictionary."""
+        data = super().to_dict()
+        data.update({
+            "name": self.name,
+            "personality": self.personality,
+            "behavior": self.behavior,
+            "behavior_params": self.behavior_params.copy(),
+            "memory": [m.copy() for m in self.memory],
+            "relationships": self.relationships.copy(),
+            "current_quest": self.current_quest,
+            "dialogue_range": self.dialogue_range,
+            "is_merchant": self.is_merchant,
+            "merchant_inventory": self.merchant_inventory.to_dict(),
+        })
+        return data
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "NPC":
+        """Deserialize NPC from dictionary."""
+        char = Character.from_dict(data)
+        return cls(
+            entity_id=char.entity_id,
+            position=char.position,
+            rotation=char.rotation,
+            active=char.active,
+            health=char.health,
+            max_health=char.max_health,
+            inventory=char.inventory,
+            velocity=char.velocity,
+            mass=char.mass,
+            radius=char.radius,
+            name=data.get("name", "NPC"),
+            personality=data.get("personality", ""),
+            behavior=data.get("behavior", "idle"),
+            behavior_params=data.get("behavior_params", {}),
+            memory=data.get("memory", []),
+            relationships=data.get("relationships", {}),
+            current_quest=data.get("current_quest"),
+            dialogue_range=data.get("dialogue_range", 3.0),
+            is_merchant=data.get("is_merchant", False),
+            merchant_inventory=Inventory.from_dict(data.get("merchant_inventory", {})),
+        )
+
+
+@dataclass
+class Prop(Entity):
+    """Static world objects (rocks, trees, furniture, etc.).
+
+    Props are non-character entities that exist in the world.
+    They can be interactable or purely decorative.
+    """
+
+    prop_type: str = "generic"  # rock, tree, chest, door, etc.
+    interactable: bool = False
+    interaction_action: str = ""  # Action when interacted with
+    state: Dict[str, Any] = field(default_factory=dict)  # Prop-specific state
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize prop to dictionary."""
+        data = super().to_dict()
+        data.update({
+            "prop_type": self.prop_type,
+            "interactable": self.interactable,
+            "interaction_action": self.interaction_action,
+            "state": self.state.copy(),
+        })
+        return data
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Prop":
+        """Deserialize prop from dictionary."""
+        entity = Entity.from_dict(data)
+        return cls(
+            entity_id=entity.entity_id,
+            position=entity.position,
+            rotation=entity.rotation,
+            active=entity.active,
+            prop_type=data.get("prop_type", "generic"),
+            interactable=data.get("interactable", False),
+            interaction_action=data.get("interaction_action", ""),
+            state=data.get("state", {}),
+        )
+
+
+# =============================================================================
+# Inventory System
+# =============================================================================
+
+
+@dataclass
+class ItemDefinition:
+    """Definition of an item type (loaded from data files)."""
+
+    item_id: str
+    name: str
+    description: str = ""
+    item_type: str = "misc"  # weapon, armor, consumable, quest, misc
+    value: int = 0
+    stackable: bool = True
+    max_stack: int = 99
+    properties: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize item definition to dictionary."""
+        return {
+            "item_id": self.item_id,
+            "name": self.name,
+            "description": self.description,
+            "item_type": self.item_type,
+            "value": self.value,
+            "stackable": self.stackable,
+            "max_stack": self.max_stack,
+            "properties": self.properties.copy(),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ItemDefinition":
+        """Deserialize item definition from dictionary."""
+        return cls(
+            item_id=data["item_id"],
+            name=data["name"],
+            description=data.get("description", ""),
+            item_type=data.get("item_type", "misc"),
+            value=data.get("value", 0),
+            stackable=data.get("stackable", True),
+            max_stack=data.get("max_stack", 99),
+            properties=data.get("properties", {}),
+        )
+
+
+@dataclass
+class Item(Entity):
+    """World item entity (dropped item, chest contents, etc.)."""
+
+    item_id: str = ""  # References ItemDefinition
+    count: int = 1
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize item entity to dictionary."""
+        data = super().to_dict()
+        data.update({
+            "item_id": self.item_id,
+            "count": self.count,
+        })
+        return data
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Item":
+        """Deserialize item entity from dictionary."""
+        entity = Entity.from_dict(data)
+        return cls(
+            entity_id=entity.entity_id,
+            position=entity.position,
+            rotation=entity.rotation,
+            active=entity.active,
+            item_id=data.get("item_id", ""),
+            count=data.get("count", 1),
+        )
+
+
+@dataclass
+class Inventory:
+    """Container for items with slot-based storage."""
+
+    items: Dict[str, int] = field(default_factory=dict)  # item_id -> count
+    capacity: int = 100  # Max total items
+
+    def add_item(self, item_id: str, count: int = 1) -> int:
+        """Add items to inventory. Returns count actually added."""
+        current_total = sum(self.items.values())
+        available_space = self.capacity - current_total
+        actual_add = min(count, available_space)
+
+        if actual_add > 0:
+            self.items[item_id] = self.items.get(item_id, 0) + actual_add
+        return actual_add
+
+    def remove_item(self, item_id: str, count: int = 1) -> int:
+        """Remove items from inventory. Returns count actually removed."""
+        current = self.items.get(item_id, 0)
+        actual_remove = min(count, current)
+
+        if actual_remove > 0:
+            self.items[item_id] = current - actual_remove
+            if self.items[item_id] <= 0:
+                del self.items[item_id]
+        return actual_remove
+
+    def has_item(self, item_id: str, count: int = 1) -> bool:
+        """Check if inventory has at least count of item."""
+        return self.items.get(item_id, 0) >= count
+
+    def get_count(self, item_id: str) -> int:
+        """Get count of a specific item."""
+        return self.items.get(item_id, 0)
+
+    def get_all_items(self) -> Dict[str, int]:
+        """Get all items in inventory."""
+        return self.items.copy()
+
+    def clear(self) -> None:
+        """Remove all items from inventory."""
+        self.items.clear()
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize inventory to dictionary."""
+        return {
+            "items": self.items.copy(),
+            "capacity": self.capacity,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Inventory":
+        """Deserialize inventory from dictionary."""
+        return cls(
+            items=data.get("items", {}),
+            capacity=data.get("capacity", 100),
+        )
+
+
+# =============================================================================
+# Quest System
+# =============================================================================
+
+
+class QuestState(Enum):
+    """State of a quest."""
+
+    UNAVAILABLE = auto()  # Prerequisites not met
+    AVAILABLE = auto()  # Can be started
+    ACTIVE = auto()  # In progress
+    COMPLETED = auto()  # Successfully finished
+    FAILED = auto()  # Failed (optional state)
+
+
+class ObjectiveType(Enum):
+    """Types of quest objectives."""
+
+    COLLECT = auto()  # Gather N of item X
+    KILL = auto()  # Defeat N of enemy type X
+    TALK = auto()  # Speak to NPC X
+    LOCATION = auto()  # Reach location X
+    DELIVER = auto()  # Bring item X to NPC Y
+    CUSTOM = auto()  # Custom objective with callback
+
+
+@dataclass
+class QuestObjective:
+    """A single objective within a quest."""
+
+    objective_id: str
+    description: str
+    objective_type: ObjectiveType
+    target: str  # item_id, enemy_type, npc_id, or location_id
+    required_count: int = 1
+    current_count: int = 0
+    optional: bool = False
+
+    def is_complete(self) -> bool:
+        """Check if objective is complete."""
+        return self.current_count >= self.required_count
+
+    def update_progress(self, amount: int = 1) -> bool:
+        """Update objective progress. Returns True if just completed."""
+        was_complete = self.is_complete()
+        self.current_count = min(self.required_count, self.current_count + amount)
+        return not was_complete and self.is_complete()
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize objective to dictionary."""
+        return {
+            "objective_id": self.objective_id,
+            "description": self.description,
+            "objective_type": self.objective_type.name,
+            "target": self.target,
+            "required_count": self.required_count,
+            "current_count": self.current_count,
+            "optional": self.optional,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "QuestObjective":
+        """Deserialize objective from dictionary."""
+        return cls(
+            objective_id=data["objective_id"],
+            description=data["description"],
+            objective_type=ObjectiveType[data["objective_type"]],
+            target=data["target"],
+            required_count=data.get("required_count", 1),
+            current_count=data.get("current_count", 0),
+            optional=data.get("optional", False),
+        )
+
+
+@dataclass
+class Quest:
+    """A quest with objectives and rewards."""
+
+    quest_id: str
+    title: str
+    description: str
+    giver_npc_id: str
+    objectives: List[QuestObjective] = field(default_factory=list)
+    rewards: Dict[str, Any] = field(default_factory=dict)
+    prerequisites: List[str] = field(default_factory=list)  # Required completed quests
+    on_complete_actions: List[Dict[str, Any]] = field(default_factory=list)
+    state: QuestState = QuestState.UNAVAILABLE
+
+    def is_complete(self) -> bool:
+        """Check if all required objectives are complete."""
+        return all(
+            obj.is_complete()
+            for obj in self.objectives
+            if not obj.optional
+        )
+
+    def get_progress(self) -> Tuple[int, int]:
+        """Get (completed, total) required objectives."""
+        required = [o for o in self.objectives if not o.optional]
+        completed = sum(1 for o in required if o.is_complete())
+        return completed, len(required)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize quest to dictionary."""
+        return {
+            "quest_id": self.quest_id,
+            "title": self.title,
+            "description": self.description,
+            "giver_npc_id": self.giver_npc_id,
+            "objectives": [o.to_dict() for o in self.objectives],
+            "rewards": self.rewards.copy(),
+            "prerequisites": self.prerequisites.copy(),
+            "on_complete_actions": [a.copy() for a in self.on_complete_actions],
+            "state": self.state.name,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Quest":
+        """Deserialize quest from dictionary."""
+        return cls(
+            quest_id=data["quest_id"],
+            title=data["title"],
+            description=data["description"],
+            giver_npc_id=data["giver_npc_id"],
+            objectives=[
+                QuestObjective.from_dict(o) for o in data.get("objectives", [])
+            ],
+            rewards=data.get("rewards", {}),
+            prerequisites=data.get("prerequisites", []),
+            on_complete_actions=data.get("on_complete_actions", []),
+            state=QuestState[data.get("state", "UNAVAILABLE")],
+        )
+
+
+# =============================================================================
+# Dialogue System
+# =============================================================================
+
+
+@dataclass
+class DialogueResponse:
+    """Response from an NPC in dialogue."""
+
+    text: str  # What the NPC says
+    emotion: str = "neutral"  # For UI/animation: neutral, happy, angry, sad, etc.
+    actions: List[Dict[str, Any]] = field(default_factory=list)  # Side effects
+    options: List[Dict[str, str]] = field(default_factory=list)  # Player response options
+    ends_conversation: bool = False
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize response to dictionary."""
+        return {
+            "text": self.text,
+            "emotion": self.emotion,
+            "actions": [a.copy() for a in self.actions],
+            "options": [o.copy() for o in self.options],
+            "ends_conversation": self.ends_conversation,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "DialogueResponse":
+        """Deserialize response from dictionary."""
+        return cls(
+            text=data["text"],
+            emotion=data.get("emotion", "neutral"),
+            actions=data.get("actions", []),
+            options=data.get("options", []),
+            ends_conversation=data.get("ends_conversation", False),
+        )
+
+
+@dataclass
+class DialogueContext:
+    """Context provided to NPC agent for dialogue generation."""
+
+    npc_id: str
+    npc_name: str
+    npc_personality: str
+    npc_behavior: str
+    npc_current_quest: Optional[str]
+    relationship_to_player: float
+    player_name: str
+    player_active_quests: List[str]
+    player_inventory_summary: List[str]
+    conversation_history: List[Dict[str, str]]
+    world_context: Dict[str, Any]
+    player_message: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert context to dictionary for agent processing."""
+        return {
+            "npc": {
+                "id": self.npc_id,
+                "name": self.npc_name,
+                "personality": self.npc_personality,
+                "behavior": self.npc_behavior,
+                "current_quest": self.npc_current_quest,
+                "relationship_to_player": self.relationship_to_player,
+            },
+            "player": {
+                "name": self.player_name,
+                "active_quests": self.player_active_quests,
+                "inventory_summary": self.player_inventory_summary,
+            },
+            "conversation_history": self.conversation_history,
+            "world_context": self.world_context,
+            "player_message": self.player_message,
+        }
+
+
+# =============================================================================
+# NPC Agent Framework
+# =============================================================================
+
+
+class NPCAgent(ABC):
+    """Abstract interface for NPC decision-making.
+
+    This interface enables both local (template-based) and AI-powered
+    (MCP) agents to control NPC behavior and dialogue.
+    """
+
+    @abstractmethod
+    def get_dialogue_response(self, context: DialogueContext) -> DialogueResponse:
+        """Generate response to player dialogue.
+
+        Parameters
+        ----------
+        context:
+            Full context including NPC personality, conversation history,
+            player state, and world context.
+
+        Returns
+        -------
+        DialogueResponse:
+            The NPC's response including text, emotion, and any actions.
+        """
+        pass
+
+    @abstractmethod
+    def get_next_action(self, npc: NPC, world: "GameWorld") -> Optional[Dict[str, Any]]:
+        """Decide what the NPC should do next.
+
+        Parameters
+        ----------
+        npc:
+            The NPC to decide for.
+        world:
+            The game world for context.
+
+        Returns
+        -------
+        Optional[Dict[str, Any]]:
+            An action dict or None for no action. Action types include:
+            - {"type": "move_to", "target": Vec3}
+            - {"type": "idle", "duration": float}
+            - {"type": "follow", "target_id": str}
+            - {"type": "patrol", "waypoints": List[Vec3]}
+        """
+        pass
+
+
+class LocalAgent(NPCAgent):
+    """Offline NPC agent using templates and simple logic.
+
+    Provides reasonable NPC behavior without any AI connection.
+    Uses personality-influenced template responses and simple
+    state-based behavior decisions.
+    """
+
+    # Default dialogue templates by behavior type
+    DEFAULT_TEMPLATES: Dict[str, List[str]] = {
+        "idle": [
+            "Hello there.",
+            "Nice day, isn't it?",
+            "What can I do for you?",
+        ],
+        "merchant": [
+            "Looking to trade?",
+            "I have fine wares for sale.",
+            "Take a look at my goods.",
+        ],
+        "guard": [
+            "Move along, citizen.",
+            "Stay out of trouble.",
+            "I'm watching you.",
+        ],
+        "quest_giver": [
+            "I have a task for you, if you're interested.",
+            "Are you looking for work?",
+            "I could use some help.",
+        ],
+    }
+
+    FAREWELL_TEMPLATES: List[str] = [
+        "Farewell.",
+        "Safe travels.",
+        "Until next time.",
+    ]
+
+    def __init__(
+        self,
+        custom_templates: Optional[Dict[str, List[str]]] = None,
+        dialogue_trees: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Initialize local agent with optional custom templates.
+
+        Parameters
+        ----------
+        custom_templates:
+            Custom dialogue templates by behavior type.
+        dialogue_trees:
+            Structured dialogue trees for specific NPCs/quests.
+        """
+        self.templates = self.DEFAULT_TEMPLATES.copy()
+        if custom_templates:
+            self.templates.update(custom_templates)
+        self.dialogue_trees = dialogue_trees or {}
+
+    def get_dialogue_response(self, context: DialogueContext) -> DialogueResponse:
+        """Generate template-based dialogue response."""
+        behavior = context.npc_behavior
+        player_msg = context.player_message.lower()
+
+        # Check for farewell keywords
+        farewell_keywords = ["bye", "goodbye", "farewell", "see you", "later"]
+        if any(kw in player_msg for kw in farewell_keywords):
+            import random
+            return DialogueResponse(
+                text=random.choice(self.FAREWELL_TEMPLATES),
+                emotion="neutral",
+                ends_conversation=True,
+            )
+
+        # Check for quest-related dialogue
+        if context.npc_current_quest:
+            quest_response = self._handle_quest_dialogue(context)
+            if quest_response:
+                return quest_response
+
+        # Get templates for this behavior
+        templates = self.templates.get(behavior, self.templates["idle"])
+
+        # Simple response selection (could be improved with keyword matching)
+        import random
+        text = random.choice(templates)
+
+        # Adjust emotion based on relationship
+        emotion = "neutral"
+        if context.relationship_to_player > 0.5:
+            emotion = "friendly"
+        elif context.relationship_to_player < -0.5:
+            emotion = "suspicious"
+
+        return DialogueResponse(
+            text=text,
+            emotion=emotion,
+        )
+
+    def _handle_quest_dialogue(self, context: DialogueContext) -> Optional[DialogueResponse]:
+        """Handle quest-related dialogue."""
+        quest_id = context.npc_current_quest
+        player_msg = context.player_message.lower()
+
+        # Check if player is asking about quests
+        quest_keywords = ["quest", "task", "help", "job", "work", "mission"]
+        if any(kw in player_msg for kw in quest_keywords):
+            if quest_id not in context.player_active_quests:
+                # Offer quest
+                return DialogueResponse(
+                    text=f"I have a task that needs doing. Are you interested?",
+                    emotion="hopeful",
+                    options=[
+                        {"label": "Yes, I'll help.", "value": "accept_quest"},
+                        {"label": "Not right now.", "value": "decline_quest"},
+                    ],
+                )
+            else:
+                # Quest in progress
+                return DialogueResponse(
+                    text="How goes the task I gave you?",
+                    emotion="curious",
+                )
+
+        # Check for quest acceptance
+        if "accept" in player_msg or "yes" in player_msg or "help" in player_msg:
+            return DialogueResponse(
+                text="Excellent! I knew I could count on you.",
+                emotion="happy",
+                actions=[{"type": "give_quest", "quest_id": quest_id}],
+            )
+
+        return None
+
+    def get_next_action(self, npc: NPC, world: "GameWorld") -> Optional[Dict[str, Any]]:
+        """Determine next action based on behavior state."""
+        behavior = npc.behavior
+
+        if behavior == "idle":
+            return {"type": "idle", "duration": 5.0}
+
+        elif behavior == "wander":
+            # Simple random wander
+            import random
+            offset = Vec3(
+                random.uniform(-5, 5),
+                0,
+                random.uniform(-5, 5),
+            )
+            target = npc.position + offset
+            return {"type": "move_to", "target": target}
+
+        elif behavior == "patrol":
+            waypoints = npc.behavior_params.get("waypoints", [])
+            if waypoints:
+                current_idx = npc.behavior_params.get("current_waypoint", 0)
+                target = waypoints[current_idx % len(waypoints)]
+                npc.behavior_params["current_waypoint"] = (current_idx + 1) % len(waypoints)
+                return {"type": "move_to", "target": target}
+            return {"type": "idle", "duration": 2.0}
+
+        elif behavior == "follow":
+            target_id = npc.behavior_params.get("target_id")
+            if target_id:
+                return {"type": "follow", "target_id": target_id}
+            return {"type": "idle", "duration": 1.0}
+
+        elif behavior == "merchant":
+            # Merchants stay in place
+            return {"type": "idle", "duration": 10.0}
+
+        else:
+            return {"type": "idle", "duration": 3.0}
+
+
+# =============================================================================
+# Game World
+# =============================================================================
+
+
+@dataclass
+class GameConfig:
+    """Configuration for the game world."""
+
+    seed: int = 42
+    world_size: int = 10  # chunks
+    chunk_size: int = 64  # vertices per side
+    physics_dt: float = 1.0 / 60.0
+    gravity: float = -9.8
+    auto_save_interval: float = 300.0  # seconds
+
+
+class GameWorld:
+    """Central game state manager.
+
+    Owns all game state including entities, quests, and world data.
+    Provides the context for command execution and manages entity lifecycle.
+    """
+
+    def __init__(self, config: Optional[GameConfig] = None) -> None:
+        self.config = config or GameConfig()
+        self.events = EventBus()
+
+        # Entity storage
+        self._entities: Dict[EntityId, Entity] = {}
+        self._player: Optional[Player] = None
+
+        # Quest system
+        self._quests: Dict[str, Quest] = {}
+        self._item_definitions: Dict[str, ItemDefinition] = {}
+
+        # Physics
+        self._heightfield: Optional[HeightField2D] = None
+
+        # Agent for NPCs
+        self._default_agent: NPCAgent = LocalAgent()
+
+        # World state
+        self._frame: int = 0
+        self._time: float = 0.0
+        self._time_of_day: float = 12.0  # 0-24 hours
+        self._paused: bool = False
+
+        # Flags for game state
+        self._flags: Dict[str, Any] = {}
+
+    # -------------------------------------------------------------------------
+    # Entity Management
+    # -------------------------------------------------------------------------
+
+    def spawn_entity(self, entity: Entity) -> EntityId:
+        """Add an entity to the world."""
+        self._entities[entity.entity_id] = entity
+
+        # Emit appropriate event
+        if isinstance(entity, NPC):
+            entity._agent = self._default_agent
+            self.events.emit(Event(
+                EventType.NPC_SPAWNED,
+                {"npc_id": entity.entity_id, "name": entity.name},
+                source_entity=entity.entity_id,
+            ))
+        else:
+            self.events.emit(Event(
+                EventType.ENTITY_SPAWNED,
+                {"entity_id": entity.entity_id, "type": type(entity).__name__},
+                source_entity=entity.entity_id,
+            ))
+
+        return entity.entity_id
+
+    def destroy_entity(self, entity_id: EntityId) -> bool:
+        """Remove an entity from the world."""
+        if entity_id in self._entities:
+            entity = self._entities.pop(entity_id)
+            self.events.emit(Event(
+                EventType.ENTITY_DESTROYED,
+                {"entity_id": entity_id, "type": type(entity).__name__},
+                source_entity=entity_id,
+            ))
+            return True
+        return False
+
+    def get_entity(self, entity_id: EntityId) -> Optional[Entity]:
+        """Get an entity by ID."""
+        return self._entities.get(entity_id)
+
+    def get_entities_by_type(self, entity_type: type) -> List[Entity]:
+        """Get all entities of a specific type."""
+        return [e for e in self._entities.values() if isinstance(e, entity_type)]
+
+    def get_entities_in_range(self, position: Vec3, radius: float) -> List[Entity]:
+        """Get all entities within radius of position."""
+        result = []
+        for entity in self._entities.values():
+            distance = (entity.position - position).length()
+            if distance <= radius:
+                result.append(entity)
+        return result
+
+    def get_npcs(self) -> List[NPC]:
+        """Get all NPCs in the world."""
+        return [e for e in self._entities.values() if isinstance(e, NPC)]
+
+    # -------------------------------------------------------------------------
+    # Player Management
+    # -------------------------------------------------------------------------
+
+    def create_player(
+        self,
+        name: str = "Player",
+        position: Optional[Vec3] = None,
+    ) -> Player:
+        """Create and register the player entity."""
+        self._player = Player(
+            entity_id="player",
+            name=name,
+            position=position or Vec3(0, 10, 0),
+        )
+        self._entities["player"] = self._player
+        return self._player
+
+    def get_player(self) -> Optional[Player]:
+        """Get the player entity."""
+        return self._player
+
+    # -------------------------------------------------------------------------
+    # Quest Management
+    # -------------------------------------------------------------------------
+
+    def register_quest(self, quest: Quest) -> None:
+        """Register a quest definition."""
+        self._quests[quest.quest_id] = quest
+
+    def get_quest(self, quest_id: str) -> Optional[Quest]:
+        """Get a quest by ID."""
+        return self._quests.get(quest_id)
+
+    def start_quest(self, quest_id: str) -> bool:
+        """Start a quest for the player."""
+        quest = self._quests.get(quest_id)
+        if not quest or not self._player:
+            return False
+
+        if quest.state != QuestState.AVAILABLE:
+            return False
+
+        quest.state = QuestState.ACTIVE
+        self._player.active_quests.append(quest_id)
+
+        self.events.emit(Event(
+            EventType.QUEST_STARTED,
+            {"quest_id": quest_id, "title": quest.title},
+            source_entity="player",
+        ))
+        return True
+
+    def complete_quest(self, quest_id: str) -> bool:
+        """Complete a quest and grant rewards."""
+        quest = self._quests.get(quest_id)
+        if not quest or not self._player:
+            return False
+
+        if quest.state != QuestState.ACTIVE or not quest.is_complete():
+            return False
+
+        quest.state = QuestState.COMPLETED
+        if quest_id in self._player.active_quests:
+            self._player.active_quests.remove(quest_id)
+        self._player.completed_quests.append(quest_id)
+
+        # Grant rewards
+        rewards = quest.rewards
+        if "gold" in rewards:
+            self._player.inventory.add_item("gold", rewards["gold"])
+        if "items" in rewards:
+            for item_id, count in rewards["items"].items():
+                self._player.inventory.add_item(item_id, count)
+        if "experience" in rewards:
+            # Experience would be handled by a leveling system
+            pass
+
+        # Execute completion actions
+        for action in quest.on_complete_actions:
+            self._execute_action(action)
+
+        self.events.emit(Event(
+            EventType.QUEST_COMPLETED,
+            {"quest_id": quest_id, "title": quest.title, "rewards": rewards},
+            source_entity="player",
+        ))
+        return True
+
+    def update_quest_objective(
+        self,
+        quest_id: str,
+        objective_id: str,
+        amount: int = 1,
+    ) -> bool:
+        """Update progress on a quest objective."""
+        quest = self._quests.get(quest_id)
+        if not quest or quest.state != QuestState.ACTIVE:
+            return False
+
+        for obj in quest.objectives:
+            if obj.objective_id == objective_id:
+                just_completed = obj.update_progress(amount)
+
+                self.events.emit(Event(
+                    EventType.QUEST_OBJECTIVE_UPDATED,
+                    {
+                        "quest_id": quest_id,
+                        "objective_id": objective_id,
+                        "current": obj.current_count,
+                        "required": obj.required_count,
+                        "just_completed": just_completed,
+                    },
+                    source_entity="player",
+                ))
+                return True
+        return False
+
+    # -------------------------------------------------------------------------
+    # Item Management
+    # -------------------------------------------------------------------------
+
+    def register_item_definition(self, item_def: ItemDefinition) -> None:
+        """Register an item definition."""
+        self._item_definitions[item_def.item_id] = item_def
+
+    def get_item_definition(self, item_id: str) -> Optional[ItemDefinition]:
+        """Get an item definition by ID."""
+        return self._item_definitions.get(item_id)
+
+    # -------------------------------------------------------------------------
+    # Dialogue
+    # -------------------------------------------------------------------------
+
+    def initiate_dialogue(self, npc_id: EntityId) -> bool:
+        """Start dialogue with an NPC."""
+        npc = self.get_entity(npc_id)
+        if not isinstance(npc, NPC) or not self._player:
+            return False
+
+        if not npc.can_talk(self._player.position):
+            return False
+
+        self._player.current_interaction_target = npc_id
+
+        self.events.emit(Event(
+            EventType.NPC_DIALOGUE_STARTED,
+            {"npc_id": npc_id, "npc_name": npc.name},
+            source_entity="player",
+            target_entity=npc_id,
+        ))
+        return True
+
+    def process_player_dialogue(
+        self,
+        npc_id: EntityId,
+        message: str,
+    ) -> Optional[DialogueResponse]:
+        """Process player dialogue and get NPC response."""
+        npc = self.get_entity(npc_id)
+        if not isinstance(npc, NPC) or not self._player:
+            return None
+
+        # Build dialogue context
+        context = DialogueContext(
+            npc_id=npc_id,
+            npc_name=npc.name,
+            npc_personality=npc.personality,
+            npc_behavior=npc.behavior,
+            npc_current_quest=npc.current_quest,
+            relationship_to_player=npc.get_disposition("player"),
+            player_name=self._player.name,
+            player_active_quests=self._player.active_quests.copy(),
+            player_inventory_summary=self._get_inventory_summary(self._player.inventory),
+            conversation_history=self._player.get_dialogue_history(npc_id),
+            world_context={
+                "time_of_day": self._get_time_period(),
+                "location": "world",  # Would be more specific with regions
+            },
+            player_message=message,
+        )
+
+        # Get response from agent
+        agent = npc._agent or self._default_agent
+        response = agent.get_dialogue_response(context)
+
+        # Record dialogue history
+        self._player.add_dialogue(npc_id, "player", message)
+        self._player.add_dialogue(npc_id, "npc", response.text)
+
+        # Process response actions
+        for action in response.actions:
+            self._execute_action(action, npc_id)
+
+        if response.ends_conversation:
+            self.end_dialogue(npc_id)
+
+        return response
+
+    def end_dialogue(self, npc_id: EntityId) -> None:
+        """End dialogue with an NPC."""
+        if self._player and self._player.current_interaction_target == npc_id:
+            self._player.current_interaction_target = None
+
+        self.events.emit(Event(
+            EventType.NPC_DIALOGUE_ENDED,
+            {"npc_id": npc_id},
+            source_entity="player",
+            target_entity=npc_id,
+        ))
+
+    def _get_inventory_summary(self, inventory: Inventory) -> List[str]:
+        """Get a summary of inventory for dialogue context."""
+        summary = []
+        for item_id, count in inventory.items.items():
+            item_def = self._item_definitions.get(item_id)
+            name = item_def.name if item_def else item_id
+            summary.append(f"{name}: {count}")
+        return summary
+
+    def _get_time_period(self) -> str:
+        """Get time of day as a string."""
+        hour = self._time_of_day
+        if 5 <= hour < 12:
+            return "morning"
+        elif 12 <= hour < 17:
+            return "afternoon"
+        elif 17 <= hour < 21:
+            return "evening"
+        else:
+            return "night"
+
+    # -------------------------------------------------------------------------
+    # Action Execution
+    # -------------------------------------------------------------------------
+
+    def _execute_action(
+        self,
+        action: Dict[str, Any],
+        source_npc_id: Optional[EntityId] = None,
+    ) -> None:
+        """Execute a dialogue or quest action."""
+        action_type = action.get("type")
+
+        if action_type == "give_quest":
+            quest_id = action["quest_id"]
+            quest = self._quests.get(quest_id)
+            if quest:
+                quest.state = QuestState.AVAILABLE
+                self.start_quest(quest_id)
+
+        elif action_type == "complete_quest":
+            self.complete_quest(action["quest_id"])
+
+        elif action_type == "change_disposition":
+            if source_npc_id:
+                npc = self.get_entity(source_npc_id)
+                if isinstance(npc, NPC):
+                    npc.adjust_disposition("player", action["delta"])
+
+        elif action_type == "give_item":
+            if self._player:
+                self._player.inventory.add_item(
+                    action["item"],
+                    action.get("count", 1),
+                )
+                self.events.emit(Event(
+                    EventType.ITEM_ACQUIRED,
+                    {"item_id": action["item"], "count": action.get("count", 1)},
+                    source_entity="player",
+                ))
+
+        elif action_type == "take_item":
+            if self._player:
+                self._player.inventory.remove_item(
+                    action["item"],
+                    action.get("count", 1),
+                )
+
+        elif action_type == "set_flag":
+            self._flags[action["flag"]] = action.get("value", True)
+
+    # -------------------------------------------------------------------------
+    # Physics
+    # -------------------------------------------------------------------------
+
+    def set_heightfield(self, heightfield: HeightField2D) -> None:
+        """Set the terrain heightfield for physics."""
+        self._heightfield = heightfield
+
+    def physics_step(self) -> None:
+        """Run one physics step for all character entities."""
+        characters = self.get_entities_by_type(Character)
+        if not characters:
+            return
+
+        # Create physics bodies
+        bodies = []
+        char_list = []
+        for entity in characters:
+            if isinstance(entity, Character) and entity.active:
+                bodies.append(entity.to_rigid_body())
+                char_list.append(entity)
+
+        if not bodies:
+            return
+
+        # Run physics
+        step_physics_3d(
+            bodies,
+            dt=self.config.physics_dt,
+            gravity=self.config.gravity,
+            heightfield=self._heightfield,
+        )
+
+        # Apply results back
+        for char, body in zip(char_list, bodies):
+            old_pos = Vec3(char.position.x, char.position.y, char.position.z)
+            char.apply_rigid_body(body)
+
+            # Emit movement event if position changed significantly
+            if (char.position - old_pos).length() > 0.01:
+                event_type = (
+                    EventType.PLAYER_MOVED
+                    if isinstance(char, Player)
+                    else EventType.ENTITY_MOVED
+                )
+                self.events.emit(Event(
+                    event_type,
+                    {"old_position": old_pos, "new_position": char.position},
+                    source_entity=char.entity_id,
+                ))
+
+    # -------------------------------------------------------------------------
+    # Game Loop
+    # -------------------------------------------------------------------------
+
+    def step(self, dt: float) -> None:
+        """Advance the game world by dt seconds."""
+        if self._paused:
+            return
+
+        self._frame += 1
+        self._time += dt
+
+        # Update time of day (1 game hour = 1 real minute)
+        self._time_of_day = (self._time_of_day + dt / 60.0) % 24.0
+
+        # Physics
+        self.physics_step()
+
+        # Update NPC behaviors
+        self._update_npcs(dt)
+
+    def _update_npcs(self, dt: float) -> None:
+        """Update all NPC behaviors."""
+        for npc in self.get_npcs():
+            if not npc.active:
+                continue
+
+            agent = npc._agent or self._default_agent
+            action = agent.get_next_action(npc, self)
+
+            if action:
+                self._execute_npc_action(npc, action, dt)
+
+    def _execute_npc_action(
+        self,
+        npc: NPC,
+        action: Dict[str, Any],
+        dt: float,
+    ) -> None:
+        """Execute an NPC action."""
+        action_type = action.get("type")
+
+        if action_type == "move_to":
+            target = action["target"]
+            if isinstance(target, dict):
+                target = Vec3(target["x"], target["y"], target["z"])
+
+            direction = target - npc.position
+            direction = Vec3(direction.x, 0, direction.z)  # Ignore Y
+            distance = direction.length()
+
+            if distance > 0.1:
+                direction = direction.normalized()
+                speed = 3.0  # NPC walking speed
+                move = direction * min(speed * dt, distance)
+                npc.position = npc.position + move
+
+        elif action_type == "follow":
+            target_id = action["target_id"]
+            target_entity = self.get_entity(target_id)
+            if target_entity:
+                direction = target_entity.position - npc.position
+                direction = Vec3(direction.x, 0, direction.z)
+                distance = direction.length()
+
+                if distance > 2.0:  # Keep some distance
+                    direction = direction.normalized()
+                    speed = 4.0
+                    move = direction * min(speed * dt, distance - 2.0)
+                    npc.position = npc.position + move
+
+        # "idle" action doesn't need handling
+
+    # -------------------------------------------------------------------------
+    # Save/Load
+    # -------------------------------------------------------------------------
+
+    def save_to_dict(self) -> Dict[str, Any]:
+        """Serialize game world to dictionary."""
+        return {
+            "version": "1.0",
+            "seed": self.config.seed,
+            "frame": self._frame,
+            "time": self._time,
+            "time_of_day": self._time_of_day,
+            "player": self._player.to_dict() if self._player else None,
+            "entities": {
+                eid: e.to_dict()
+                for eid, e in self._entities.items()
+                if eid != "player"
+            },
+            "quests": {qid: q.to_dict() for qid, q in self._quests.items()},
+            "flags": self._flags.copy(),
+        }
+
+    def save_to_file(self, path: Path) -> None:
+        """Save game world to a JSON file."""
+        data = self.save_to_dict()
+        with open(path, "w") as f:
+            json.dump(data, f, indent=2)
+
+    def load_from_dict(self, data: Dict[str, Any]) -> None:
+        """Load game world from dictionary."""
+        self.config.seed = data.get("seed", 42)
+        self._frame = data.get("frame", 0)
+        self._time = data.get("time", 0.0)
+        self._time_of_day = data.get("time_of_day", 12.0)
+        self._flags = data.get("flags", {})
+
+        # Load player
+        if data.get("player"):
+            self._player = Player.from_dict(data["player"])
+            self._entities["player"] = self._player
+
+        # Load other entities
+        for eid, edata in data.get("entities", {}).items():
+            entity_type = edata.get("type", "Entity")
+            if entity_type == "NPC":
+                entity = NPC.from_dict(edata)
+                entity._agent = self._default_agent
+            elif entity_type == "Prop":
+                entity = Prop.from_dict(edata)
+            elif entity_type == "Item":
+                entity = Item.from_dict(edata)
+            elif entity_type == "Character":
+                entity = Character.from_dict(edata)
+            else:
+                entity = Entity.from_dict(edata)
+            self._entities[eid] = entity
+
+        # Load quests
+        for qid, qdata in data.get("quests", {}).items():
+            self._quests[qid] = Quest.from_dict(qdata)
+
+    def load_from_file(self, path: Path) -> None:
+        """Load game world from a JSON file."""
+        with open(path, "r") as f:
+            data = json.load(f)
+        self.load_from_dict(data)
+
+    # -------------------------------------------------------------------------
+    # Properties
+    # -------------------------------------------------------------------------
+
+    @property
+    def frame(self) -> int:
+        """Current frame number."""
+        return self._frame
+
+    @property
+    def time(self) -> float:
+        """Total elapsed time in seconds."""
+        return self._time
+
+    @property
+    def paused(self) -> bool:
+        """Whether the game is paused."""
+        return self._paused
+
+    @paused.setter
+    def paused(self, value: bool) -> None:
+        """Set pause state."""
+        self._paused = value
+
+    def get_flag(self, flag: str, default: Any = None) -> Any:
+        """Get a game flag value."""
+        return self._flags.get(flag, default)
+
+    def set_flag(self, flag: str, value: Any) -> None:
+        """Set a game flag value."""
+        self._flags[flag] = value

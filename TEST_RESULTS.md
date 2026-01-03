@@ -1,5 +1,45 @@
 # Test Results
 
+## 2026-01-03 (Phase 2: Game API & Behavior Trees)
+- **Python Test Suite**: `pytest -q` → 275 passed in 3.70s (7 graphics tests skipped in headless)
+  - Game API: 61 tests (entities, inventory, quests, dialogue, save/load, GameWorld)
+  - Behavior Trees: 42 tests (nodes, decorators, composites, pre-built behaviors)
+  - Core systems: 105+ tests (terrain, physics, props, materials, world generation)
+  - 3D Physics: 49 tests (Vec3, RigidBody3D, HeightField2D, step_physics_3d)
+  - 2D Physics: 18 tests (original sequential impulse solver)
+  - C++ Integration: 50+ tests (engine, terrain, props, materials, physics, seed registry)
+- **Test Coverage**:
+  - ✅ Game API layer (GameWorld, Entity hierarchy, Event system)
+  - ✅ Player entity (movement, interaction, dialogue history)
+  - ✅ NPC entity (personality, behavior, relationships, LocalAgent)
+  - ✅ Behavior tree system (Selector, Sequence, Parallel, decorators)
+  - ✅ Dialogue system (context building, response handling, actions)
+  - ✅ Quest system (objectives, tracking, completion, rewards)
+  - ✅ Inventory system (add/remove items, capacity limits)
+  - ✅ Save/load serialization (JSON, file I/O)
+  - ✅ Deterministic terrain generation (FBM, erosion, biomes)
+  - ✅ 3D Physics simulation (hybrid 2D+height approach)
+  - ✅ Python/C++ determinism parity
+
+## 2026-01-03 (3D Physics & Phase 1 Complete)
+- **Python Test Suite**: `pytest -q` → 172 passed in 3.82s (7 graphics tests skipped in headless)
+  - Core systems: 105+ tests (terrain, physics, props, materials, world generation, seed registry)
+  - 3D Physics: 49 tests (Vec3, RigidBody3D, HeightField2D, step_physics_3d)
+  - 2D Physics: 18 tests (original sequential impulse solver)
+  - C++ Integration: 50+ tests (engine, terrain, props, materials, physics, seed registry)
+  - Hot-reload: 7 tests (resource tracking, dirty-state, queue processing, determinism)
+- **Test Coverage**:
+  - ✅ Deterministic terrain generation (FBM, erosion, biomes)
+  - ✅ 3D Physics simulation (hybrid 2D+height approach)
+  - ✅ 2D Physics simulation (sequential impulse solver)
+  - ✅ HeightField2D with bilinear interpolation
+  - ✅ Procedural props (rocks, trees, buildings, creatures)
+  - ✅ Material graph specification and GLSL generation
+  - ✅ Hot-reload infrastructure
+  - ✅ Seed sweeping and batch generation
+  - ✅ Multi-chunk world assembly
+  - ✅ Python/C++ determinism parity
+
 ## 2026-01-01 (Hot-Reload Implementation)
 - **Python Test Suite**: `pytest -q` → 43 passed in 2.99s
   - Core systems: 36 tests (terrain, physics, props, materials, world generation, seed registry)

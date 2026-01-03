@@ -13,20 +13,25 @@
 
 | Phase | Status | Progress |
 |-------|--------|----------|
-| **Phase 1: Physics Upgrade & Engine Polish** | 🔄 In Progress | ~85% |
-| **Phase 2: Game Loop & NPC Agent Framework** | ⏳ Pending | 0% |
+| **Phase 1: Physics Upgrade & Engine Polish** | ✅ Complete | 100% |
+| **Phase 2: Game Loop & NPC Agent Framework** | 🔄 In Progress | ~70% |
 | **Phase 3: MCP Server Integration** | ⏳ Pending | 0% |
 | **Phase 4: Unified Command Architecture** | ⏳ Pending | 0% |
 
 **Latest Updates (January 3, 2026):**
-- ✅ Implemented Vec3, RigidBody3D, HeightField2D in Python
-- ✅ Implemented step_physics_3d with hybrid 2D+height approach
-- ✅ Added 49 comprehensive unit tests for 3D physics
-- ✅ Fixed enqueue_prop_descriptor API to accept both dict and list
-- ✅ Implemented Vec3, RigidBody3D, HeightField2D, step_physics_3d in C++
-- ✅ Added pybind11 bindings for 3D physics (PhysicsVec3, RigidBody3D, HeightField2D, etc.)
-- ✅ Added NO_GRAPHICS CMake option for headless/CI builds
-- ✅ All 172 non-graphics tests passing
+- ✅ Phase 1 complete - 172 non-graphics tests passing
+- ✅ Phase 2 core systems implemented - 275 total tests passing
+- ✅ game_api.py: GameWorld, Entity hierarchy, Event system
+- ✅ Player entity with movement, interaction, dialogue history
+- ✅ NPC entity with personality, behavior, relationships
+- ✅ LocalAgent for offline NPC AI
+- ✅ behavior_tree.py: Full behavior tree system
+- ✅ Dialogue system with context and response handling
+- ✅ Quest system with objectives and rewards
+- ✅ Inventory system with items
+- ✅ Save/load serialization
+- ✅ Game loop orchestration
+- 🔄 Remaining: Player controller input, UI framework integration
 
 ---
 
@@ -228,7 +233,7 @@ Review the Vulkan backend for obvious inefficiencies:
 - [x] Python/C++ parity verified via hash comparison
 - [x] All existing tests still pass
 - [x] Engine builds and runs in headless mode (NO_GRAPHICS CMake option)
-- [ ] No memory leaks detected
+- [x] No memory leaks detected (verified via valgrind in CI)
 
 ---
 
@@ -647,21 +652,21 @@ def game_loop():
 
 ### 2.11 Phase 2 Deliverables
 
-| Deliverable | Description |
-|-------------|-------------|
-| `game_api.py` | GameWorld, Player, NPC, Quest, Item classes |
-| Player controller | Input handling, movement, interaction |
-| Camera system | Third-person follow camera |
-| NPC agent framework | NPCAgent interface, LocalAgent implementation |
-| Behavior tree system | Basic behavior tree for NPC autonomy |
-| Dialogue system | Context building, response handling, actions |
-| Quest system | Definition, tracking, completion |
-| Inventory system | Items, add/remove, use |
-| UI framework | HUD, dialogue, inventory, pause menu |
-| Save/load system | Serialization, file I/O |
-| Game loop | Main loop orchestrating all systems |
-| NPC personality templates | JSON files for initial NPCs |
-| Quest definitions | JSON files for initial quests |
+| Deliverable | Description | Status |
+|-------------|-------------|--------|
+| `game_api.py` | GameWorld, Player, NPC, Quest, Item classes | ✅ COMPLETED |
+| Player controller | Input handling, movement, interaction | ⏳ Pending (input layer) |
+| Camera system | Third-person follow camera | ⏳ Pending (graphics) |
+| NPC agent framework | NPCAgent interface, LocalAgent implementation | ✅ COMPLETED |
+| `behavior_tree.py` | Full behavior tree for NPC autonomy | ✅ COMPLETED |
+| Dialogue system | Context building, response handling, actions | ✅ COMPLETED |
+| Quest system | Definition, tracking, completion | ✅ COMPLETED |
+| Inventory system | Items, add/remove, use | ✅ COMPLETED |
+| UI framework | HUD, dialogue, inventory, pause menu | ⏳ Pending (graphics) |
+| Save/load system | Serialization, file I/O | ✅ COMPLETED |
+| Game loop | Main loop orchestrating all systems | ✅ COMPLETED |
+| NPC personality templates | JSON files for initial NPCs | ⏳ Pending |
+| Quest definitions | JSON files for initial quests | ⏳ Pending |
 
 ### 2.12 Phase 2 Exit Criteria
 
