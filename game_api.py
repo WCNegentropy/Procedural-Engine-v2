@@ -21,6 +21,14 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TypeVar
 
 from physics import Vec3, RigidBody3D, HeightField2D, step_physics_3d
+from behavior_tree import (
+    BehaviorTree,
+    NodeStatus,
+    Blackboard,
+    create_idle_behavior,
+    create_patrol_behavior,
+    create_guard_behavior,
+)
 
 __all__ = [
     # Core types
@@ -398,6 +406,9 @@ class NPC(Character):
     # AI agent reference (set by GameWorld)
     _agent: Optional["NPCAgent"] = field(default=None, repr=False)
 
+    # Behavior tree for autonomous behavior (optional)
+    _behavior_tree: Optional[BehaviorTree] = field(default=None, repr=False)
+
     def __post_init__(self) -> None:
         super().__post_init__()
         if not isinstance(self.merchant_inventory, Inventory):
@@ -427,6 +438,26 @@ class NPC(Character):
         """Check if player is close enough to talk."""
         distance = (player_pos - self.position).length()
         return distance <= self.dialogue_range
+
+    def set_behavior_tree(self, tree: BehaviorTree) -> None:
+        """Set the NPC's behavior tree for autonomous behavior."""
+        self._behavior_tree = tree
+
+    def get_behavior_tree(self) -> Optional[BehaviorTree]:
+        """Get the NPC's behavior tree."""
+        return self._behavior_tree
+
+    def tick_behavior(self, world: "GameWorld", dt: float) -> Optional[NodeStatus]:
+        """Tick the NPC's behavior tree if one is assigned.
+
+        Returns
+        -------
+        Optional[NodeStatus]:
+            The status from the behavior tree, or None if no tree assigned.
+        """
+        if self._behavior_tree is not None:
+            return self._behavior_tree.tick(self, world, dt)
+        return None
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize NPC to dictionary."""
@@ -912,11 +943,14 @@ class NPCAgent(ABC):
 
 
 class LocalAgent(NPCAgent):
-    """Offline NPC agent using templates and simple logic.
+    """Offline NPC agent using templates, behavior trees, and simple logic.
 
     Provides reasonable NPC behavior without any AI connection.
-    Uses personality-influenced template responses and simple
-    state-based behavior decisions.
+    Uses personality-influenced template responses, behavior trees for
+    autonomous movement, and simple state-based behavior decisions.
+
+    The agent automatically assigns appropriate behavior trees to NPCs
+    based on their behavior type (idle, patrol, guard, etc.).
     """
 
     # Default dialogue templates by behavior type
@@ -967,6 +1001,51 @@ class LocalAgent(NPCAgent):
         if custom_templates:
             self.templates.update(custom_templates)
         self.dialogue_trees = dialogue_trees or {}
+
+    def configure_npc_behavior(self, npc: NPC) -> None:
+        """Configure NPC behavior tree based on their behavior type.
+
+        This method assigns an appropriate behavior tree to the NPC based
+        on their behavior string. Called automatically when NPC is spawned.
+
+        Parameters
+        ----------
+        npc:
+            The NPC to configure.
+        """
+        behavior = npc.behavior
+
+        if behavior == "idle":
+            npc.set_behavior_tree(create_idle_behavior(wait_min=2.0, wait_max=6.0))
+
+        elif behavior == "patrol":
+            # Use waypoints from behavior_params, or create default patrol route
+            waypoints = npc.behavior_params.get("waypoints", [])
+            if not waypoints:
+                # Default small patrol around spawn position
+                waypoints = [
+                    npc.position + Vec3(3, 0, 0),
+                    npc.position + Vec3(3, 0, 3),
+                    npc.position + Vec3(0, 0, 3),
+                    npc.position,
+                ]
+            speed = npc.behavior_params.get("patrol_speed", 2.0)
+            npc.set_behavior_tree(create_patrol_behavior(waypoints, speed))
+
+        elif behavior == "guard":
+            guard_range = npc.behavior_params.get("alert_range", 8.0)
+            npc.set_behavior_tree(create_guard_behavior(npc.position, guard_range))
+
+        elif behavior == "wander":
+            # Wander uses idle behavior with movement from get_next_action
+            npc.set_behavior_tree(create_idle_behavior(wait_min=1.0, wait_max=3.0))
+
+        elif behavior == "merchant":
+            # Merchants just idle in place
+            npc.set_behavior_tree(create_idle_behavior(wait_min=5.0, wait_max=15.0))
+
+        # Other behaviors can be added as needed
+        # NPCs without a configured behavior tree will use get_next_action
 
     def get_dialogue_response(self, context: DialogueContext) -> DialogueResponse:
         """Generate template-based dialogue response."""
@@ -1146,6 +1225,9 @@ class GameWorld:
         # Emit appropriate event
         if isinstance(entity, NPC):
             entity._agent = self._default_agent
+            # Configure behavior tree based on NPC behavior type
+            if isinstance(self._default_agent, LocalAgent):
+                self._default_agent.configure_npc_behavior(entity)
             self.events.emit(Event(
                 EventType.NPC_SPAWNED,
                 {"npc_id": entity.entity_id, "name": entity.name},
@@ -1548,16 +1630,21 @@ class GameWorld:
         self._update_npcs(dt)
 
     def _update_npcs(self, dt: float) -> None:
-        """Update all NPC behaviors."""
+        """Update all NPC behaviors using behavior trees or fallback actions."""
         for npc in self.get_npcs():
             if not npc.active:
                 continue
 
-            agent = npc._agent or self._default_agent
-            action = agent.get_next_action(npc, self)
+            # First, try to tick the behavior tree if one is assigned
+            if npc.get_behavior_tree() is not None:
+                npc.tick_behavior(self, dt)
+            else:
+                # Fallback to agent's get_next_action for legacy behavior
+                agent = npc._agent or self._default_agent
+                action = agent.get_next_action(npc, self)
 
-            if action:
-                self._execute_npc_action(npc, action, dt)
+                if action:
+                    self._execute_npc_action(npc, action, dt)
 
     def _execute_npc_action(
         self,

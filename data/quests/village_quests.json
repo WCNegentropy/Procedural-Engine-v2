@@ -1,0 +1,235 @@
+{
+  "quests": [
+    {
+      "quest_id": "blacksmith_ore_quest",
+      "title": "The Smith's Request",
+      "description": "Grom the blacksmith needs iron ore to complete an important commission. He's asked you to gather some from the nearby mines.",
+      "giver_npc_id": "blacksmith_grom",
+      "objectives": [
+        {
+          "objective_id": "collect_iron_ore",
+          "description": "Collect 5 iron ore from the mines",
+          "objective_type": "COLLECT",
+          "target": "iron_ore",
+          "required_count": 5,
+          "optional": false
+        },
+        {
+          "objective_id": "return_to_grom",
+          "description": "Return to Grom with the ore",
+          "objective_type": "TALK",
+          "target": "blacksmith_grom",
+          "required_count": 1,
+          "optional": false
+        }
+      ],
+      "rewards": {
+        "gold": 100,
+        "items": {
+          "iron_sword": 1
+        },
+        "experience": 50
+      },
+      "prerequisites": [],
+      "on_complete_actions": [
+        {"type": "change_disposition", "npc_id": "blacksmith_grom", "delta": 0.3}
+      ]
+    },
+    {
+      "quest_id": "bandit_camp_quest",
+      "title": "Clear the Roads",
+      "description": "Captain Aldric reports that bandits have been ambushing travelers on the north road. He needs someone to deal with them.",
+      "giver_npc_id": "guard_captain_aldric",
+      "objectives": [
+        {
+          "objective_id": "defeat_bandits",
+          "description": "Defeat 8 bandits",
+          "objective_type": "KILL",
+          "target": "bandit",
+          "required_count": 8,
+          "optional": false
+        },
+        {
+          "objective_id": "defeat_leader",
+          "description": "Defeat the bandit leader",
+          "objective_type": "KILL",
+          "target": "bandit_leader",
+          "required_count": 1,
+          "optional": false
+        },
+        {
+          "objective_id": "recover_supplies",
+          "description": "Recover stolen supplies",
+          "objective_type": "COLLECT",
+          "target": "stolen_supplies",
+          "required_count": 1,
+          "optional": true
+        }
+      ],
+      "rewards": {
+        "gold": 250,
+        "items": {
+          "steel_shield": 1
+        },
+        "experience": 150
+      },
+      "prerequisites": [],
+      "on_complete_actions": [
+        {"type": "change_disposition", "npc_id": "guard_captain_aldric", "delta": 0.5},
+        {"type": "set_flag", "flag": "bandits_cleared", "value": true}
+      ]
+    },
+    {
+      "quest_id": "gather_herbs_quest",
+      "title": "Herbal Remedies",
+      "description": "Elena needs rare herbs for her remedies. The moonflower only blooms at night in the forest clearing.",
+      "giver_npc_id": "herbalist_elena",
+      "objectives": [
+        {
+          "objective_id": "gather_moonflower",
+          "description": "Gather 3 moonflowers at night",
+          "objective_type": "COLLECT",
+          "target": "moonflower",
+          "required_count": 3,
+          "optional": false
+        },
+        {
+          "objective_id": "gather_thornroot",
+          "description": "Gather 5 thornroot",
+          "objective_type": "COLLECT",
+          "target": "thornroot",
+          "required_count": 5,
+          "optional": false
+        }
+      ],
+      "rewards": {
+        "gold": 75,
+        "items": {
+          "health_potion": 5,
+          "antidote": 3
+        },
+        "experience": 75
+      },
+      "prerequisites": [],
+      "on_complete_actions": [
+        {"type": "change_disposition", "npc_id": "herbalist_elena", "delta": 0.2},
+        {"type": "unlock_dialogue", "npc_id": "herbalist_elena", "topic": "ancient_forest"}
+      ]
+    },
+    {
+      "quest_id": "scarecrow_quest",
+      "title": "A Crow Problem",
+      "description": "Old Tom's crops are being destroyed by crows. He needs help building a scarecrow to protect his fields.",
+      "giver_npc_id": "farmer_tom",
+      "objectives": [
+        {
+          "objective_id": "gather_straw",
+          "description": "Gather 10 bundles of straw",
+          "objective_type": "COLLECT",
+          "target": "straw_bundle",
+          "required_count": 10,
+          "optional": false
+        },
+        {
+          "objective_id": "gather_cloth",
+          "description": "Find old clothes for the scarecrow",
+          "objective_type": "COLLECT",
+          "target": "old_clothes",
+          "required_count": 1,
+          "optional": false
+        },
+        {
+          "objective_id": "build_scarecrow",
+          "description": "Build the scarecrow in Tom's field",
+          "objective_type": "LOCATION",
+          "target": "toms_field",
+          "required_count": 1,
+          "optional": false
+        }
+      ],
+      "rewards": {
+        "gold": 50,
+        "items": {
+          "bread": 10,
+          "fresh_vegetables": 5
+        },
+        "experience": 40
+      },
+      "prerequisites": [],
+      "on_complete_actions": [
+        {"type": "change_disposition", "npc_id": "farmer_tom", "delta": 0.4}
+      ]
+    },
+    {
+      "quest_id": "main_quest_hook",
+      "title": "The Stranger's Request",
+      "description": "The mysterious stranger has asked to speak with you privately. They claim to have information about an ancient threat.",
+      "giver_npc_id": "mysterious_stranger",
+      "objectives": [
+        {
+          "objective_id": "meet_stranger",
+          "description": "Meet the stranger at midnight by the old well",
+          "objective_type": "LOCATION",
+          "target": "old_well",
+          "required_count": 1,
+          "optional": false
+        }
+      ],
+      "rewards": {
+        "gold": 0,
+        "items": {
+          "ancient_map": 1
+        },
+        "experience": 100
+      },
+      "prerequisites": ["blacksmith_ore_quest"],
+      "on_complete_actions": [
+        {"type": "set_flag", "flag": "main_quest_started", "value": true},
+        {"type": "unlock_quest", "quest_id": "ancient_ruins_quest"}
+      ]
+    },
+    {
+      "quest_id": "ancient_ruins_quest",
+      "title": "Secrets of the Ancients",
+      "description": "The ancient map reveals the location of ruins that may hold the key to stopping an awakening evil.",
+      "giver_npc_id": "mysterious_stranger",
+      "objectives": [
+        {
+          "objective_id": "find_ruins",
+          "description": "Find the ancient ruins",
+          "objective_type": "LOCATION",
+          "target": "ancient_ruins",
+          "required_count": 1,
+          "optional": false
+        },
+        {
+          "objective_id": "explore_ruins",
+          "description": "Explore the ruins",
+          "objective_type": "LOCATION",
+          "target": "ruins_inner_chamber",
+          "required_count": 1,
+          "optional": false
+        },
+        {
+          "objective_id": "find_artifact",
+          "description": "Retrieve the Sunstone artifact",
+          "objective_type": "COLLECT",
+          "target": "sunstone",
+          "required_count": 1,
+          "optional": false
+        }
+      ],
+      "rewards": {
+        "gold": 500,
+        "items": {
+          "ancient_blade": 1
+        },
+        "experience": 300
+      },
+      "prerequisites": ["main_quest_hook"],
+      "on_complete_actions": [
+        {"type": "set_flag", "flag": "has_sunstone", "value": true}
+      ]
+    }
+  ]
+}

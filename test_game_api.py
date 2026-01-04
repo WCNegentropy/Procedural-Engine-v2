@@ -993,3 +993,148 @@ class TestGameplayScenario:
 
         # Friendly should have friendly emotion
         assert response1.emotion == "friendly"
+
+
+# =============================================================================
+# Behavior Tree Integration Tests
+# =============================================================================
+
+class TestBehaviorTreeIntegration:
+    """Test integration between behavior trees and game entities."""
+
+    def test_npc_gets_behavior_tree_on_spawn(self):
+        """NPCs should get a behavior tree assigned on spawn."""
+        world = GameWorld()
+
+        npc = NPC(
+            entity_id="patrol_guard",
+            name="Guard",
+            position=Vec3(0, 0, 0),
+            behavior="patrol",
+        )
+        world.spawn_entity(npc)
+
+        # NPC should have a behavior tree assigned
+        assert npc.get_behavior_tree() is not None
+
+    def test_idle_npc_behavior_tree(self):
+        """Idle NPCs should get an idle behavior tree."""
+        world = GameWorld()
+
+        npc = NPC(
+            entity_id="idle_npc",
+            name="Idle NPC",
+            behavior="idle",
+        )
+        world.spawn_entity(npc)
+
+        tree = npc.get_behavior_tree()
+        assert tree is not None
+
+    def test_guard_npc_behavior_tree(self):
+        """Guard NPCs should get a guard behavior tree."""
+        world = GameWorld()
+
+        npc = NPC(
+            entity_id="guard_npc",
+            name="Guard",
+            behavior="guard",
+            behavior_params={"alert_range": 10.0},
+        )
+        world.spawn_entity(npc)
+
+        tree = npc.get_behavior_tree()
+        assert tree is not None
+
+    def test_merchant_npc_behavior_tree(self):
+        """Merchant NPCs should get a merchant behavior tree."""
+        world = GameWorld()
+
+        npc = NPC(
+            entity_id="merchant_npc",
+            name="Merchant",
+            behavior="merchant",
+            is_merchant=True,
+        )
+        world.spawn_entity(npc)
+
+        tree = npc.get_behavior_tree()
+        assert tree is not None
+
+    def test_manual_behavior_tree_set(self):
+        """Manual behavior tree assignment should work."""
+        from behavior_tree import create_idle_behavior
+
+        npc = NPC(
+            entity_id="test_npc",
+            name="Test NPC",
+        )
+
+        custom_tree = create_idle_behavior(wait_min=1.0, wait_max=2.0)
+        npc.set_behavior_tree(custom_tree)
+
+        assert npc.get_behavior_tree() is custom_tree
+
+    def test_behavior_tree_tick(self):
+        """Ticking behavior tree should not error."""
+        from behavior_tree import NodeStatus
+
+        world = GameWorld()
+
+        npc = NPC(
+            entity_id="tick_npc",
+            name="Tick NPC",
+            behavior="idle",
+        )
+        world.spawn_entity(npc)
+
+        # Tick behavior should return a status
+        status = npc.tick_behavior(world, dt=1.0/60.0)
+        assert status in (NodeStatus.SUCCESS, NodeStatus.FAILURE, NodeStatus.RUNNING)
+
+    def test_game_step_ticks_behavior_trees(self):
+        """Game step should tick NPC behavior trees."""
+        world = GameWorld()
+        world.create_player()
+
+        npc = NPC(
+            entity_id="step_npc",
+            name="Step NPC",
+            behavior="idle",
+        )
+        world.spawn_entity(npc)
+
+        # Running step should not error
+        for _ in range(10):
+            world.step(dt=1.0/60.0)
+
+    def test_patrol_behavior_moves_npc(self):
+        """Patrol behavior should move NPC toward waypoints."""
+        world = GameWorld()
+
+        # Create NPC with patrol behavior and custom waypoints
+        start_pos = Vec3(0, 0, 0)
+        waypoints = [
+            Vec3(10, 0, 0),
+            Vec3(10, 0, 10),
+            Vec3(0, 0, 10),
+            Vec3(0, 0, 0),
+        ]
+
+        npc = NPC(
+            entity_id="patrol_npc",
+            name="Patrol NPC",
+            position=start_pos,
+            behavior="patrol",
+            behavior_params={"waypoints": waypoints, "patrol_speed": 5.0},
+        )
+        world.spawn_entity(npc)
+
+        # Simulate several seconds of patrol
+        dt = 1.0/60.0
+        for _ in range(120):  # 2 seconds
+            npc.tick_behavior(world, dt)
+
+        # NPC should have moved from start position
+        distance_moved = (npc.position - start_pos).length()
+        assert distance_moved > 1.0  # Should have moved at least 1 meter

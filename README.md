@@ -1,8 +1,8 @@
 # Procedural Game Engine v1.2
 
-**Status:** Active Development (Phase 2: Game Systems)
+**Status:** Alpha (Phase 2 Complete)
 
-Hybrid Python/C++ procedural game engine with deterministic world generation, 3D physics, game systems, and Vulkan graphics. Building toward v2.0 AI-native RPG platform with MCP integration.
+Hybrid Python/C++ procedural game engine with deterministic world generation, 3D physics, complete game systems, and Vulkan graphics. Building toward v2.0 AI-native RPG platform with MCP integration.
 
 ---
 
@@ -17,7 +17,7 @@ cd cpp && mkdir build && cd build
 cmake .. -DNO_GRAPHICS=ON && make
 cd ../..
 
-# Run tests (275+ tests)
+# Run tests (348+ tests)
 python -m pytest -q
 ```
 
@@ -32,13 +32,18 @@ python -m pytest -q
 - Hot-reload infrastructure for iterative development
 - SHA-256 state verification across FFI boundary
 
-### Game Systems (New in v1.2)
+### Game Systems (Complete in v1.2)
 - **Entity System**: Player, NPC, Prop, Item hierarchy with serialization
 - **NPC Agent Framework**: LocalAgent for offline AI, ready for MCP integration
-- **Behavior Trees**: Full implementation with Selector, Sequence, Parallel nodes
+- **Behavior Trees**: Full implementation with Selector, Sequence, Parallel, decorators
+- **Behavior Tree Integration**: NPCs auto-configured with behavior trees on spawn
 - **Dialogue System**: Context-aware responses with personality support
 - **Quest System**: Objectives, tracking, rewards, and completion
 - **Inventory System**: Items with capacity, stacking, and persistence
+- **Input Abstraction**: Action-based input system independent of physical keys
+- **Camera System**: Third-person camera with terrain collision avoidance
+- **Player Controller**: Input → player action translation layer
+- **Data Loading**: JSON-based content loading for NPCs, quests, items
 - **Save/Load**: JSON serialization for full game state
 - **Event System**: Pub/sub for decoupled game systems
 

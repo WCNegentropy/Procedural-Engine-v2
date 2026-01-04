@@ -1,5 +1,33 @@
 # Test Results
 
+## 2026-01-04 (Phase 2 Complete: Full Game Systems)
+- **Python Test Suite**: `pytest -q` → 348 passed in 3.97s (7 graphics tests skipped in headless)
+  - Game API: 69 tests (entities, inventory, quests, dialogue, save/load, GameWorld, behavior tree integration)
+  - Behavior Trees: 42 tests (nodes, decorators, composites, pre-built behaviors)
+  - Player Controller: 43 tests (input abstraction, camera system, player movement)
+  - Data Loader: 22 tests (JSON loading, NPC/quest/item parsing)
+  - Core systems: 105+ tests (terrain, physics, props, materials, world generation)
+  - 3D Physics: 49 tests (Vec3, RigidBody3D, HeightField2D, step_physics_3d)
+  - 2D Physics: 18 tests (original sequential impulse solver)
+  - C++ Integration: 50+ tests (engine, terrain, props, materials, physics, seed registry)
+- **Test Coverage**:
+  - ✅ Game API layer (GameWorld, Entity hierarchy, Event system)
+  - ✅ Player entity (movement, interaction, dialogue history)
+  - ✅ NPC entity (personality, behavior, relationships, LocalAgent)
+  - ✅ Behavior tree system (Selector, Sequence, Parallel, decorators)
+  - ✅ Behavior tree integration with LocalAgent (auto-configuration on spawn)
+  - ✅ Dialogue system (context building, response handling, actions)
+  - ✅ Quest system (objectives, tracking, completion, rewards)
+  - ✅ Inventory system (add/remove items, capacity limits)
+  - ✅ Save/load serialization (JSON, file I/O)
+  - ✅ Input abstraction layer (actions, bindings, input manager)
+  - ✅ Camera system (third-person, terrain collision)
+  - ✅ Player controller (input → player actions translation)
+  - ✅ JSON data loading (NPCs, quests, items)
+  - ✅ Deterministic terrain generation (FBM, erosion, biomes)
+  - ✅ 3D Physics simulation (hybrid 2D+height approach)
+  - ✅ Python/C++ determinism parity
+
 ## 2026-01-03 (Phase 2: Game API & Behavior Trees)
 - **Python Test Suite**: `pytest -q` → 275 passed in 3.70s (7 graphics tests skipped in headless)
   - Game API: 61 tests (entities, inventory, quests, dialogue, save/load, GameWorld)

@@ -1,0 +1,91 @@
+{
+  "npcs": [
+    {
+      "entity_id": "blacksmith_grom",
+      "name": "Grom the Smith",
+      "personality": "A gruff but kind-hearted dwarven blacksmith. He takes immense pride in his work and has little patience for those who don't appreciate quality craftsmanship. Despite his stern exterior, he has a soft spot for adventurers who prove themselves worthy.",
+      "behavior": "merchant",
+      "position": {"x": 45, "y": 0, "z": 32},
+      "dialogue_range": 4.0,
+      "is_merchant": true,
+      "current_quest": "blacksmith_ore_quest",
+      "relationships": {
+        "player": 0.0
+      },
+      "merchant_items": ["iron_sword", "steel_shield", "health_potion"]
+    },
+    {
+      "entity_id": "innkeeper_martha",
+      "name": "Martha",
+      "personality": "A warm and motherly innkeeper who knows everyone's business. She loves to gossip but is fiercely loyal to her friends. She always has a kind word and a hot meal ready for weary travelers.",
+      "behavior": "merchant",
+      "position": {"x": 52, "y": 0, "z": 28},
+      "dialogue_range": 3.5,
+      "is_merchant": true,
+      "current_quest": null,
+      "relationships": {
+        "player": 0.2
+      },
+      "merchant_items": ["bread", "ale", "room_key"]
+    },
+    {
+      "entity_id": "guard_captain_aldric",
+      "name": "Captain Aldric",
+      "personality": "A stern and disciplined guard captain who takes his duty to protect the village very seriously. He's suspicious of strangers but respects those who prove themselves honorable. Former soldier who saw action in the border wars.",
+      "behavior": "guard",
+      "position": {"x": 38, "y": 0, "z": 45},
+      "dialogue_range": 5.0,
+      "is_merchant": false,
+      "current_quest": "bandit_camp_quest",
+      "relationships": {
+        "player": -0.1
+      },
+      "patrol_waypoints": [
+        {"x": 38, "y": 0, "z": 45},
+        {"x": 42, "y": 0, "z": 45},
+        {"x": 42, "y": 0, "z": 50},
+        {"x": 38, "y": 0, "z": 50}
+      ]
+    },
+    {
+      "entity_id": "herbalist_elena",
+      "name": "Elena the Herbalist",
+      "personality": "A mysterious and knowledgeable woman who lives on the edge of the village. She speaks in riddles and seems to know more than she lets on. Some villagers whisper that she has the sight.",
+      "behavior": "merchant",
+      "position": {"x": 65, "y": 0, "z": 55},
+      "dialogue_range": 3.0,
+      "is_merchant": true,
+      "current_quest": "gather_herbs_quest",
+      "relationships": {
+        "player": 0.0
+      },
+      "merchant_items": ["health_potion", "antidote", "moonflower"]
+    },
+    {
+      "entity_id": "farmer_tom",
+      "name": "Old Tom",
+      "personality": "A simple, hardworking farmer who has worked the same plot of land his whole life. He's honest to a fault and always willing to help a neighbor. Worries constantly about the weather and his crops.",
+      "behavior": "idle",
+      "position": {"x": 70, "y": 0, "z": 35},
+      "dialogue_range": 4.0,
+      "is_merchant": false,
+      "current_quest": "scarecrow_quest",
+      "relationships": {
+        "player": 0.1
+      }
+    },
+    {
+      "entity_id": "mysterious_stranger",
+      "name": "Hooded Stranger",
+      "personality": "A enigmatic figure who appeared in the village recently. Speaks little and reveals less. Seems to be searching for something or someone. Those who look into their hood see only shadows.",
+      "behavior": "wander",
+      "position": {"x": 50, "y": 0, "z": 40},
+      "dialogue_range": 2.5,
+      "is_merchant": false,
+      "current_quest": "main_quest_hook",
+      "relationships": {
+        "player": 0.0
+      }
+    }
+  ]
+}

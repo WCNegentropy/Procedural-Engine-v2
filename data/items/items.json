@@ -1,0 +1,226 @@
+{
+  "items": [
+    {
+      "item_id": "gold",
+      "name": "Gold",
+      "description": "The universal currency.",
+      "item_type": "currency",
+      "value": 1,
+      "stackable": true,
+      "max_stack": 99999,
+      "properties": {}
+    },
+    {
+      "item_id": "iron_ore",
+      "name": "Iron Ore",
+      "description": "Raw iron ore, used in smithing.",
+      "item_type": "material",
+      "value": 5,
+      "stackable": true,
+      "max_stack": 99,
+      "properties": {}
+    },
+    {
+      "item_id": "iron_sword",
+      "name": "Iron Sword",
+      "description": "A sturdy blade forged from iron. Reliable if not remarkable.",
+      "item_type": "weapon",
+      "value": 50,
+      "stackable": false,
+      "max_stack": 1,
+      "properties": {
+        "damage": 10,
+        "durability": 100,
+        "weapon_type": "sword"
+      }
+    },
+    {
+      "item_id": "steel_shield",
+      "name": "Steel Shield",
+      "description": "A well-crafted shield that can block most attacks.",
+      "item_type": "armor",
+      "value": 75,
+      "stackable": false,
+      "max_stack": 1,
+      "properties": {
+        "defense": 15,
+        "durability": 150,
+        "armor_slot": "offhand"
+      }
+    },
+    {
+      "item_id": "ancient_blade",
+      "name": "Ancient Blade",
+      "description": "A sword of unknown origin, its edge never dulls and it glows faintly in darkness.",
+      "item_type": "weapon",
+      "value": 500,
+      "stackable": false,
+      "max_stack": 1,
+      "properties": {
+        "damage": 25,
+        "durability": -1,
+        "weapon_type": "sword",
+        "special": "light_in_dark"
+      }
+    },
+    {
+      "item_id": "health_potion",
+      "name": "Health Potion",
+      "description": "A red potion that restores health when consumed.",
+      "item_type": "consumable",
+      "value": 25,
+      "stackable": true,
+      "max_stack": 20,
+      "properties": {
+        "heal_amount": 50,
+        "use_time": 1.0
+      }
+    },
+    {
+      "item_id": "antidote",
+      "name": "Antidote",
+      "description": "Cures poison and provides temporary resistance.",
+      "item_type": "consumable",
+      "value": 30,
+      "stackable": true,
+      "max_stack": 20,
+      "properties": {
+        "cure_poison": true,
+        "poison_resistance_duration": 60.0
+      }
+    },
+    {
+      "item_id": "bread",
+      "name": "Bread",
+      "description": "A loaf of fresh bread. Restores a small amount of health.",
+      "item_type": "consumable",
+      "value": 2,
+      "stackable": true,
+      "max_stack": 50,
+      "properties": {
+        "heal_amount": 10
+      }
+    },
+    {
+      "item_id": "ale",
+      "name": "Ale",
+      "description": "A mug of hearty ale. Warms the spirit.",
+      "item_type": "consumable",
+      "value": 3,
+      "stackable": true,
+      "max_stack": 20,
+      "properties": {
+        "stamina_restore": 20
+      }
+    },
+    {
+      "item_id": "fresh_vegetables",
+      "name": "Fresh Vegetables",
+      "description": "A bundle of fresh vegetables from the farm.",
+      "item_type": "consumable",
+      "value": 5,
+      "stackable": true,
+      "max_stack": 30,
+      "properties": {
+        "heal_amount": 15
+      }
+    },
+    {
+      "item_id": "room_key",
+      "name": "Inn Room Key",
+      "description": "A key to a room at Martha's inn.",
+      "item_type": "key",
+      "value": 10,
+      "stackable": false,
+      "max_stack": 1,
+      "properties": {
+        "unlocks": "inn_room_1"
+      }
+    },
+    {
+      "item_id": "moonflower",
+      "name": "Moonflower",
+      "description": "A rare flower that only blooms under moonlight. Used in powerful remedies.",
+      "item_type": "material",
+      "value": 20,
+      "stackable": true,
+      "max_stack": 10,
+      "properties": {
+        "alchemical": true,
+        "potency": "high"
+      }
+    },
+    {
+      "item_id": "thornroot",
+      "name": "Thornroot",
+      "description": "A hardy root with medicinal properties. Watch out for the thorns.",
+      "item_type": "material",
+      "value": 8,
+      "stackable": true,
+      "max_stack": 30,
+      "properties": {
+        "alchemical": true,
+        "potency": "medium"
+      }
+    },
+    {
+      "item_id": "straw_bundle",
+      "name": "Straw Bundle",
+      "description": "A bundle of dried straw. Useful for various purposes.",
+      "item_type": "material",
+      "value": 1,
+      "stackable": true,
+      "max_stack": 50,
+      "properties": {}
+    },
+    {
+      "item_id": "old_clothes",
+      "name": "Old Clothes",
+      "description": "Worn but serviceable clothing.",
+      "item_type": "material",
+      "value": 2,
+      "stackable": true,
+      "max_stack": 10,
+      "properties": {}
+    },
+    {
+      "item_id": "stolen_supplies",
+      "name": "Stolen Supplies",
+      "description": "Supplies taken by the bandits from merchants and travelers.",
+      "item_type": "quest",
+      "value": 0,
+      "stackable": false,
+      "max_stack": 1,
+      "properties": {
+        "quest": "bandit_camp_quest"
+      }
+    },
+    {
+      "item_id": "ancient_map",
+      "name": "Ancient Map",
+      "description": "A weathered map showing the location of ruins deep in the forest. Strange symbols mark points of interest.",
+      "item_type": "quest",
+      "value": 0,
+      "stackable": false,
+      "max_stack": 1,
+      "properties": {
+        "quest": "ancient_ruins_quest",
+        "reveals_location": "ancient_ruins"
+      }
+    },
+    {
+      "item_id": "sunstone",
+      "name": "Sunstone",
+      "description": "An artifact of immense power. It radiates warmth and light, and seems to pulse with an inner energy.",
+      "item_type": "quest",
+      "value": 0,
+      "stackable": false,
+      "max_stack": 1,
+      "properties": {
+        "quest": "ancient_ruins_quest",
+        "artifact": true,
+        "power": "dispel_darkness"
+      }
+    }
+  ]
+}
