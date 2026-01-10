@@ -403,8 +403,8 @@ class GraphicsBridge:
 
             # Select appropriate primitive mesh based on entity type
             if entity_type in ("player", "npc", "character"):
-                # Capsule for humanoid characters
-                mesh = cpp.generate_capsule_mesh(0.5, 1.5)
+                # Capsule for humanoid characters (radius, height, segments, rings)
+                mesh = cpp.generate_capsule_mesh(0.5, 1.5, 16, 8)
             elif entity_type == "rock":
                 # Use existing rock mesh generator
                 desc = cpp.RockDescriptor()
@@ -412,8 +412,8 @@ class GraphicsBridge:
                 desc.radius = 0.5
                 mesh = cpp.generate_rock_mesh(desc)
             elif entity_type == "tree":
-                # Cylinder as placeholder for trees
-                mesh = cpp.generate_cylinder_mesh(0.2, 3.0)
+                # Cylinder as placeholder for trees (radius, height, segments)
+                mesh = cpp.generate_cylinder_mesh(0.2, 3.0, 16)
             elif entity_type == "building":
                 # Box for buildings
                 mesh = cpp.generate_box_mesh(cpp.Vec3(3, 2, 3))

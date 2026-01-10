@@ -934,19 +934,27 @@ class GameRunner:
         try:
             import numpy as np
 
+            # Terrain generation parameters
+            TERRAIN_SIZE = 64
+            TERRAIN_SCALE_X = 0.2
+            TERRAIN_SCALE_Z = 0.15
+            TERRAIN_SCALE_SMALL = 0.1
+            TERRAIN_HEIGHT_PRIMARY = 5.0
+            TERRAIN_HEIGHT_SECONDARY = 3.0
+            TERRAIN_HEIGHT_TERTIARY = 2.0
+
             # Generate a simple test terrain heightmap
             # In a full implementation, this would come from the world generation
-            size = 64
+            size = TERRAIN_SIZE
             heightmap = np.zeros((size, size), dtype=np.float32)
 
-            # Create some hills for testing
+            # Create some hills for testing using sine/cosine waves
             for z in range(size):
                 for x in range(size):
-                    # Simple sine wave terrain
                     heightmap[z, x] = (
-                        np.sin(x * 0.2) * np.cos(z * 0.2) * 5.0 + 
-                        np.sin(x * 0.1) * 3.0 +
-                        np.cos(z * 0.15) * 2.0
+                        np.sin(x * TERRAIN_SCALE_X) * np.cos(z * TERRAIN_SCALE_X) * TERRAIN_HEIGHT_PRIMARY + 
+                        np.sin(x * TERRAIN_SCALE_SMALL) * TERRAIN_HEIGHT_SECONDARY +
+                        np.cos(z * TERRAIN_SCALE_Z) * TERRAIN_HEIGHT_TERTIARY
                     )
 
             # Upload terrain mesh
