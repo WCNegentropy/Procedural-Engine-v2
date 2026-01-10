@@ -217,6 +217,20 @@ jobs:
           Copy-Item build/procengine_cpp*.pyd . -ErrorAction SilentlyContinue
           Get-ChildItem procengine_cpp* -ErrorAction SilentlyContinue
 
+      - name: Download SDL2 DLLs (Windows)
+        if: matrix.platform == 'windows'
+        shell: powershell
+        run: |
+          # Download SDL2 runtime DLLs for Windows
+          $SDL2_VERSION = "2.30.0"
+          $SDL2_URL = "https://github.com/libsdl-org/SDL/releases/download/release-$SDL2_VERSION/SDL2-$SDL2_VERSION-win32-x64.zip"
+          Invoke-WebRequest -Uri $SDL2_URL -OutFile SDL2.zip
+          Expand-Archive SDL2.zip -DestinationPath SDL2_temp
+          Copy-Item SDL2_temp/SDL2.dll . -Force
+          echo "SDL2.dll downloaded and placed in project root"
+          Remove-Item SDL2.zip
+          Remove-Item SDL2_temp -Recurse
+
       - name: Build C++ module (macOS)
         if: matrix.platform == 'macos'
         run: |
@@ -283,6 +297,7 @@ jobs:
             --console `
             --add-data "data;data" `
             --add-binary "$moduleFile;." `
+            --add-binary "SDL2.dll;." `
             --hidden-import numpy `
             --hidden-import numpy.core `
             --hidden-import pybind11 `

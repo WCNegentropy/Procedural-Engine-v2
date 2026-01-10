@@ -483,6 +483,12 @@ class GraphicsBridge:
         if mesh is None or pipeline is None:
             return
 
+        # Skip if mesh is a placeholder dict (not a real GPU mesh)
+        if isinstance(mesh, dict):
+            # Placeholder mesh - just count the draw call for headless stats
+            self._render_state.draw_calls += 1
+            return
+
         if transform is None:
             transform = create_identity_matrix()
 
