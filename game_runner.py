@@ -691,18 +691,18 @@ class GameRunner:
 
             loader = DataLoader()
 
-            # Load NPCs
-            npcs = loader.load_npcs("data/npcs/village_npcs.json")
+            # Load NPCs (path relative to data_dir, not including 'data/')
+            npcs = loader.load_npcs("npcs/village_npcs.json")
             for npc in npcs:
                 self._world.spawn_entity(npc)
 
             # Load quests
-            quests = loader.load_quests("data/quests/village_quests.json")
+            quests = loader.load_quests("quests/village_quests.json")
             for quest in quests:
                 self._world.register_quest(quest)
 
             # Load items
-            items = loader.load_items("data/items/items.json")
+            items = loader.load_items("items/items.json")
             for item in items:
                 self._world.register_item_definition(item)
 
