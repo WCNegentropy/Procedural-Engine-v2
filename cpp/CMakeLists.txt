@@ -8,6 +8,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 option(NO_GRAPHICS "Build without Vulkan graphics support (headless/CI)" OFF)
 option(BUILD_TESTS "Build C++ unit tests" OFF)
 option(ENABLE_PROFILING "Enable timing instrumentation" OFF)
+option(BUILD_LAUNCHER "Build standalone executable launcher" OFF)
+option(BUILD_STATIC_LIB "Build static library for embedding" OFF)
 
 # Find dependencies
 # Try python3 first, fall back to python (Windows uses 'python')
@@ -136,5 +138,92 @@ if(NOT NO_GRAPHICS)
     target_link_libraries(procengine_cpp PRIVATE
         Vulkan::Vulkan
         ${SHADERC_LIB}
+    )
+endif()
+
+# =============================================================================
+# Static library target (for embedding in launcher)
+# =============================================================================
+
+if(BUILD_STATIC_LIB OR BUILD_LAUNCHER)
+    message(STATUS "Building static library for embedding")
+
+    add_library(procengine_static STATIC ${MODULE_SOURCES})
+
+    target_compile_definitions(procengine_static PRIVATE
+        PROCENGINE_STATIC_BUILD
+    )
+
+    if(NO_GRAPHICS)
+        target_compile_definitions(procengine_static PRIVATE NO_GRAPHICS)
+    endif()
+
+    if(SHADERC_INCLUDE_DIR)
+        target_include_directories(procengine_static PRIVATE ${SHADERC_INCLUDE_DIR})
+    endif()
+
+    target_link_libraries(procengine_static PRIVATE OpenSSL::Crypto)
+
+    if(NOT NO_GRAPHICS)
+        target_link_libraries(procengine_static PRIVATE
+            Vulkan::Vulkan
+            ${SHADERC_LIB}
+        )
+    endif()
+
+    # Need pybind11 headers
+    target_include_directories(procengine_static PRIVATE ${pybind11_INCLUDE_DIRS})
+    target_link_libraries(procengine_static PRIVATE pybind11::headers)
+endif()
+
+# =============================================================================
+# Standalone launcher executable
+# =============================================================================
+
+if(BUILD_LAUNCHER)
+    message(STATUS "Building standalone launcher executable")
+
+    find_package(Python3 REQUIRED COMPONENTS Development)
+
+    add_executable(ProceduralEngine launcher.cpp)
+
+    target_include_directories(ProceduralEngine PRIVATE
+        ${Python3_INCLUDE_DIRS}
+        ${pybind11_INCLUDE_DIRS}
+    )
+
+    target_link_libraries(ProceduralEngine PRIVATE
+        procengine_static
+        Python3::Python
+        OpenSSL::Crypto
+    )
+
+    if(NOT NO_GRAPHICS)
+        target_link_libraries(ProceduralEngine PRIVATE
+            Vulkan::Vulkan
+            ${SHADERC_LIB}
+        )
+    endif()
+
+    if(NO_GRAPHICS)
+        target_compile_definitions(ProceduralEngine PRIVATE NO_GRAPHICS)
+    endif()
+
+    # Set output name
+    set_target_properties(ProceduralEngine PROPERTIES
+        OUTPUT_NAME "ProceduralEngine"
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+    )
+
+    # Windows-specific: embed manifest, set subsystem
+    if(WIN32)
+        set_target_properties(ProceduralEngine PROPERTIES
+            WIN32_EXECUTABLE FALSE  # FALSE = console app, TRUE = GUI app
+        )
+    endif()
+
+    # Install rules
+    install(TARGETS ProceduralEngine
+        RUNTIME DESTINATION bin
     )
 endif()
