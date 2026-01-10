@@ -632,6 +632,13 @@ class GameRunner:
                 terrain_y = self._terrain_heightmap[pz, px]
                 player.position = Vec3(player.position.x, terrain_y + 2.0, player.position.z)
 
+        # Set initial camera to view terrain
+        if self._graphics_bridge and self._player_controller:
+            # Position camera above and behind player, looking at terrain center
+            center = self.config.chunk_size // 2
+            self._player_controller.camera.camera.position = Vec3(center, 50, center + 30)
+            self._player_controller.camera.camera.target = Vec3(center, 0, center)
+
         # Load game content
         self._load_game_content()
 
@@ -660,57 +667,25 @@ class GameRunner:
         if not self._graphics_bridge:
             return
 
-        # Create default material pipelines
-        default_vertex = """
-            #version 450
-            layout(location = 0) in vec3 inPosition;
-            layout(location = 1) in vec3 inNormal;
-            layout(location = 2) in vec2 inUV;
-            layout(push_constant) uniform PushConstants {
-                mat4 model;
-                vec4 color;
-            } push;
-            layout(set = 0, binding = 0) uniform UBO {
-                mat4 view;
-                mat4 proj;
-                vec3 cameraPos;
-            } ubo;
-            layout(location = 0) out vec3 fragNormal;
-            layout(location = 1) out vec3 fragWorldPos;
-            layout(location = 2) out vec2 fragUV;
-            void main() {
-                vec4 worldPos = push.model * vec4(inPosition, 1.0);
-                gl_Position = ubo.proj * ubo.view * worldPos;
-                fragNormal = mat3(push.model) * inNormal;
-                fragWorldPos = worldPos.xyz;
-                fragUV = inUV;
-            }
-        """
-
-        default_fragment = """
-            #version 450
-            layout(location = 0) in vec3 fragNormal;
-            layout(location = 1) in vec3 fragWorldPos;
-            layout(location = 2) in vec2 fragUV;
-            layout(push_constant) uniform PushConstants {
-                mat4 model;
-                vec4 color;
-            } push;
-            layout(location = 0) out vec4 outColor;
-            void main() {
-                vec3 lightDir = normalize(vec3(0.5, 1.0, 0.3));
-                float diff = max(dot(normalize(fragNormal), lightDir), 0.0);
-                vec3 ambient = 0.2 * push.color.rgb;
-                vec3 diffuse = diff * push.color.rgb;
-                outColor = vec4(ambient + diffuse, push.color.a);
-            }
-        """
-
-        self._graphics_bridge.create_material_pipeline(
-            "default",
-            default_vertex,
-            default_fragment,
-        )
+        # Use C++ built-in default pipeline (has matching shader/uniform layout)
+        try:
+            if (self._graphics_bridge._graphics_system and 
+                hasattr(self._graphics_bridge._graphics_system, 'create_default_pipeline')):
+                
+                pipeline = self._graphics_bridge._graphics_system.create_default_pipeline()
+                
+                if pipeline.is_valid():
+                    self._graphics_bridge._pipelines["default"] = pipeline
+                    print("Default rendering pipeline created")
+                else:
+                    print("WARNING: Failed to create default pipeline")
+            else:
+                print("WARNING: Graphics system does not support create_default_pipeline")
+                
+        except Exception as e:
+            print(f"ERROR creating pipeline: {e}")
+            import traceback
+            traceback.print_exc()
 
         # Add default sun light
         self._graphics_bridge.add_light(
