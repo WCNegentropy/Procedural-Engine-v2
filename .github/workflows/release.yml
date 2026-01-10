@@ -231,6 +231,38 @@ jobs:
           Remove-Item SDL2.zip
           Remove-Item SDL2_temp -Recurse
 
+      - name: Collect runtime DLLs (Windows)
+        if: matrix.platform == 'windows'
+        shell: powershell
+        run: |
+          # Collect OpenSSL DLLs
+          $opensslBin = "C:\Program Files\OpenSSL\bin"
+          if (Test-Path "$opensslBin\libcrypto-3-x64.dll") {
+            Copy-Item "$opensslBin\libcrypto-3-x64.dll" . -Force
+            echo "Copied libcrypto-3-x64.dll"
+          }
+          if (Test-Path "$opensslBin\libssl-3-x64.dll") {
+            Copy-Item "$opensslBin\libssl-3-x64.dll" . -Force
+            echo "Copied libssl-3-x64.dll"
+          }
+          
+          # Collect Vulkan loader from SDK
+          $vulkanBin = "$env:VULKAN_SDK\Bin"
+          if (Test-Path "$vulkanBin\vulkan-1.dll") {
+            Copy-Item "$vulkanBin\vulkan-1.dll" . -Force
+            echo "Copied vulkan-1.dll"
+          }
+          
+          # Collect shaderc from Vulkan SDK
+          if (Test-Path "$vulkanBin\shaderc_shared.dll") {
+            Copy-Item "$vulkanBin\shaderc_shared.dll" . -Force
+            echo "Copied shaderc_shared.dll"
+          }
+          
+          # List collected DLLs
+          echo "=== Collected DLLs ==="
+          Get-ChildItem *.dll
+
       - name: Build C++ module (macOS)
         if: matrix.platform == 'macos'
         run: |
@@ -291,18 +323,47 @@ jobs:
           }
           
           Write-Host "Building with module: $moduleFile"
-          pyinstaller `
-            --name ${{ env.GAME_NAME }} `
-            --onedir `
-            --console `
-            --add-data "data;data" `
-            --add-binary "$moduleFile;." `
-            --add-binary "SDL2.dll;." `
-            --hidden-import numpy `
-            --hidden-import numpy.core `
-            --hidden-import pybind11 `
-            --collect-submodules numpy `
-            main.py
+          
+          # Build PyInstaller command with all DLLs
+          $pyinstallerArgs = @(
+            "--name", "${{ env.GAME_NAME }}",
+            "--onedir",
+            "--console",
+            "--add-data", "data;data",
+            "--add-binary", "$moduleFile;.",
+            "--hidden-import", "numpy",
+            "--hidden-import", "numpy.core",
+            "--hidden-import", "pybind11",
+            "--collect-submodules", "numpy"
+          )
+          
+          # Add SDL2.dll if present
+          if (Test-Path "SDL2.dll") {
+            $pyinstallerArgs += "--add-binary", "SDL2.dll;."
+          }
+          
+          # Add OpenSSL DLLs if present
+          if (Test-Path "libcrypto-3-x64.dll") {
+            $pyinstallerArgs += "--add-binary", "libcrypto-3-x64.dll;."
+          }
+          if (Test-Path "libssl-3-x64.dll") {
+            $pyinstallerArgs += "--add-binary", "libssl-3-x64.dll;."
+          }
+          
+          # Add Vulkan DLL if present
+          if (Test-Path "vulkan-1.dll") {
+            $pyinstallerArgs += "--add-binary", "vulkan-1.dll;."
+          }
+          
+          # Add shaderc DLL if present
+          if (Test-Path "shaderc_shared.dll") {
+            $pyinstallerArgs += "--add-binary", "shaderc_shared.dll;."
+          }
+          
+          $pyinstallerArgs += "main.py"
+          
+          Write-Host "PyInstaller args: $pyinstallerArgs"
+          pyinstaller @pyinstallerArgs
 
       # =========================================================================
       # Bundle additional files and create archives
