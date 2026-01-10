@@ -611,6 +611,9 @@ def main() -> int:
         if args.verbose:
             import traceback
             traceback.print_exc()
+        # Keep window open on error so user can see message
+        if sys.platform == "win32":
+            input("\nPress Enter to exit...")
         return 1
     
     print("\nThanks for playing!")
@@ -618,4 +621,12 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except Exception as e:
+        print(f"Fatal error: {e}")
+        import traceback
+        traceback.print_exc()
+        if sys.platform == "win32":
+            input("\nPress Enter to exit...")
+        sys.exit(1)

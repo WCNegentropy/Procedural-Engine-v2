@@ -437,7 +437,11 @@ def create_sdl2_backend() -> Optional[WindowBackend]:
 
         return SDL2Backend()
 
-    except ImportError:
+    except ImportError as e:
+        print(f"Note: SDL2 not available ({e}). Install with: pip install pysdl2 pysdl2-dll")
+        return None
+    except Exception as e:
+        print(f"Warning: SDL2 backend creation failed: {e}")
         return None
 
 
@@ -488,11 +492,21 @@ class GameRunner:
         # Select backend
         if backend:
             self._backend = backend
+            print(f"Using provided backend: {type(backend).__name__}")
         elif self.config.headless:
             self._backend = HeadlessBackend()
+            print("Using HeadlessBackend (--headless mode)")
         else:
             # Try SDL2, fall back to headless
-            self._backend = create_sdl2_backend() or HeadlessBackend()
+            sdl2_backend = create_sdl2_backend()
+            if sdl2_backend:
+                self._backend = sdl2_backend
+                print("Using SDL2Backend (windowed mode)")
+            else:
+                self._backend = HeadlessBackend()
+                print("Warning: Falling back to HeadlessBackend (no window)")
+                print("         The game will run but without a visible window.")
+                print("         To fix: pip install pysdl2 pysdl2-dll")
 
         # Game state
         self._state = GameState.LOADING
