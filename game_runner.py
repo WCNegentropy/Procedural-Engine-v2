@@ -289,15 +289,30 @@ class HeadlessBackend(WindowBackend):
 def create_sdl2_backend() -> Optional[WindowBackend]:
     """Try to create an SDL2 backend if available."""
     try:
-        # Set up SDL2 DLL path for Windows if SDL2.dll is in current directory
+        # Set up SDL2 DLL path for Windows
         import os
         import sys
         if sys.platform == "win32":
-            # Check if SDL2.dll exists in the same directory as the script
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            sdl2_dll = os.path.join(script_dir, "SDL2.dll")
-            if os.path.exists(sdl2_dll):
-                os.environ["PYSDL2_DLL_PATH"] = script_dir
+            # Try multiple locations for SDL2.dll
+            possible_paths = [
+                os.path.dirname(os.path.abspath(__file__)),  # Same dir as script
+                os.getcwd(),  # Current working directory
+                os.path.dirname(sys.executable),  # Python executable dir
+            ]
+            
+            # Also check if running from PyInstaller bundle
+            if getattr(sys, 'frozen', False):
+                possible_paths.insert(0, sys._MEIPASS)  # PyInstaller temp dir
+                possible_paths.insert(0, os.path.dirname(sys.executable))
+            
+            for path in possible_paths:
+                sdl2_dll = os.path.join(path, "SDL2.dll")
+                if os.path.exists(sdl2_dll):
+                    os.environ["PYSDL2_DLL_PATH"] = path
+                    print(f"Found SDL2.dll at: {path}")
+                    break
+            else:
+                print(f"SDL2.dll not found in: {possible_paths}")
         
         # Import is inside function to avoid hard dependency
         import sdl2
@@ -860,7 +875,7 @@ class GameRunner:
         # Render player
         player = self._world.get_player()
         if player:
-            mesh_name = self._get_or_create_entity_mesh(player.id, "player")
+            mesh_name = self._get_or_create_entity_mesh(player.entity_id, "player")
             self._graphics_bridge.draw_entity(
                 mesh_name,
                 "default",
@@ -872,7 +887,7 @@ class GameRunner:
         # Render NPCs
         for entity in self._world.get_all_entities():
             if isinstance(entity, NPC):
-                mesh_name = self._get_or_create_entity_mesh(entity.id, "npc")
+                mesh_name = self._get_or_create_entity_mesh(entity.entity_id, "npc")
                 self._graphics_bridge.draw_entity(
                     mesh_name,
                     "default",
