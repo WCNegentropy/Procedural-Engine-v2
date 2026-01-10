@@ -277,47 +277,36 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
 
-      - name: Cache Homebrew packages
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/Library/Caches/Homebrew
-            /usr/local/Cellar
-            /opt/homebrew/Cellar
-          key: macos-homebrew-${{ runner.os }}-v3
-          restore-keys: |
-            macos-homebrew-${{ runner.os }}-
-
       - name: Install dependencies
         run: |
           brew install molten-vk openssl shaderc glslang || true
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Verify shaderc installation
+      - name: Debug shaderc installation
         run: |
+          echo "=== Shaderc prefix ==="
           SHADERC_PREFIX=$(brew --prefix shaderc)
-          echo "Shaderc installed at: $SHADERC_PREFIX"
-          ls -la $SHADERC_PREFIX/lib/ | grep shaderc || echo "No shaderc libs found"
-          ls -la $SHADERC_PREFIX/include/shaderc/ || echo "No shaderc headers found"
-
-      - name: Set up Vulkan environment
-        run: |
-          VULKAN_SDK=$(brew --prefix molten-vk)
-          echo "VULKAN_SDK=$VULKAN_SDK" >> $GITHUB_ENV
-          echo "VK_ICD_FILENAMES=$VULKAN_SDK/share/vulkan/icd.d/MoltenVK_icd.json" >> $GITHUB_ENV
+          echo "SHADERC_PREFIX: $SHADERC_PREFIX"
           
-          # Also export shaderc paths
-          SHADERC_PREFIX=$(brew --prefix shaderc)
-          echo "SHADERC_PREFIX=$SHADERC_PREFIX" >> $GITHUB_ENV
+          echo ""
+          echo "=== Contents of shaderc lib directory ==="
+          ls -la $SHADERC_PREFIX/lib/ || echo "lib dir not found"
+          
+          echo ""
+          echo "=== All shaderc library files ==="
+          find $SHADERC_PREFIX -name "*shaderc*" -type f 2>/dev/null || echo "no files found"
+          
+          echo ""
+          echo "=== Shaderc include directory ==="
+          ls -la $SHADERC_PREFIX/include/shaderc/ || echo "include dir not found"
 
-      - name: Cache CMake build
-        uses: actions/cache@v4
-        with:
-          path: build
-          key: macos-cmake-${{ hashFiles('cpp/**/*.cpp', 'cpp/**/*.h', 'cpp/CMakeLists.txt') }}-v3
-          restore-keys: |
-            macos-cmake-
+      - name: Set up build environment
+        run: |
+          # Export paths for CMake
+          echo "VULKAN_SDK=$(brew --prefix molten-vk)" >> $GITHUB_ENV
+          echo "OPENSSL_PREFIX=$(brew --prefix openssl)" >> $GITHUB_ENV
+          echo "SHADERC_PREFIX=$(brew --prefix shaderc)" >> $GITHUB_ENV
 
       - name: Configure CMake
         run: |
@@ -328,14 +317,22 @@ jobs:
           OPENSSL_PREFIX=$(brew --prefix openssl)
           SHADERC_PREFIX=$(brew --prefix shaderc)
           
-          echo "=== Build Configuration ==="
-          echo "VULKAN_SDK: $VULKAN_SDK"
-          echo "OPENSSL_PREFIX: $OPENSSL_PREFIX"
-          echo "SHADERC_PREFIX: $SHADERC_PREFIX"
+          # Find the shaderc library - it could be named differently
+          # Try in order: libshaderc_combined.a, libshaderc.a, libshaderc.dylib
+          if [ -f "$SHADERC_PREFIX/lib/libshaderc_combined.a" ]; then
+            SHADERC_LIB="$SHADERC_PREFIX/lib/libshaderc_combined.a"
+          elif [ -f "$SHADERC_PREFIX/lib/libshaderc.a" ]; then
+            SHADERC_LIB="$SHADERC_PREFIX/lib/libshaderc.a"
+          elif [ -f "$SHADERC_PREFIX/lib/libshaderc.dylib" ]; then
+            SHADERC_LIB="$SHADERC_PREFIX/lib/libshaderc.dylib"
+          else
+            echo "ERROR: Could not find shaderc library!"
+            echo "Contents of $SHADERC_PREFIX/lib/:"
+            ls -la "$SHADERC_PREFIX/lib/"
+            exit 1
+          fi
           
-          # Find the actual shaderc library file
-          SHADERC_LIB=$(find $SHADERC_PREFIX/lib -name "libshaderc*.a" -o -name "libshaderc*.dylib" | head -1)
-          echo "SHADERC_LIB: $SHADERC_LIB"
+          echo "=== Using shaderc library: $SHADERC_LIB ==="
           
           cmake ../cpp \
             -DCMAKE_BUILD_TYPE=Release \
@@ -343,7 +340,7 @@ jobs:
             -DVULKAN_SDK=$VULKAN_SDK \
             -DVulkan_INCLUDE_DIR=$VULKAN_SDK/include \
             -DVulkan_LIBRARY=$VULKAN_SDK/lib/libMoltenVK.dylib \
-            -DSHADERC_LIB=$SHADERC_LIB \
+            -DSHADERC_LIB="$SHADERC_LIB" \
             -DSHADERC_INCLUDE_DIR=$SHADERC_PREFIX/include
 
       - name: Build C++ module
