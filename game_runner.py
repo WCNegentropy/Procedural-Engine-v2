@@ -289,6 +289,16 @@ class HeadlessBackend(WindowBackend):
 def create_sdl2_backend() -> Optional[WindowBackend]:
     """Try to create an SDL2 backend if available."""
     try:
+        # Set up SDL2 DLL path for Windows if SDL2.dll is in current directory
+        import os
+        import sys
+        if sys.platform == "win32":
+            # Check if SDL2.dll exists in the same directory as the script
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            sdl2_dll = os.path.join(script_dir, "SDL2.dll")
+            if os.path.exists(sdl2_dll):
+                os.environ["PYSDL2_DLL_PATH"] = script_dir
+        
         # Import is inside function to avoid hard dependency
         import sdl2
         import sdl2.ext
@@ -817,7 +827,7 @@ class GameRunner:
             # Update camera from player controller
             if self._player_controller:
                 self._graphics_bridge.set_camera_from_controller(
-                    self._player_controller.camera_controller
+                    self._player_controller.camera
                 )
 
             # Begin rendering

@@ -188,6 +188,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Download SDL2 DLLs
+        shell: powershell
+        run: |
+          # Download SDL2 runtime DLLs for Windows
+          $SDL2_VERSION = "2.30.0"
+          $SDL2_URL = "https://github.com/libsdl-org/SDL/releases/download/release-$SDL2_VERSION/SDL2-$SDL2_VERSION-win32-x64.zip"
+          Invoke-WebRequest -Uri $SDL2_URL -OutFile SDL2.zip
+          Expand-Archive SDL2.zip -DestinationPath SDL2_temp
+          # Copy SDL2.dll to project root (will be included in artifact)
+          Copy-Item SDL2_temp/SDL2.dll . -Force
+          echo "SDL2.dll downloaded and placed in project root"
+          Remove-Item SDL2.zip
+          Remove-Item SDL2_temp -Recurse
+
       - name: Cache Chocolatey packages
         uses: actions/cache@v4
         with:
@@ -246,6 +260,7 @@ jobs:
           path: |
             build/Release/procengine_cpp*.pyd
             build/procengine_cpp*.pyd
+            SDL2.dll
             cpp/
             *.py
             !test_*.py
