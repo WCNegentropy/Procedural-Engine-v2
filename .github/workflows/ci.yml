@@ -279,7 +279,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          brew install molten-vk openssl shaderc glslang || true
+          brew install molten-vk openssl shaderc glslang vulkan-headers || true
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
@@ -305,6 +305,7 @@ jobs:
         run: |
           # Export paths for CMake
           echo "VULKAN_SDK=$(brew --prefix molten-vk)" >> $GITHUB_ENV
+          echo "VULKAN_HEADERS=$(brew --prefix vulkan-headers)" >> $GITHUB_ENV
           echo "OPENSSL_PREFIX=$(brew --prefix openssl)" >> $GITHUB_ENV
           echo "SHADERC_PREFIX=$(brew --prefix shaderc)" >> $GITHUB_ENV
 
@@ -314,6 +315,7 @@ jobs:
           cd build
           
           VULKAN_SDK=$(brew --prefix molten-vk)
+          VULKAN_HEADERS=$(brew --prefix vulkan-headers)
           OPENSSL_PREFIX=$(brew --prefix openssl)
           SHADERC_PREFIX=$(brew --prefix shaderc)
           
@@ -338,7 +340,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX \
             -DVULKAN_SDK=$VULKAN_SDK \
-            -DVulkan_INCLUDE_DIR=$VULKAN_SDK/include \
+            -DVulkan_INCLUDE_DIR=$VULKAN_HEADERS/include \
             -DVulkan_LIBRARY=$VULKAN_SDK/lib/libMoltenVK.dylib \
             -DSHADERC_LIB="$SHADERC_LIB" \
             -DSHADERC_INCLUDE_DIR=$SHADERC_PREFIX/include
