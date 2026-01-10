@@ -885,9 +885,8 @@ class GameRunner:
             )
 
         # Render NPCs
-        for entity in self._world.get_all_entities():
-            if isinstance(entity, NPC):
-                mesh_name = self._get_or_create_entity_mesh(entity.entity_id, "npc")
+        for entity in self._world.get_entities_by_type(NPC):
+            mesh_name = self._get_or_create_entity_mesh(entity.entity_id, "npc")
                 self._graphics_bridge.draw_entity(
                     mesh_name,
                     "default",
