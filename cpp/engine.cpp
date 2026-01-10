@@ -656,6 +656,59 @@ PYBIND11_MODULE(procengine_cpp, m) {
           py::arg("mesh"), py::arg("target_ratio"),
           "Generate simplified LOD version of mesh");
 
+    // Primitive mesh generation
+    m.def("generate_box_mesh", &props::generate_box_mesh,
+          py::arg("size"),
+          py::arg("center") = props::Vec3(0, 0, 0),
+          "Generate an axis-aligned box mesh");
+
+    m.def("generate_capsule_mesh", &props::generate_capsule_mesh,
+          py::arg("radius"),
+          py::arg("height"),
+          py::arg("segments") = 16,
+          py::arg("rings") = 8,
+          "Generate a capsule mesh (cylinder with hemisphere caps)");
+
+    m.def("generate_cylinder_mesh", &props::generate_cylinder_mesh,
+          py::arg("radius"),
+          py::arg("height"),
+          py::arg("segments") = 16,
+          "Generate a cylinder mesh");
+
+    m.def("generate_cone_mesh", &props::generate_cone_mesh,
+          py::arg("radius"),
+          py::arg("height"),
+          py::arg("segments") = 16,
+          "Generate a cone mesh");
+
+    m.def("generate_plane_mesh", &props::generate_plane_mesh,
+          py::arg("size"),
+          py::arg("subdivisions") = 1,
+          "Generate a subdivided plane mesh");
+
+    // Terrain mesh generation
+    m.def("generate_terrain_mesh", [](py::array_t<float> heightmap_array,
+                                       float cell_size,
+                                       float height_scale) {
+        auto buf = heightmap_array.request();
+        if (buf.ndim != 2) {
+            throw std::runtime_error("Heightmap must be a 2D array");
+        }
+        if (buf.shape[0] != buf.shape[1]) {
+            throw std::runtime_error("Heightmap must be square");
+        }
+
+        uint32_t size = static_cast<uint32_t>(buf.shape[0]);
+        std::vector<float> heightmap(size * size);
+        std::memcpy(heightmap.data(), buf.ptr, heightmap.size() * sizeof(float));
+
+        return terrain::generate_terrain_mesh(heightmap, size, cell_size, height_scale);
+    },
+    py::arg("heightmap"),
+    py::arg("cell_size") = 1.0f,
+    py::arg("height_scale") = 1.0f,
+    "Generate terrain mesh from heightmap (2D numpy array)");
+
     // Helper function to create descriptors from Python dicts with error handling
     m.def("create_rock_from_dict", [](py::dict d) {
         props::RockDescriptor desc;

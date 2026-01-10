@@ -677,4 +677,334 @@ Mesh generate_lod(const Mesh& mesh, float target_ratio) {
     return lod;
 }
 
+// ============================================================================
+// Primitive Mesh Generation
+// ============================================================================
+
+Mesh generate_box_mesh(const Vec3& size, const Vec3& center) {
+    Mesh mesh;
+
+    float hx = size.x * 0.5f;
+    float hy = size.y * 0.5f;
+    float hz = size.z * 0.5f;
+
+    // Define 8 corners of the box
+    Vec3 corners[8] = {
+        center + Vec3(-hx, -hy, -hz), // 0: left-bottom-back
+        center + Vec3( hx, -hy, -hz), // 1: right-bottom-back
+        center + Vec3( hx,  hy, -hz), // 2: right-top-back
+        center + Vec3(-hx,  hy, -hz), // 3: left-top-back
+        center + Vec3(-hx, -hy,  hz), // 4: left-bottom-front
+        center + Vec3( hx, -hy,  hz), // 5: right-bottom-front
+        center + Vec3( hx,  hy,  hz), // 6: right-top-front
+        center + Vec3(-hx,  hy,  hz), // 7: left-top-front
+    };
+
+    // Define face normals
+    Vec3 normals[6] = {
+        Vec3( 0,  0, -1), // Back
+        Vec3( 0,  0,  1), // Front
+        Vec3(-1,  0,  0), // Left
+        Vec3( 1,  0,  0), // Right
+        Vec3( 0, -1,  0), // Bottom
+        Vec3( 0,  1,  0), // Top
+    };
+
+    // Define faces (4 vertices per face, 2 triangles)
+    uint32_t faces[6][4] = {
+        {0, 1, 2, 3}, // Back
+        {4, 7, 6, 5}, // Front
+        {0, 3, 7, 4}, // Left
+        {1, 5, 6, 2}, // Right
+        {0, 4, 5, 1}, // Bottom
+        {3, 2, 6, 7}, // Top
+    };
+
+    // Generate vertices and indices
+    for (uint32_t f = 0; f < 6; ++f) {
+        uint32_t base_idx = static_cast<uint32_t>(mesh.vertices.size());
+
+        // Add 4 vertices for this face
+        for (uint32_t i = 0; i < 4; ++i) {
+            mesh.vertices.push_back(corners[faces[f][i]]);
+            mesh.normals.push_back(normals[f]);
+        }
+
+        // Add 2 triangles (6 indices)
+        mesh.indices.push_back(base_idx + 0);
+        mesh.indices.push_back(base_idx + 1);
+        mesh.indices.push_back(base_idx + 2);
+
+        mesh.indices.push_back(base_idx + 0);
+        mesh.indices.push_back(base_idx + 2);
+        mesh.indices.push_back(base_idx + 3);
+    }
+
+    return mesh;
+}
+
+Mesh generate_capsule_mesh(float radius, float height, uint32_t segments, uint32_t rings) {
+    Mesh mesh;
+
+    float half_height = height * 0.5f;
+
+    // Generate top hemisphere
+    for (uint32_t ring = 0; ring <= rings; ++ring) {
+        float phi = (PI * 0.5f) * static_cast<float>(ring) / static_cast<float>(rings);
+        float sin_phi = std::sin(phi);
+        float cos_phi = std::cos(phi);
+        float y = half_height + radius * cos_phi;
+        float ring_radius = radius * sin_phi;
+
+        for (uint32_t seg = 0; seg <= segments; ++seg) {
+            float theta = 2.0f * PI * static_cast<float>(seg) / static_cast<float>(segments);
+            float sin_theta = std::sin(theta);
+            float cos_theta = std::cos(theta);
+
+            Vec3 position(ring_radius * cos_theta, y, ring_radius * sin_theta);
+            Vec3 normal = Vec3(sin_phi * cos_theta, cos_phi, sin_phi * sin_theta);
+
+            mesh.vertices.push_back(position);
+            mesh.normals.push_back(normal);
+        }
+    }
+
+    // Generate cylindrical section
+    for (uint32_t i = 0; i <= 1; ++i) {
+        float y = (i == 0) ? half_height : -half_height;
+
+        for (uint32_t seg = 0; seg <= segments; ++seg) {
+            float theta = 2.0f * PI * static_cast<float>(seg) / static_cast<float>(segments);
+            float sin_theta = std::sin(theta);
+            float cos_theta = std::cos(theta);
+
+            Vec3 position(radius * cos_theta, y, radius * sin_theta);
+            Vec3 normal(cos_theta, 0.0f, sin_theta);
+
+            mesh.vertices.push_back(position);
+            mesh.normals.push_back(normal);
+        }
+    }
+
+    // Generate bottom hemisphere
+    for (uint32_t ring = 1; ring <= rings; ++ring) {
+        float phi = (PI * 0.5f) * static_cast<float>(ring) / static_cast<float>(rings);
+        float sin_phi = std::sin(phi);
+        float cos_phi = std::cos(phi);
+        float y = -half_height - radius * cos_phi;
+        float ring_radius = radius * sin_phi;
+
+        for (uint32_t seg = 0; seg <= segments; ++seg) {
+            float theta = 2.0f * PI * static_cast<float>(seg) / static_cast<float>(segments);
+            float sin_theta = std::sin(theta);
+            float cos_theta = std::cos(theta);
+
+            Vec3 position(ring_radius * cos_theta, y, ring_radius * sin_theta);
+            Vec3 normal = Vec3(sin_phi * cos_theta, -cos_phi, sin_phi * sin_theta);
+
+            mesh.vertices.push_back(position);
+            mesh.normals.push_back(normal);
+        }
+    }
+
+    // Generate indices for top hemisphere
+    for (uint32_t ring = 0; ring < rings; ++ring) {
+        for (uint32_t seg = 0; seg < segments; ++seg) {
+            uint32_t current = ring * (segments + 1) + seg;
+            uint32_t next = current + segments + 1;
+
+            mesh.indices.push_back(current);
+            mesh.indices.push_back(next);
+            mesh.indices.push_back(current + 1);
+
+            mesh.indices.push_back(current + 1);
+            mesh.indices.push_back(next);
+            mesh.indices.push_back(next + 1);
+        }
+    }
+
+    // Generate indices for cylindrical section
+    uint32_t cyl_start = (rings + 1) * (segments + 1);
+    for (uint32_t seg = 0; seg < segments; ++seg) {
+        uint32_t current = cyl_start + seg;
+        uint32_t next = current + segments + 1;
+
+        mesh.indices.push_back(current);
+        mesh.indices.push_back(next);
+        mesh.indices.push_back(current + 1);
+
+        mesh.indices.push_back(current + 1);
+        mesh.indices.push_back(next);
+        mesh.indices.push_back(next + 1);
+    }
+
+    // Generate indices for bottom hemisphere
+    uint32_t bottom_start = cyl_start + 2 * (segments + 1);
+    for (uint32_t ring = 0; ring < rings; ++ring) {
+        for (uint32_t seg = 0; seg < segments; ++seg) {
+            uint32_t current = bottom_start + ring * (segments + 1) + seg;
+            uint32_t next = current + segments + 1;
+
+            mesh.indices.push_back(current);
+            mesh.indices.push_back(next);
+            mesh.indices.push_back(current + 1);
+
+            mesh.indices.push_back(current + 1);
+            mesh.indices.push_back(next);
+            mesh.indices.push_back(next + 1);
+        }
+    }
+
+    return mesh;
+}
+
+Mesh generate_cylinder_mesh(float radius, float height, uint32_t segments) {
+    Mesh mesh;
+
+    float half_height = height * 0.5f;
+
+    // Generate side vertices
+    for (uint32_t i = 0; i <= 1; ++i) {
+        float y = (i == 0) ? half_height : -half_height;
+
+        for (uint32_t seg = 0; seg <= segments; ++seg) {
+            float theta = 2.0f * PI * static_cast<float>(seg) / static_cast<float>(segments);
+            float sin_theta = std::sin(theta);
+            float cos_theta = std::cos(theta);
+
+            Vec3 position(radius * cos_theta, y, radius * sin_theta);
+            Vec3 normal(cos_theta, 0.0f, sin_theta);
+
+            mesh.vertices.push_back(position);
+            mesh.normals.push_back(normal);
+        }
+    }
+
+    // Generate side indices
+    for (uint32_t seg = 0; seg < segments; ++seg) {
+        uint32_t current = seg;
+        uint32_t next = current + segments + 1;
+
+        mesh.indices.push_back(current);
+        mesh.indices.push_back(next);
+        mesh.indices.push_back(current + 1);
+
+        mesh.indices.push_back(current + 1);
+        mesh.indices.push_back(next);
+        mesh.indices.push_back(next + 1);
+    }
+
+    // Generate top cap
+    uint32_t top_center_idx = static_cast<uint32_t>(mesh.vertices.size());
+    mesh.vertices.push_back(Vec3(0.0f, half_height, 0.0f));
+    mesh.normals.push_back(Vec3(0.0f, 1.0f, 0.0f));
+
+    for (uint32_t seg = 0; seg < segments; ++seg) {
+        mesh.indices.push_back(top_center_idx);
+        mesh.indices.push_back(seg);
+        mesh.indices.push_back(seg + 1);
+    }
+
+    // Generate bottom cap
+    uint32_t bottom_center_idx = static_cast<uint32_t>(mesh.vertices.size());
+    mesh.vertices.push_back(Vec3(0.0f, -half_height, 0.0f));
+    mesh.normals.push_back(Vec3(0.0f, -1.0f, 0.0f));
+
+    uint32_t bottom_ring_start = segments + 1;
+    for (uint32_t seg = 0; seg < segments; ++seg) {
+        mesh.indices.push_back(bottom_center_idx);
+        mesh.indices.push_back(bottom_ring_start + seg + 1);
+        mesh.indices.push_back(bottom_ring_start + seg);
+    }
+
+    return mesh;
+}
+
+Mesh generate_cone_mesh(float radius, float height, uint32_t segments) {
+    Mesh mesh;
+
+    // Generate base vertices
+    for (uint32_t seg = 0; seg <= segments; ++seg) {
+        float theta = 2.0f * PI * static_cast<float>(seg) / static_cast<float>(segments);
+        float sin_theta = std::sin(theta);
+        float cos_theta = std::cos(theta);
+
+        Vec3 position(radius * cos_theta, 0.0f, radius * sin_theta);
+        
+        // Side normal points outward and upward
+        Vec3 tangent(-sin_theta, 0.0f, cos_theta);
+        Vec3 up(0.0f, 1.0f, 0.0f);
+        Vec3 radial(cos_theta, 0.0f, sin_theta);
+        float slant = std::atan2(radius, height);
+        Vec3 normal = (radial * std::cos(slant) + up * std::sin(slant)).normalized();
+
+        mesh.vertices.push_back(position);
+        mesh.normals.push_back(normal);
+    }
+
+    // Apex vertex
+    uint32_t apex_idx = static_cast<uint32_t>(mesh.vertices.size());
+    mesh.vertices.push_back(Vec3(0.0f, height, 0.0f));
+    mesh.normals.push_back(Vec3(0.0f, 1.0f, 0.0f));
+
+    // Generate side triangles
+    for (uint32_t seg = 0; seg < segments; ++seg) {
+        mesh.indices.push_back(seg);
+        mesh.indices.push_back(apex_idx);
+        mesh.indices.push_back(seg + 1);
+    }
+
+    // Generate base cap (center point)
+    uint32_t base_center_idx = static_cast<uint32_t>(mesh.vertices.size());
+    mesh.vertices.push_back(Vec3(0.0f, 0.0f, 0.0f));
+    mesh.normals.push_back(Vec3(0.0f, -1.0f, 0.0f));
+
+    for (uint32_t seg = 0; seg < segments; ++seg) {
+        mesh.indices.push_back(base_center_idx);
+        mesh.indices.push_back(seg + 1);
+        mesh.indices.push_back(seg);
+    }
+
+    return mesh;
+}
+
+Mesh generate_plane_mesh(const Vec3& size, uint32_t subdivisions) {
+    Mesh mesh;
+
+    float hx = size.x * 0.5f;
+    float hz = size.z * 0.5f;
+    uint32_t verts_per_axis = subdivisions + 2;
+
+    // Generate vertices
+    for (uint32_t z = 0; z < verts_per_axis; ++z) {
+        for (uint32_t x = 0; x < verts_per_axis; ++x) {
+            float fx = -hx + (size.x * static_cast<float>(x)) / static_cast<float>(verts_per_axis - 1);
+            float fz = -hz + (size.z * static_cast<float>(z)) / static_cast<float>(verts_per_axis - 1);
+
+            mesh.vertices.push_back(Vec3(fx, 0.0f, fz));
+            mesh.normals.push_back(Vec3(0.0f, 1.0f, 0.0f));
+        }
+    }
+
+    // Generate indices
+    for (uint32_t z = 0; z < verts_per_axis - 1; ++z) {
+        for (uint32_t x = 0; x < verts_per_axis - 1; ++x) {
+            uint32_t tl = z * verts_per_axis + x;
+            uint32_t tr = tl + 1;
+            uint32_t bl = (z + 1) * verts_per_axis + x;
+            uint32_t br = bl + 1;
+
+            mesh.indices.push_back(tl);
+            mesh.indices.push_back(bl);
+            mesh.indices.push_back(tr);
+
+            mesh.indices.push_back(tr);
+            mesh.indices.push_back(bl);
+            mesh.indices.push_back(br);
+        }
+    }
+
+    return mesh;
+}
+
 } // namespace props
