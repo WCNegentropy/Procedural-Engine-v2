@@ -41,6 +41,7 @@ from player_controller import (
     CameraController,
     Camera,
 )
+from graphics_bridge import GraphicsBridge
 
 if TYPE_CHECKING:
     from ui_system import UIManager
@@ -501,9 +502,14 @@ class GameRunner:
         self._world: Optional[GameWorld] = None
         self._player_controller: Optional[PlayerController] = None
         self._input_manager: Optional[InputManager] = None
+        self._graphics_bridge: Optional[GraphicsBridge] = None
 
         # UI system (lazily loaded)
         self._ui_manager: Optional["UIManager"] = None
+
+        # Cached mesh names for entities
+        self._entity_meshes: Dict[str, str] = {}  # entity_id -> mesh_name
+        self._terrain_mesh_name: str = "terrain"
 
         # Timing
         self._last_time: float = 0.0
@@ -527,6 +533,16 @@ class GameRunner:
         if not self._backend.initialize(self.config):
             print("Failed to initialize window backend")
             return False
+
+        # Initialize graphics bridge
+        self._graphics_bridge = GraphicsBridge()
+        graphics_available = self._graphics_bridge.initialize(
+            width=self.config.window_width,
+            height=self.config.window_height,
+            enable_validation=self.config.enable_debug,
+        )
+        if graphics_available:
+            self._init_graphics_resources()
 
         # Create input manager and player controller
         self._input_manager = InputManager()
@@ -579,6 +595,71 @@ class GameRunner:
             # UI system not available
             pass
 
+    def _init_graphics_resources(self) -> None:
+        """Initialize graphics resources (pipelines, default meshes)."""
+        if not self._graphics_bridge:
+            return
+
+        # Create default material pipelines
+        default_vertex = """
+            #version 450
+            layout(location = 0) in vec3 inPosition;
+            layout(location = 1) in vec3 inNormal;
+            layout(location = 2) in vec2 inUV;
+            layout(push_constant) uniform PushConstants {
+                mat4 model;
+                vec4 color;
+            } push;
+            layout(set = 0, binding = 0) uniform UBO {
+                mat4 view;
+                mat4 proj;
+                vec3 cameraPos;
+            } ubo;
+            layout(location = 0) out vec3 fragNormal;
+            layout(location = 1) out vec3 fragWorldPos;
+            layout(location = 2) out vec2 fragUV;
+            void main() {
+                vec4 worldPos = push.model * vec4(inPosition, 1.0);
+                gl_Position = ubo.proj * ubo.view * worldPos;
+                fragNormal = mat3(push.model) * inNormal;
+                fragWorldPos = worldPos.xyz;
+                fragUV = inUV;
+            }
+        """
+
+        default_fragment = """
+            #version 450
+            layout(location = 0) in vec3 fragNormal;
+            layout(location = 1) in vec3 fragWorldPos;
+            layout(location = 2) in vec2 fragUV;
+            layout(push_constant) uniform PushConstants {
+                mat4 model;
+                vec4 color;
+            } push;
+            layout(location = 0) out vec4 outColor;
+            void main() {
+                vec3 lightDir = normalize(vec3(0.5, 1.0, 0.3));
+                float diff = max(dot(normalize(fragNormal), lightDir), 0.0);
+                vec3 ambient = 0.2 * push.color.rgb;
+                vec3 diffuse = diff * push.color.rgb;
+                outColor = vec4(ambient + diffuse, push.color.a);
+            }
+        """
+
+        self._graphics_bridge.create_material_pipeline(
+            "default",
+            default_vertex,
+            default_fragment,
+        )
+
+        # Add default sun light
+        self._graphics_bridge.add_light(
+            position=(100.0, 200.0, 100.0),
+            color=(1.0, 0.95, 0.9),
+            intensity=1.0,
+            radius=1000.0,
+        )
+
     def _load_game_content(self) -> None:
         """Load game content from data files."""
         try:
@@ -608,6 +689,8 @@ class GameRunner:
         """Shutdown all systems."""
         if self._ui_manager:
             self._ui_manager.shutdown()
+        if self._graphics_bridge:
+            self._graphics_bridge.shutdown()
         self._backend.shutdown()
 
     def run(self) -> None:
@@ -716,11 +799,102 @@ class GameRunner:
 
     def _render(self) -> None:
         """Render the game world."""
-        # In headless mode or without graphics, this is a no-op
-        # With graphics enabled, this would render through Vulkan
+        if self._graphics_bridge and not self._graphics_bridge.is_headless:
+            # Update camera from player controller
+            if self._player_controller:
+                self._graphics_bridge.set_camera_from_controller(
+                    self._player_controller.camera_controller
+                )
+
+            # Begin rendering
+            self._graphics_bridge.begin_frame()
+
+            # Render terrain if available
+            if self._terrain_mesh_name in self._graphics_bridge._meshes:
+                from graphics_bridge import create_identity_matrix
+                self._graphics_bridge.draw_mesh(
+                    self._terrain_mesh_name,
+                    "default",
+                    create_identity_matrix(),
+                )
+
+            # Render all entities in the world
+            if self._world:
+                self._render_entities()
+
+            # End rendering
+            self._graphics_bridge.end_frame()
 
         if self._on_render:
             self._on_render()
+
+    def _render_entities(self) -> None:
+        """Render all visible entities in the game world."""
+        if not self._world or not self._graphics_bridge:
+            return
+
+        # Render player
+        player = self._world.get_player()
+        if player:
+            mesh_name = self._get_or_create_entity_mesh(player.id, "player")
+            self._graphics_bridge.draw_entity(
+                mesh_name,
+                "default",
+                player.position,
+                rotation=0.0,
+                scale=1.0,
+            )
+
+        # Render NPCs
+        for entity in self._world.get_all_entities():
+            if isinstance(entity, NPC):
+                mesh_name = self._get_or_create_entity_mesh(entity.id, "npc")
+                self._graphics_bridge.draw_entity(
+                    mesh_name,
+                    "default",
+                    entity.position,
+                    rotation=0.0,
+                    scale=1.0,
+                )
+
+    def _get_or_create_entity_mesh(self, entity_id: str, entity_type: str) -> str:
+        """Get or create a mesh for an entity.
+
+        Parameters
+        ----------
+        entity_id:
+            Unique entity identifier.
+        entity_type:
+            Type of entity (player, npc, prop, etc.).
+
+        Returns
+        -------
+        str:
+            Name of the mesh to use for rendering.
+        """
+        if entity_id in self._entity_meshes:
+            return self._entity_meshes[entity_id]
+
+        # For now, use a placeholder mesh name based on type
+        # In a full implementation, this would generate/load the actual mesh
+        mesh_name = f"{entity_type}_{entity_id}"
+
+        # Create a placeholder mesh entry in headless mode
+        if self._graphics_bridge and self._graphics_bridge.is_headless:
+            self._graphics_bridge._meshes[mesh_name] = {
+                "type": entity_type,
+                "entity_id": entity_id,
+            }
+        else:
+            # In real graphics mode, we would upload actual geometry here
+            # For now, create a simple placeholder
+            self._graphics_bridge._meshes[mesh_name] = {
+                "type": entity_type,
+                "entity_id": entity_id,
+            }
+
+        self._entity_meshes[entity_id] = mesh_name
+        return mesh_name
 
     def _render_ui(self) -> None:
         """Render UI elements."""
@@ -865,6 +1039,11 @@ class GameRunner:
     def backend(self) -> WindowBackend:
         """Get window backend."""
         return self._backend
+
+    @property
+    def graphics_bridge(self) -> Optional[GraphicsBridge]:
+        """Get the graphics bridge for direct rendering control."""
+        return self._graphics_bridge
 
     def set_update_callback(self, callback: Callable[[float], None]) -> None:
         """Set custom update callback."""

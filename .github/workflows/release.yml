@@ -13,6 +13,7 @@ on:
 
 env:
   PYTHON_VERSION: "3.12"
+  GAME_NAME: "ProceduralEngine"
 
 jobs:
   # ===========================================================================
@@ -56,14 +57,10 @@ jobs:
       # Windows dependencies
       - name: Install Vulkan SDK (Windows)
         if: matrix.platform == 'windows'
-        run: |
-          $vulkanVersion = "1.3.290.0"
-          $installerUrl = "https://sdk.lunarg.com/sdk/download/$vulkanVersion/windows/VulkanSDK-$vulkanVersion-Installer.exe"
-          $installerPath = "$env:TEMP\VulkanSDK-Installer.exe"
-          Invoke-WebRequest -Uri $installerUrl -OutFile $installerPath
-          Start-Process -FilePath $installerPath -ArgumentList "/S" -Wait
-          echo "VULKAN_SDK=C:\VulkanSDK\$vulkanVersion" >> $env:GITHUB_ENV
-        shell: powershell
+        uses: humbletim/install-vulkan-sdk@v1.2
+        with:
+          version: 1.3.290.0
+          cache: true
 
       - name: Install OpenSSL (Windows)
         if: matrix.platform == 'windows'
@@ -93,7 +90,7 @@ jobs:
           if-no-files-found: warn
 
   # ===========================================================================
-  # Build Standalone Executables
+  # Build Standalone Executables with Game Data
   # ===========================================================================
   build-standalone:
     name: Build Standalone (${{ matrix.os }})
@@ -106,14 +103,17 @@ jobs:
             platform: linux
             ext: ""
             artifact_name: ProceduralEngine-Linux-x64
+            steam_depot: linux
           - os: windows-latest
             platform: windows
             ext: ".exe"
             artifact_name: ProceduralEngine-Windows-x64
+            steam_depot: windows
           - os: macos-latest
             platform: macos
             ext: ""
             artifact_name: ProceduralEngine-macOS-x64
+            steam_depot: macos
 
     steps:
       - uses: actions/checkout@v4
@@ -135,14 +135,10 @@ jobs:
       # Windows dependencies
       - name: Install Vulkan SDK (Windows)
         if: matrix.platform == 'windows'
-        run: |
-          $vulkanVersion = "1.3.290.0"
-          $installerUrl = "https://sdk.lunarg.com/sdk/download/$vulkanVersion/windows/VulkanSDK-$vulkanVersion-Installer.exe"
-          $installerPath = "$env:TEMP\VulkanSDK-Installer.exe"
-          Invoke-WebRequest -Uri $installerUrl -OutFile $installerPath
-          Start-Process -FilePath $installerPath -ArgumentList "/S" -Wait
-          echo "VULKAN_SDK=C:\VulkanSDK\$vulkanVersion" >> $env:GITHUB_ENV
-        shell: powershell
+        uses: humbletim/install-vulkan-sdk@v1.2
+        with:
+          version: 1.3.290.0
+          cache: true
 
       - name: Install OpenSSL (Windows)
         if: matrix.platform == 'windows'
@@ -161,56 +157,196 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
-      - name: Build C++ module
+      - name: Build C++ module (Linux)
+        if: matrix.platform == 'linux'
         run: |
-          mkdir -p build
-          cd build
+          mkdir -p build && cd build
           cmake ../cpp -DCMAKE_BUILD_TYPE=Release
-          cmake --build . --config Release --parallel
-        shell: bash
-        continue-on-error: true
+          cmake --build . --parallel $(nproc)
+          cp procengine_cpp*.so ../ 2>/dev/null || true
 
-      - name: Copy module to project root (Unix)
-        if: matrix.platform != 'windows'
-        run: |
-          cp build/procengine_cpp*.so . 2>/dev/null || true
-          cp build/procengine_cpp*.dylib . 2>/dev/null || true
-        continue-on-error: true
-
-      - name: Copy module to project root (Windows)
+      - name: Build C++ module (Windows)
         if: matrix.platform == 'windows'
+        shell: cmd
+        run: |
+          mkdir build
+          cd build
+          cmake ../cpp -DCMAKE_BUILD_TYPE=Release -DOPENSSL_ROOT_DIR="C:/Program Files/OpenSSL" -DVULKAN_SDK="%VULKAN_SDK%" -DVulkan_INCLUDE_DIR="%VULKAN_SDK%/Include" -DVulkan_LIBRARY="%VULKAN_SDK%/Lib/vulkan-1.lib"
+          cmake --build . --config Release --parallel
+        continue-on-error: true
+
+      - name: Copy Windows module
+        if: matrix.platform == 'windows'
+        shell: powershell
         run: |
           Copy-Item build/Release/procengine_cpp*.pyd . -ErrorAction SilentlyContinue
           Copy-Item build/procengine_cpp*.pyd . -ErrorAction SilentlyContinue
-        shell: powershell
+        continue-on-error: true
+
+      - name: Build C++ module (macOS)
+        if: matrix.platform == 'macos'
+        run: |
+          mkdir -p build && cd build
+          VULKAN_SDK=$(brew --prefix molten-vk)
+          OPENSSL_PREFIX=$(brew --prefix openssl)
+          cmake ../cpp \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX \
+            -DVULKAN_SDK=$VULKAN_SDK \
+            -DVulkan_INCLUDE_DIR=$VULKAN_SDK/include \
+            -DVulkan_LIBRARY=$VULKAN_SDK/lib/libMoltenVK.dylib
+          cmake --build . --parallel $(sysctl -n hw.ncpu)
+          cp procengine_cpp*.so ../ 2>/dev/null || true
+          cp procengine_cpp*.dylib ../ 2>/dev/null || true
         continue-on-error: true
 
       - name: Build standalone executable
         run: |
           pyinstaller \
-            --name ProceduralEngine \
+            --name ${{ env.GAME_NAME }} \
             --onedir \
             --console \
-            --add-data "*.py:." \
+            --add-data "data:data" \
             --hidden-import numpy \
             --hidden-import pybind11 \
+            --collect-all procengine_cpp 2>/dev/null || true \
             main.py
         shell: bash
+        continue-on-error: true
+
+      - name: Bundle game data and assets (Unix)
+        if: matrix.platform != 'windows'
+        run: |
+          # Ensure dist directory structure
+          mkdir -p dist/${{ env.GAME_NAME }}/data
+          mkdir -p dist/${{ env.GAME_NAME }}/assets
+
+          # Copy game data
+          cp -r data/* dist/${{ env.GAME_NAME }}/data/ 2>/dev/null || true
+
+          # Copy C++ module if not bundled
+          cp procengine_cpp*.so dist/${{ env.GAME_NAME }}/ 2>/dev/null || true
+          cp procengine_cpp*.dylib dist/${{ env.GAME_NAME }}/ 2>/dev/null || true
+
+          # Copy Python sources for moddability
+          mkdir -p dist/${{ env.GAME_NAME }}/scripts
+          cp engine.py dist/${{ env.GAME_NAME }}/scripts/ 2>/dev/null || true
+          cp game_api.py dist/${{ env.GAME_NAME }}/scripts/ 2>/dev/null || true
+          cp behavior_tree.py dist/${{ env.GAME_NAME }}/scripts/ 2>/dev/null || true
+          cp data_loader.py dist/${{ env.GAME_NAME }}/scripts/ 2>/dev/null || true
+
+          # Create version file
+          echo "${{ github.ref_name || inputs.version }}" > dist/${{ env.GAME_NAME }}/VERSION
+
+          # Create README
+          cat > dist/${{ env.GAME_NAME }}/README.txt << 'EOF'
+          Procedural Engine v${{ github.ref_name || inputs.version }}
+          ================================================
+
+          A deterministic procedural world generation engine.
+
+          Quick Start:
+          1. Run ProceduralEngine (or ProceduralEngine.exe on Windows)
+          2. The game will generate a world from seed 42 by default
+          3. Use --seed <number> to specify a different seed
+
+          Controls:
+          - WASD: Move
+          - Mouse: Look around
+          - Space: Jump
+          - E: Interact
+          - I: Inventory
+          - Escape: Pause menu
+
+          Modding:
+          - Game data is in the data/ folder (JSON format)
+          - Python scripts are in the scripts/ folder
+
+          Requirements:
+          - Vulkan-compatible graphics card
+          - 4GB RAM minimum
+
+          For support, visit: https://github.com/WCNegentropy/Procedural-Engine-v2
+          EOF
+        continue-on-error: true
+
+      - name: Bundle game data and assets (Windows)
+        if: matrix.platform == 'windows'
+        shell: powershell
+        run: |
+          # Ensure dist directory structure
+          New-Item -ItemType Directory -Force -Path dist/${{ env.GAME_NAME }}/data
+          New-Item -ItemType Directory -Force -Path dist/${{ env.GAME_NAME }}/assets
+          New-Item -ItemType Directory -Force -Path dist/${{ env.GAME_NAME }}/scripts
+
+          # Copy game data
+          Copy-Item -Recurse data/* dist/${{ env.GAME_NAME }}/data/ -ErrorAction SilentlyContinue
+
+          # Copy C++ module
+          Copy-Item procengine_cpp*.pyd dist/${{ env.GAME_NAME }}/ -ErrorAction SilentlyContinue
+
+          # Copy Python sources for moddability
+          Copy-Item engine.py dist/${{ env.GAME_NAME }}/scripts/ -ErrorAction SilentlyContinue
+          Copy-Item game_api.py dist/${{ env.GAME_NAME }}/scripts/ -ErrorAction SilentlyContinue
+          Copy-Item behavior_tree.py dist/${{ env.GAME_NAME }}/scripts/ -ErrorAction SilentlyContinue
+          Copy-Item data_loader.py dist/${{ env.GAME_NAME }}/scripts/ -ErrorAction SilentlyContinue
+
+          # Create version file
+          "${{ github.ref_name }}" | Out-File -FilePath dist/${{ env.GAME_NAME }}/VERSION
+
+          # Create README
+          @"
+          Procedural Engine ${{ github.ref_name }}
+          ================================================
+
+          A deterministic procedural world generation engine.
+
+          Quick Start:
+          1. Run ProceduralEngine.exe
+          2. The game will generate a world from seed 42 by default
+          3. Use --seed <number> to specify a different seed
+
+          Controls:
+          - WASD: Move
+          - Mouse: Look around
+          - Space: Jump
+          - E: Interact
+          - I: Inventory
+          - Escape: Pause menu
+
+          Modding:
+          - Game data is in the data/ folder (JSON format)
+          - Python scripts are in the scripts/ folder
+
+          Requirements:
+          - Vulkan-compatible graphics card
+          - 4GB RAM minimum
+          - Windows 10/11 (64-bit)
+
+          For support, visit: https://github.com/WCNegentropy/Procedural-Engine-v2
+          "@ | Out-File -FilePath dist/${{ env.GAME_NAME }}/README.txt
         continue-on-error: true
 
       - name: Create release archive (Unix)
         if: matrix.platform != 'windows'
         run: |
           cd dist
-          tar -czvf ${{ matrix.artifact_name }}.tar.gz ProceduralEngine/ 2>/dev/null || true
+          tar -czvf ${{ matrix.artifact_name }}.tar.gz ${{ env.GAME_NAME }}/ 2>/dev/null || true
         continue-on-error: true
 
       - name: Create release archive (Windows)
         if: matrix.platform == 'windows'
         run: |
           cd dist
-          Compress-Archive -Path ProceduralEngine -DestinationPath ${{ matrix.artifact_name }}.zip -ErrorAction SilentlyContinue
+          Compress-Archive -Path ${{ env.GAME_NAME }} -DestinationPath ${{ matrix.artifact_name }}.zip -ErrorAction SilentlyContinue
         shell: powershell
+        continue-on-error: true
+
+      - name: Prepare Steam depot structure
+        run: |
+          mkdir -p steam_depot/${{ matrix.steam_depot }}
+          cp -r dist/${{ env.GAME_NAME }}/* steam_depot/${{ matrix.steam_depot }}/ 2>/dev/null || true
+        shell: bash
         continue-on-error: true
 
       - name: Upload standalone artifact
@@ -220,6 +356,13 @@ jobs:
           path: |
             dist/${{ matrix.artifact_name }}.tar.gz
             dist/${{ matrix.artifact_name }}.zip
+          if-no-files-found: warn
+
+      - name: Upload Steam depot artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: steam-depot-${{ matrix.steam_depot }}
+          path: steam_depot/${{ matrix.steam_depot }}/
           if-no-files-found: warn
 
   # ===========================================================================
@@ -297,7 +440,7 @@ jobs:
         continue-on-error: true
 
   # ===========================================================================
-  # Create GitHub Release
+  # Create GitHub Release with Steam-Ready Artifacts
   # ===========================================================================
   create-release:
     name: Create Release
@@ -320,11 +463,96 @@ jobs:
         id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
+      - name: List downloaded artifacts
+        run: |
+          echo "=== Downloaded Artifacts ==="
+          find artifacts/ -type f 2>/dev/null | head -100 || echo "No artifacts"
+
+      - name: Prepare Steam depot bundle
+        run: |
+          mkdir -p steam_bundle
+          
+          # Combine all platform depots into single bundle
+          for platform in linux windows macos; do
+            if [ -d "artifacts/steam-depot-$platform" ]; then
+              mkdir -p steam_bundle/depot_$platform
+              cp -r artifacts/steam-depot-$platform/* steam_bundle/depot_$platform/
+            fi
+          done
+          
+          # Create Steam app manifest template
+          cat > steam_bundle/app_build.vdf << 'EOF'
+          "AppBuild"
+          {
+              "AppID" "YOUR_APP_ID"
+              "Desc" "Procedural Engine v${{ steps.version.outputs.VERSION }}"
+              "BuildOutput" "./output/"
+              "ContentRoot" "./"
+              "SetLive" ""
+              "Depots"
+              {
+                  "YOUR_WINDOWS_DEPOT_ID"
+                  {
+                      "FileMapping"
+                      {
+                          "LocalPath" "./depot_windows/*"
+                          "DepotPath" "."
+                          "recursive" "1"
+                      }
+                  }
+                  "YOUR_LINUX_DEPOT_ID"
+                  {
+                      "FileMapping"
+                      {
+                          "LocalPath" "./depot_linux/*"
+                          "DepotPath" "."
+                          "recursive" "1"
+                      }
+                  }
+                  "YOUR_MACOS_DEPOT_ID"
+                  {
+                      "FileMapping"
+                      {
+                          "LocalPath" "./depot_macos/*"
+                          "DepotPath" "."
+                          "recursive" "1"
+                      }
+                  }
+              }
+          }
+          EOF
+          
+          # Create Steam README
+          cat > steam_bundle/STEAM_DEPLOYMENT.md << 'EOF'
+          # Steam Deployment Guide
+          
+          This bundle contains all platform builds ready for Steam deployment.
+          
+          ## Directory Structure
+          - `depot_linux/` - Linux build
+          - `depot_windows/` - Windows build  
+          - `depot_macos/` - macOS build
+          - `app_build.vdf` - Steam app build manifest template
+          
+          ## Deployment Steps
+          1. Replace YOUR_APP_ID with your Steam App ID
+          2. Replace depot IDs with your actual depot IDs
+          3. Run: `steamcmd +login <username> +run_app_build app_build.vdf +quit`
+          
+          ## Testing
+          Use Steam's partner tools to test the builds before release.
+          EOF
+          
+          # Create archive
+          tar -czvf steam_bundle.tar.gz steam_bundle/
+        continue-on-error: true
+
       - name: Generate release notes
         id: notes
         run: |
-          cat << 'EOF' > release_notes.md
-          ## Procedural Engine v${{ steps.version.outputs.VERSION }}
+          VERSION=${{ steps.version.outputs.VERSION }}
+          cat << EOF > release_notes.md
+          ## Procedural Engine v${VERSION}
 
           A hybrid Python/C++ procedural world generation engine with Vulkan graphics.
 
@@ -333,29 +561,33 @@ jobs:
           - Terrain generation with hydraulic erosion, biomes, and rivers
           - Procedural props: rocks, trees (L-systems), buildings (BSP), creatures (metaballs)
           - Material graph compiler (GLSL/SPIR-V)
-          - Physics: 2D sequential impulse solver
+          - 3D Physics with hybrid 2D+height approach
           - Hot-reload infrastructure for live editing
+          - Full Vulkan rendering pipeline
 
           ### Downloads
 
           **Standalone Executables (recommended for end users):**
-          - `ProceduralEngine-Windows-x64.zip` - Windows 10/11 (64-bit)
-          - `ProceduralEngine-Linux-x64.tar.gz` - Linux (64-bit)
-          - `ProceduralEngine-macOS-x64.tar.gz` - macOS (64-bit)
+          - \`ProceduralEngine-Windows-x64.zip\` - Windows 10/11 (64-bit)
+          - \`ProceduralEngine-Linux-x64.tar.gz\` - Linux (64-bit)
+          - \`ProceduralEngine-macOS-x64.tar.gz\` - macOS (64-bit)
 
           **Python Wheels (for developers):**
-          - `wheel-windows-x64` - Windows Python wheel
-          - `wheel-linux-x64` - Linux Python wheel
-          - `wheel-macos-x64` - macOS Python wheel
+          - \`wheel-windows-x64\` - Windows Python wheel
+          - \`wheel-linux-x64\` - Linux Python wheel
+          - \`wheel-macos-x64\` - macOS Python wheel
 
-          Install with: `pip install procedural_engine-*.whl`
+          Install with: \`pip install procedural_engine-*.whl\`
+
+          **Steam Deployment:**
+          - \`steam_bundle.tar.gz\` - Pre-configured depot structure for Steamworks
 
           ### Requirements
-          - **Standalone:** Vulkan-compatible GPU (validation layers optional)
+          - **Standalone:** Vulkan-compatible GPU
           - **Python:** Python 3.10+ with NumPy
 
           ### Quick Start
-          ```bash
+          \`\`\`bash
           # Standalone
           ./ProceduralEngine --seed 42 --size 128
 
@@ -363,11 +595,8 @@ jobs:
           import procengine_cpp as engine
           reg = engine.SeedRegistry(42)
           height, biome, river = engine.generate_terrain_standalone(42, 64)
-          ```
+          \`\`\`
           EOF
-
-      - name: List artifacts
-        run: find artifacts/ -type f 2>/dev/null || echo "No artifacts found"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
@@ -380,6 +609,7 @@ jobs:
             artifacts/wheel-*/*.whl
             artifacts/ProceduralEngine-*/*.tar.gz
             artifacts/ProceduralEngine-*/*.zip
+            steam_bundle.tar.gz
           fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
