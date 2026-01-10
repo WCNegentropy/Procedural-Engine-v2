@@ -88,63 +88,63 @@ if(NOT NO_GRAPHICS)
             set(SHADERC_SEARCH_PATHS "")
             set(SHADERC_INCLUDE_PATHS "")
 
-        # Priority 1: Vulkan SDK (used in CI)
-        if(DEFINED VULKAN_SDK)
-            message(STATUS "Checking Vulkan SDK for shaderc: ${VULKAN_SDK}")
-            list(APPEND SHADERC_SEARCH_PATHS "${VULKAN_SDK}/lib")
-            list(APPEND SHADERC_INCLUDE_PATHS "${VULKAN_SDK}/include")
-        endif()
-        if(DEFINED ENV{VULKAN_SDK})
-            message(STATUS "Checking VULKAN_SDK env for shaderc: $ENV{VULKAN_SDK}")
-            list(APPEND SHADERC_SEARCH_PATHS "$ENV{VULKAN_SDK}/lib")
-            list(APPEND SHADERC_INCLUDE_PATHS "$ENV{VULKAN_SDK}/include")
-        endif()
+            # Priority 1: Vulkan SDK (used in CI)
+            if(DEFINED VULKAN_SDK)
+                message(STATUS "Checking Vulkan SDK for shaderc: ${VULKAN_SDK}")
+                list(APPEND SHADERC_SEARCH_PATHS "${VULKAN_SDK}/lib")
+                list(APPEND SHADERC_INCLUDE_PATHS "${VULKAN_SDK}/include")
+            endif()
+            if(DEFINED ENV{VULKAN_SDK})
+                message(STATUS "Checking VULKAN_SDK env for shaderc: $ENV{VULKAN_SDK}")
+                list(APPEND SHADERC_SEARCH_PATHS "$ENV{VULKAN_SDK}/lib")
+                list(APPEND SHADERC_INCLUDE_PATHS "$ENV{VULKAN_SDK}/include")
+            endif()
 
-        # Priority 2: Homebrew shaderc (local development)
-        execute_process(
-            COMMAND brew --prefix shaderc
-            OUTPUT_VARIABLE SHADERC_PREFIX
-            OUTPUT_STRIP_TRAILING_WHITESPACE
-            RESULT_VARIABLE SHADERC_BREW_RESULT
-            ERROR_QUIET
-        )
-        if(SHADERC_BREW_RESULT EQUAL 0 AND SHADERC_PREFIX)
-            message(STATUS "Found Homebrew shaderc at: ${SHADERC_PREFIX}")
-            list(APPEND SHADERC_SEARCH_PATHS "${SHADERC_PREFIX}/lib")
-            list(APPEND SHADERC_INCLUDE_PATHS "${SHADERC_PREFIX}/include")
-        endif()
+            # Priority 2: Homebrew shaderc (local development)
+            execute_process(
+                COMMAND brew --prefix shaderc
+                OUTPUT_VARIABLE SHADERC_PREFIX
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+                RESULT_VARIABLE SHADERC_BREW_RESULT
+                ERROR_QUIET
+            )
+            if(SHADERC_BREW_RESULT EQUAL 0 AND SHADERC_PREFIX)
+                message(STATUS "Found Homebrew shaderc at: ${SHADERC_PREFIX}")
+                list(APPEND SHADERC_SEARCH_PATHS "${SHADERC_PREFIX}/lib")
+                list(APPEND SHADERC_INCLUDE_PATHS "${SHADERC_PREFIX}/include")
+            endif()
 
-        # Priority 3: Standard Homebrew locations (fallback)
-        list(APPEND SHADERC_SEARCH_PATHS "/opt/homebrew/lib" "/usr/local/lib")
-        list(APPEND SHADERC_INCLUDE_PATHS "/opt/homebrew/include" "/usr/local/include")
+            # Priority 3: Standard Homebrew locations (fallback)
+            list(APPEND SHADERC_SEARCH_PATHS "/opt/homebrew/lib" "/usr/local/lib")
+            list(APPEND SHADERC_INCLUDE_PATHS "/opt/homebrew/include" "/usr/local/include")
 
-        message(STATUS "macOS shaderc search paths: ${SHADERC_SEARCH_PATHS}")
+            message(STATUS "macOS shaderc search paths: ${SHADERC_SEARCH_PATHS}")
 
-        # Find the library - try shaderc_combined first (static), then shared
-        find_library(SHADERC_LIB
-            NAMES shaderc_combined libshaderc_combined.a shaderc_shared shaderc
-            PATHS ${SHADERC_SEARCH_PATHS}
-            NO_DEFAULT_PATH
-        )
-        find_path(SHADERC_INCLUDE_DIR
-            NAMES shaderc/shaderc.hpp
-            PATHS ${SHADERC_INCLUDE_PATHS}
-            NO_DEFAULT_PATH
-        )
-
-        # If not found with NO_DEFAULT_PATH, try again with default paths
-        if(NOT SHADERC_LIB)
+            # Find the library - try shaderc_combined first (static), then shared
             find_library(SHADERC_LIB
                 NAMES shaderc_combined libshaderc_combined.a shaderc_shared shaderc
                 PATHS ${SHADERC_SEARCH_PATHS}
+                NO_DEFAULT_PATH
             )
-        endif()
-        if(NOT SHADERC_INCLUDE_DIR)
             find_path(SHADERC_INCLUDE_DIR
                 NAMES shaderc/shaderc.hpp
                 PATHS ${SHADERC_INCLUDE_PATHS}
+                NO_DEFAULT_PATH
             )
-        endif()
+
+            # If not found with NO_DEFAULT_PATH, try again with default paths
+            if(NOT SHADERC_LIB)
+                find_library(SHADERC_LIB
+                    NAMES shaderc_combined libshaderc_combined.a shaderc_shared shaderc
+                    PATHS ${SHADERC_SEARCH_PATHS}
+                )
+            endif()
+            if(NOT SHADERC_INCLUDE_DIR)
+                find_path(SHADERC_INCLUDE_DIR
+                    NAMES shaderc/shaderc.hpp
+                    PATHS ${SHADERC_INCLUDE_PATHS}
+                )
+            endif()
         endif()  # End of "if not provided directly"
     else()
         # Linux: use standard find_library (original working approach)
