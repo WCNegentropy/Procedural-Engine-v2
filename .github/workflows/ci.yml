@@ -284,51 +284,38 @@ jobs:
             ~/Library/Caches/Homebrew
             /usr/local/Cellar
             /opt/homebrew/Cellar
-          key: macos-homebrew-${{ runner.os }}-v2
+          key: macos-homebrew-${{ runner.os }}-v3
           restore-keys: |
             macos-homebrew-${{ runner.os }}-
 
       - name: Install dependencies
         run: |
-          brew install openssl shaderc glslang || true
+          brew install molten-vk openssl shaderc glslang || true
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # =========================================================================
-      # FIXED: Proper MoltenVK / Vulkan SDK installation for macOS
-      # =========================================================================
-      - name: Install Vulkan SDK (macOS)
+      - name: Verify shaderc installation
         run: |
-          # Download and install the official LunarG Vulkan SDK which includes MoltenVK
-          curl -sSL -o vulkansdk.dmg "https://sdk.lunarg.com/sdk/download/1.3.290.0/mac/vulkansdk-macos-1.3.290.0.dmg"
-          hdiutil attach vulkansdk.dmg -mountpoint /Volumes/VulkanSDK
-          
-          # Run the installer or copy files
-          sudo /Volumes/VulkanSDK/InstallVulkan.app/Contents/MacOS/InstallVulkan \
-            --root ~/VulkanSDK/1.3.290.0 \
-            --accept-licenses \
-            --default-answer \
-            --confirm-command install
-          
-          hdiutil detach /Volumes/VulkanSDK
-          
-          # Set environment variables
-          echo "VULKAN_SDK=$HOME/VulkanSDK/1.3.290.0/macOS" >> $GITHUB_ENV
-          echo "VK_ICD_FILENAMES=$HOME/VulkanSDK/1.3.290.0/macOS/share/vulkan/icd.d/MoltenVK_icd.json" >> $GITHUB_ENV
-          echo "VK_LAYER_PATH=$HOME/VulkanSDK/1.3.290.0/macOS/share/vulkan/explicit_layer.d" >> $GITHUB_ENV
-          echo "DYLD_LIBRARY_PATH=$HOME/VulkanSDK/1.3.290.0/macOS/lib:$DYLD_LIBRARY_PATH" >> $GITHUB_ENV
+          SHADERC_PREFIX=$(brew --prefix shaderc)
+          echo "Shaderc installed at: $SHADERC_PREFIX"
+          ls -la $SHADERC_PREFIX/lib/ | grep shaderc || echo "No shaderc libs found"
+          ls -la $SHADERC_PREFIX/include/shaderc/ || echo "No shaderc headers found"
 
-      - name: Verify Vulkan installation
+      - name: Set up Vulkan environment
         run: |
-          echo "VULKAN_SDK: $VULKAN_SDK"
-          ls -la $VULKAN_SDK/lib/ || echo "SDK lib not found"
-          ls -la $VULKAN_SDK/include/vulkan/ || echo "SDK include not found"
+          VULKAN_SDK=$(brew --prefix molten-vk)
+          echo "VULKAN_SDK=$VULKAN_SDK" >> $GITHUB_ENV
+          echo "VK_ICD_FILENAMES=$VULKAN_SDK/share/vulkan/icd.d/MoltenVK_icd.json" >> $GITHUB_ENV
+          
+          # Also export shaderc paths
+          SHADERC_PREFIX=$(brew --prefix shaderc)
+          echo "SHADERC_PREFIX=$SHADERC_PREFIX" >> $GITHUB_ENV
 
       - name: Cache CMake build
         uses: actions/cache@v4
         with:
           path: build
-          key: macos-cmake-${{ hashFiles('cpp/**/*.cpp', 'cpp/**/*.h', 'cpp/CMakeLists.txt') }}-v2
+          key: macos-cmake-${{ hashFiles('cpp/**/*.cpp', 'cpp/**/*.h', 'cpp/CMakeLists.txt') }}-v3
           restore-keys: |
             macos-cmake-
 
@@ -336,14 +323,28 @@ jobs:
         run: |
           mkdir -p build
           cd build
+          
+          VULKAN_SDK=$(brew --prefix molten-vk)
           OPENSSL_PREFIX=$(brew --prefix openssl)
+          SHADERC_PREFIX=$(brew --prefix shaderc)
+          
+          echo "=== Build Configuration ==="
+          echo "VULKAN_SDK: $VULKAN_SDK"
+          echo "OPENSSL_PREFIX: $OPENSSL_PREFIX"
+          echo "SHADERC_PREFIX: $SHADERC_PREFIX"
+          
+          # Find the actual shaderc library file
+          SHADERC_LIB=$(find $SHADERC_PREFIX/lib -name "libshaderc*.a" -o -name "libshaderc*.dylib" | head -1)
+          echo "SHADERC_LIB: $SHADERC_LIB"
+          
           cmake ../cpp \
             -DCMAKE_BUILD_TYPE=Release \
             -DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX \
             -DVULKAN_SDK=$VULKAN_SDK \
             -DVulkan_INCLUDE_DIR=$VULKAN_SDK/include \
-            -DVulkan_LIBRARY=$VULKAN_SDK/lib/libvulkan.dylib \
-            -DCMAKE_MACOSX_RPATH=ON
+            -DVulkan_LIBRARY=$VULKAN_SDK/lib/libMoltenVK.dylib \
+            -DSHADERC_LIB=$SHADERC_LIB \
+            -DSHADERC_INCLUDE_DIR=$SHADERC_PREFIX/include
 
       - name: Build C++ module
         run: |
@@ -354,6 +355,7 @@ jobs:
         run: |
           cp build/procengine_cpp*.so . 2>/dev/null || true
           cp build/procengine_cpp*.dylib . 2>/dev/null || true
+          ls -la procengine_cpp* || echo "Warning: No module found"
 
       - name: Run integration tests
         run: |
