@@ -46,6 +46,7 @@ from props import (
 from materials import generate_material_graph
 from physics import RigidBody, step_physics
 from world import generate_world
+from game_runner import GameRunner, RunnerConfig
 
 # Try to import C++ module
 try:
@@ -402,8 +403,8 @@ def create_parser() -> argparse.ArgumentParser:
     output_group.add_argument(
         "--headless",
         action="store_true",
-        default=True,
-        help="Run in headless mode (no graphics, default: true)",
+        default=False,
+        help="Run in headless mode (no graphics window)",
     )
     output_group.add_argument(
         "--verbose",
@@ -414,6 +415,11 @@ def create_parser() -> argparse.ArgumentParser:
 
     # Special modes
     special_group = parser.add_argument_group("Special Modes")
+    special_group.add_argument(
+        "--generate-only",
+        action="store_true",
+        help="Only generate world data, don't run game (for CI/tools)",
+    )
     special_group.add_argument(
         "--benchmark",
         action="store_true",
@@ -548,36 +554,66 @@ def main() -> int:
         success = verify_determinism(config)
         return 0 if success else 1
 
-    # Normal generation
-    print(f"Generating world with seed {config.seed}...")
-    engine = ProceduralEngine(config)
-    world = engine.generate_world()
+    # Generate-only mode (for CI/tools)
+    if args.generate_only or args.output:
+        print(f"Generating world with seed {config.seed}...")
+        engine = ProceduralEngine(config)
+        world = engine.generate_world()
 
-    # Print summary
-    summary = world.to_dict()
-    print()
-    print("World Summary:")
-    print("-" * 40)
-    print(f"  Seed: {summary['seed']}")
-    print(f"  Terrain: {summary['terrain']['height_shape'][0]}x{summary['terrain']['height_shape'][1]}")
-    print(f"    Height range: [{summary['terrain']['height_min']:.3f}, {summary['terrain']['height_max']:.3f}]")
-    print(f"    Biome types: {summary['terrain']['biome_unique']}")
-    print(f"    River coverage: {summary['terrain']['river_coverage'] * 100:.1f}%")
-    print(f"  Props:")
-    for prop_type, count in summary["props"].items():
-        print(f"    {prop_type}: {count}")
-    print(f"  Generation time: {summary['metadata']['generation_time_ms']['total']:.2f}ms")
-
-    # Save output if requested
-    if args.output:
-        output_path = Path(args.output)
-        with open(output_path, "w") as f:
-            json.dump(summary, f, indent=2)
+        # Print summary
+        summary = world.to_dict()
         print()
-        print(f"World data saved to: {output_path}")
+        print("World Summary:")
+        print("-" * 40)
+        print(f"  Seed: {summary['seed']}")
+        print(f"  Terrain: {summary['terrain']['height_shape'][0]}x{summary['terrain']['height_shape'][1]}")
+        print(f"    Height range: [{summary['terrain']['height_min']:.3f}, {summary['terrain']['height_max']:.3f}]")
+        print(f"    Biome types: {summary['terrain']['biome_unique']}")
+        print(f"    River coverage: {summary['terrain']['river_coverage'] * 100:.1f}%")
+        print(f"  Props:")
+        for prop_type, count in summary["props"].items():
+            print(f"    {prop_type}: {count}")
+        print(f"  Generation time: {summary['metadata']['generation_time_ms']['total']:.2f}ms")
 
+        # Save output if requested
+        if args.output:
+            output_path = Path(args.output)
+            with open(output_path, "w") as f:
+                json.dump(summary, f, indent=2)
+            print()
+            print(f"World data saved to: {output_path}")
+
+        print()
+        print("Done!")
+        return 0
+
+    # Normal mode: Run the game!
+    print(f"Starting game with seed {config.seed}...")
     print()
-    print("Done!")
+    
+    runner_config = RunnerConfig(
+        window_title=f"Procedural Engine - Seed {config.seed}",
+        window_width=1280,
+        window_height=720,
+        headless=args.headless,
+        world_seed=config.seed,
+        enable_debug=args.verbose,
+    )
+    
+    runner = GameRunner(runner_config)
+    
+    try:
+        runner.run()
+    except KeyboardInterrupt:
+        print("\nGame interrupted by user.")
+    except Exception as e:
+        print(f"\nGame error: {e}")
+        if args.verbose:
+            import traceback
+            traceback.print_exc()
+        return 1
+    
+    print("\nThanks for playing!")
     return 0
 
 
