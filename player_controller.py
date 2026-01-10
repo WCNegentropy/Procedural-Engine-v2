@@ -19,7 +19,7 @@ from typing import Callable, Dict, List, Optional, Set, Tuple, TYPE_CHECKING
 from physics import Vec3
 
 if TYPE_CHECKING:
-    from game_api import Player, GameWorld, NPC
+    from game_api import Player, GameWorld, NPC, Entity
 
 __all__ = [
     "InputAction",

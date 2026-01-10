@@ -16,33 +16,6 @@ This file configures Claude Code for optimal assistance with the Procedural Engi
 
 ---
 
-## MCP Servers Available
-
-The following MCP servers are configured in `.vscode/mcp.json` and available for enhanced capabilities:
-
-### GitHub MCP (`github-mcp`)
-- **Purpose:** Direct GitHub platform integration
-- **Capabilities:** Repository browsing, issue/PR management, code search, workflow analysis
-- **Auth:** Uses `GITHUB_TOKEN` environment variable (already configured)
-- **Use for:** Creating issues, reviewing PRs, searching code across repos, automating GitHub workflows
-
-### Memory Server (`@modelcontextprotocol/server-memory`)
-- **Purpose:** Persistent knowledge graph across sessions
-- **Capabilities:** Store entities, relationships, and observations
-- **Use for:** Remembering architectural decisions, tracking ongoing work, maintaining context about the engine's subsystems
-
-### Sequential Thinking (`@modelcontextprotocol/server-sequential-thinking`)
-- **Purpose:** Step-by-step reasoning for complex problems
-- **Capabilities:** Structured problem decomposition, thought logging
-- **Use for:** Debugging physics solver issues, planning architectural changes, working through algorithmic challenges
-
-### Filesystem Server (`@modelcontextprotocol/server-filesystem`)
-- **Purpose:** Secure file operations within project scope
-- **Scope:** `/workspaces/Procedural-Engine-v2`
-- **Use for:** Batch file operations, safe automated file management
-
----
-
 ## Development Environment
 
 ### Runtime Versions
@@ -165,12 +138,17 @@ This is the most critical constraint of the engine. All output must be reproduci
 
 ### Test Organization
 ```
-test_*.py           # 18 test files, 172+ tests
+test_*.py           # 25 test files, 430+ tests
 ├── test_engine.py          # Core engine tests
 ├── test_physics.py         # 2D physics (18 tests)
 ├── test_physics_3d.py      # 3D physics (49 tests)
 ├── test_terrain.py         # Terrain generation
 ├── test_cpp_*.py           # C++ integration tests
+├── test_game_api.py        # Phase 2 game systems
+├── test_behavior_tree.py   # Behavior tree tests
+├── test_player_controller.py # Input/camera tests
+├── test_game_runner.py     # Game loop tests
+├── test_ui_system.py       # UI component tests
 └── conftest.py             # Pytest configuration
 ```
 

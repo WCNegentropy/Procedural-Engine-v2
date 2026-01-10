@@ -1,27 +1,3 @@
 {
-  "servers": {
-    "github": {
-      "command": "npx",
-      "args": ["-y", "github-mcp"],
-      "env": {
-        "GITHUB_ACCESS_TOKEN": "${env:GITHUB_TOKEN}"
-      }
-    },
-    "memory": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-memory"]
-    },
-    "sequential-thinking": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"]
-    },
-    "filesystem": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-filesystem",
-        "/workspaces/Procedural-Engine-v2"
-      ]
-    }
-  }
+	"servers": {}
 }

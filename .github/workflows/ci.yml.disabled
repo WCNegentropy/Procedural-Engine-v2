@@ -23,6 +23,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
 
       - name: Install linting tools
         run: |
@@ -54,6 +55,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
 
       - name: Install Python dependencies
         run: |
@@ -68,11 +70,19 @@ jobs:
             test_hot_reload.py \
             test_materials.py \
             test_physics.py \
+            test_physics_3d.py \
             test_props.py \
             test_seed_registry.py \
             test_seed_sweeper.py \
             test_terrain.py \
             test_world.py \
+            test_game_api.py \
+            test_behavior_tree.py \
+            test_player_controller.py \
+            test_data_loader.py \
+            test_game_runner.py \
+            test_ui_system.py \
+            test_graphics_bridge.py \
             -v --tb=short
 
   # ===========================================================================
@@ -88,23 +98,26 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            cmake \
-            libssl-dev \
-            libvulkan-dev \
-            vulkan-validationlayers \
-            libshaderc-dev \
-            glslang-tools
+      - name: Cache apt packages
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: build-essential cmake libssl-dev libvulkan-dev vulkan-validationlayers libshaderc-dev glslang-tools
+          version: 1.0
 
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
+      - name: Cache CMake build
+        uses: actions/cache@v4
+        with:
+          path: build
+          key: linux-cmake-${{ hashFiles('cpp/**/*.cpp', 'cpp/**/*.h', 'cpp/CMakeLists.txt') }}
+          restore-keys: |
+            linux-cmake-
 
       - name: Configure CMake
         run: |
@@ -138,12 +151,15 @@ jobs:
             *.py
             !test_*.py
             !conftest.py
+            data/
             pyproject.toml
             setup.py
             MANIFEST.in
             requirements.txt
             README.md
             AGENTS.md
+            CLAUDE.md
+            plan.md
           retention-days: 7
 
   # ===========================================================================
@@ -159,6 +175,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
 
       - name: Install Vulkan SDK
         uses: humbletim/install-vulkan-sdk@v1.2
@@ -171,25 +188,29 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Cache Chocolatey packages
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\Temp\chocolatey
+          key: windows-choco-openssl-${{ runner.os }}
+          restore-keys: |
+            windows-choco-
+
       - name: Install OpenSSL
         run: |
           choco install openssl --no-progress
 
-      - name: Debug Vulkan SDK contents
-        shell: powershell
-        run: |
-          Write-Host "VULKAN_SDK: $env:VULKAN_SDK"
-          Write-Host "Lib directory contents:"
-          Get-ChildItem "$env:VULKAN_SDK/Lib" -ErrorAction SilentlyContinue | Select-Object Name
-          Write-Host "Include directory contents:"
-          Get-ChildItem "$env:VULKAN_SDK/Include" -ErrorAction SilentlyContinue | Select-Object Name
-          Write-Host "Shaderc in Include:"
-          Get-ChildItem "$env:VULKAN_SDK/Include/shaderc" -ErrorAction SilentlyContinue | Select-Object Name
+      - name: Cache CMake build
+        uses: actions/cache@v4
+        with:
+          path: build
+          key: windows-cmake-${{ hashFiles('cpp/**/*.cpp', 'cpp/**/*.h', 'cpp/CMakeLists.txt') }}
+          restore-keys: |
+            windows-cmake-
 
       - name: Configure CMake
         shell: cmd
         run: |
-          echo VULKAN_SDK=%VULKAN_SDK%
           mkdir build
           cd build
           cmake ../cpp -DCMAKE_BUILD_TYPE=Release -DOPENSSL_ROOT_DIR="C:/Program Files/OpenSSL" -DVULKAN_SDK="%VULKAN_SDK%" -DVulkan_INCLUDE_DIR="%VULKAN_SDK%/Include" -DVulkan_LIBRARY="%VULKAN_SDK%/Lib/vulkan-1.lib"
@@ -229,12 +250,15 @@ jobs:
             *.py
             !test_*.py
             !conftest.py
+            data/
             pyproject.toml
             setup.py
             MANIFEST.in
             requirements.txt
             README.md
             AGENTS.md
+            CLAUDE.md
+            plan.md
           retention-days: 7
           if-no-files-found: warn
 
@@ -251,10 +275,22 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Cache Homebrew packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/Homebrew
+            /usr/local/Cellar
+            /opt/homebrew/Cellar
+          key: macos-homebrew-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}
+          restore-keys: |
+            macos-homebrew-${{ runner.os }}-
 
       - name: Install dependencies
         run: |
-          brew install molten-vk openssl shaderc glslang
+          brew install molten-vk openssl shaderc glslang || true
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
@@ -263,10 +299,14 @@ jobs:
           VULKAN_SDK=$(brew --prefix molten-vk)
           echo "VULKAN_SDK=$VULKAN_SDK" >> $GITHUB_ENV
           echo "VK_ICD_FILENAMES=$VULKAN_SDK/share/vulkan/icd.d/MoltenVK_icd.json" >> $GITHUB_ENV
-          # Debug: show what's in the SDK directory
-          echo "MoltenVK prefix: $VULKAN_SDK"
-          ls -la $VULKAN_SDK/lib/ || true
-          ls -la $VULKAN_SDK/include/ || true
+
+      - name: Cache CMake build
+        uses: actions/cache@v4
+        with:
+          path: build
+          key: macos-cmake-${{ hashFiles('cpp/**/*.cpp', 'cpp/**/*.h', 'cpp/CMakeLists.txt') }}
+          restore-keys: |
+            macos-cmake-
 
       - name: Configure CMake
         run: |
@@ -274,7 +314,6 @@ jobs:
           cd build
           VULKAN_SDK=$(brew --prefix molten-vk)
           OPENSSL_PREFIX=$(brew --prefix openssl)
-          # MoltenVK provides libMoltenVK.dylib, need to find Vulkan loader
           cmake ../cpp \
             -DCMAKE_BUILD_TYPE=Release \
             -DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX \
@@ -317,11 +356,14 @@ jobs:
             *.py
             !test_*.py
             !conftest.py
+            data/
             pyproject.toml
             setup.py
             MANIFEST.in
             requirements.txt
             README.md
             AGENTS.md
+            CLAUDE.md
+            plan.md
           retention-days: 7
           if-no-files-found: warn

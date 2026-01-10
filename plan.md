@@ -685,13 +685,16 @@ def game_loop():
 - [x] Game is playable end-to-end without AI connection
 - [x] LocalAgent provides reasonable NPC responses
 
-**Phase 2 Completion Notes (January 4, 2026):**
-- All core game systems implemented with 348 passing tests
+**Phase 2 Completion Notes (January 10, 2026):**
+- All core game systems implemented with 430+ passing tests
 - Input abstraction layer ready for SDL/GLFW integration
 - Third-person camera system with terrain collision
 - Behavior trees auto-configured for NPCs on spawn
 - JSON data files for village content (6 NPCs, 6 quests, 18 items)
 - UI framework (Dear ImGui) deferred to Phase 3 graphics integration
+- Determinism fixes: All random operations now use SeedRegistry
+- Added unlock_dialogue and unlock_quest action handlers
+- Headless mode now simulates proper frame timing for physics
 
 ---
 

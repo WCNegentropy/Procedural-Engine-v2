@@ -18,6 +18,8 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
+import numpy as np
+
 if TYPE_CHECKING:
     from game_api import NPC, GameWorld
 
@@ -559,16 +561,33 @@ class BehaviorTree:
 # =============================================================================
 
 
-def create_idle_behavior(wait_min: float = 2.0, wait_max: float = 5.0) -> BehaviorTree:
+def create_idle_behavior(
+    wait_min: float = 2.0,
+    wait_max: float = 5.0,
+    rng: Optional[np.random.Generator] = None,
+) -> BehaviorTree:
     """Create a simple idle behavior that waits randomly.
 
     The NPC will wait for a random duration, then repeat.
+
+    Parameters
+    ----------
+    wait_min:
+        Minimum wait time in seconds.
+    wait_max:
+        Maximum wait time in seconds.
+    rng:
+        NumPy random Generator for deterministic behavior. If None, a
+        default seeded generator is created.
     """
-    import random
+    from seed_registry import SeedRegistry
+
+    # Create deterministic RNG if not provided
+    _rng = rng if rng is not None else SeedRegistry(0).get_rng("idle_behavior")
 
     def random_wait(npc: "NPC", world: "GameWorld", bb: Blackboard, dt: float) -> NodeStatus:
         if not bb.has("wait_time"):
-            bb.set("wait_time", random.uniform(wait_min, wait_max))
+            bb.set("wait_time", float(_rng.uniform(wait_min, wait_max)))
             bb.set("waited", 0.0)
 
         waited = bb.get("waited", 0.0) + dt

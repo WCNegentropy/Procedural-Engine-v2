@@ -73,6 +73,13 @@ py-modules = [
     "world",
     "seed_sweeper",
     "main",
+    "game_api",
+    "behavior_tree",
+    "player_controller",
+    "data_loader",
+    "game_runner",
+    "ui_system",
+    "graphics_bridge",
 ]
 
 [tool.setuptools.package-data]
@@ -100,7 +107,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["engine", "seed_registry", "terrain", "physics", "props", "materials", "world"]
+known-first-party = ["engine", "seed_registry", "terrain", "physics", "props", "materials", "world", "game_api", "behavior_tree", "player_controller", "data_loader", "game_runner", "ui_system", "graphics_bridge"]
 
 [tool.ruff.format]
 quote-style = "double"

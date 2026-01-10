@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TypeVar
 
 from physics import Vec3, RigidBody3D, HeightField2D, step_physics_3d
+from seed_registry import SeedRegistry
 from behavior_tree import (
     BehaviorTree,
     NodeStatus,
@@ -987,6 +988,7 @@ class LocalAgent(NPCAgent):
         self,
         custom_templates: Optional[Dict[str, List[str]]] = None,
         dialogue_trees: Optional[Dict[str, Any]] = None,
+        rng: Optional["np.random.Generator"] = None,
     ) -> None:
         """Initialize local agent with optional custom templates.
 
@@ -996,11 +998,21 @@ class LocalAgent(NPCAgent):
             Custom dialogue templates by behavior type.
         dialogue_trees:
             Structured dialogue trees for specific NPCs/quests.
+        rng:
+            NumPy random Generator for deterministic behavior. If None, a
+            default seeded generator is created from SeedRegistry(0).
         """
+        import numpy as np
+
         self.templates = self.DEFAULT_TEMPLATES.copy()
         if custom_templates:
             self.templates.update(custom_templates)
         self.dialogue_trees = dialogue_trees or {}
+        # Use provided RNG or create a default deterministic one
+        if rng is not None:
+            self._rng = rng
+        else:
+            self._rng = SeedRegistry(0).get_rng("local_agent")
 
     def configure_npc_behavior(self, npc: NPC) -> None:
         """Configure NPC behavior tree based on their behavior type.
@@ -1055,9 +1067,9 @@ class LocalAgent(NPCAgent):
         # Check for farewell keywords
         farewell_keywords = ["bye", "goodbye", "farewell", "see you", "later"]
         if any(kw in player_msg for kw in farewell_keywords):
-            import random
+            idx = self._rng.integers(0, len(self.FAREWELL_TEMPLATES))
             return DialogueResponse(
-                text=random.choice(self.FAREWELL_TEMPLATES),
+                text=self.FAREWELL_TEMPLATES[idx],
                 emotion="neutral",
                 ends_conversation=True,
             )
@@ -1072,8 +1084,8 @@ class LocalAgent(NPCAgent):
         templates = self.templates.get(behavior, self.templates["idle"])
 
         # Simple response selection (could be improved with keyword matching)
-        import random
-        text = random.choice(templates)
+        idx = self._rng.integers(0, len(templates))
+        text = templates[idx]
 
         # Adjust emotion based on relationship
         emotion = "neutral"
@@ -1130,12 +1142,11 @@ class LocalAgent(NPCAgent):
             return {"type": "idle", "duration": 5.0}
 
         elif behavior == "wander":
-            # Simple random wander
-            import random
+            # Simple deterministic wander using seeded RNG
             offset = Vec3(
-                random.uniform(-5, 5),
+                float(self._rng.uniform(-5, 5)),
                 0,
-                random.uniform(-5, 5),
+                float(self._rng.uniform(-5, 5)),
             )
             target = npc.position + offset
             return {"type": "move_to", "target": target}
@@ -1556,6 +1567,25 @@ class GameWorld:
 
         elif action_type == "set_flag":
             self._flags[action["flag"]] = action.get("value", True)
+
+        elif action_type == "unlock_dialogue":
+            # Unlock a dialogue topic for an NPC
+            npc_id = action.get("npc_id", source_npc_id)
+            topic = action.get("topic")
+            if npc_id and topic:
+                npc = self.get_entity(npc_id)
+                if isinstance(npc, NPC):
+                    if not hasattr(npc, "unlocked_topics"):
+                        npc.unlocked_topics = set()
+                    npc.unlocked_topics.add(topic)
+
+        elif action_type == "unlock_quest":
+            # Make a quest available (change from UNAVAILABLE to AVAILABLE)
+            quest_id = action.get("quest_id")
+            if quest_id and quest_id in self._quests:
+                quest = self._quests[quest_id]
+                if quest.state == QuestState.UNAVAILABLE:
+                    quest.state = QuestState.AVAILABLE
 
     # -------------------------------------------------------------------------
     # Physics

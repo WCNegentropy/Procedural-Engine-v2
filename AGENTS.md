@@ -86,7 +86,35 @@ Engine.snapshot_state(frame:int) -> bytes   # returns deterministic hash
 - ✅ Props mesh generation (rocks, trees, buildings, creatures with LODs)
 - ✅ Material graph compiler (GLSL generation, SPIR-V compilation, shader cache)
 - ✅ Physics system (sequential impulse solver, heightfield collider, deterministic simulation)
-- ✅ Graphics system (Vulkan backend, mesh upload, virtual texture cache, render pipeline)
+- ⚠️ Graphics system (see **Graphics Implementation Status** below)
 - ✅ Hot-reload infrastructure (descriptor caching, dirty-state tracking, rebuild queue)
 - ✅ SeedRegistry with PCG64 PRNG and deterministic sub-seeding
 - ✅ Buffer hashing and state snapshot API matching Python spec
+
+### Phase 2 Game Systems (Python)
+- ✅ GameWorld, Entity hierarchy, Event system (`game_api.py`)
+- ✅ Full behavior tree system with decorators (`behavior_tree.py`)
+- ✅ Input abstraction and camera system (`player_controller.py`)
+- ✅ JSON data loading for NPCs, quests, items (`data_loader.py`)
+- ✅ Game loop orchestration with physics (`game_runner.py`)
+- ✅ UI system with headless testing support (`ui_system.py`)
+- ✅ Graphics bridge with headless fallback (`graphics_bridge.py`)
+
+---
+
+## 7 · Graphics Implementation Status
+
+The Vulkan graphics backend has core infrastructure but rendering is not fully operational.
+Headless mode is fully functional for testing and CI.
+
+| Component | File:Line | Current State | What's Missing |
+|-----------|-----------|---------------|----------------|
+| `draw_mesh()` | cpp/graphics.cpp:1020-1026 | Stats only | `vkCmdDraw*` calls, pipeline/descriptor binding |
+| `create_pipeline()` | cpp/graphics.cpp:769-801 | Layout only | VkPipeline creation, shader module binding |
+| Render passes | cpp/graphics.cpp:1050-1080 | Forward only | Depth prepass, post-process pass |
+| Framebuffers | cpp/graphics.cpp:1082-1099 | Images only | VkFramebuffer objects |
+| Material pipeline | cpp/graphics.cpp:1208 | Null render pass | Valid render pass binding |
+| `clear_lights()` | graphics_bridge.py:564 | Python only | C++ GraphicsSystem method |
+| Terrain mesh API | graphics_bridge.py:361 | Placeholder | Proper mesh generation |
+
+**For Phase 3+**: Complete the above to enable real-time rendering. Headless mode works for all non-graphics testing.
