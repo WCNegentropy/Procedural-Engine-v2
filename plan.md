@@ -16,8 +16,8 @@
 | **Phase 1: Physics Upgrade & Engine Polish** | ✅ Complete | 100% |
 | **Phase 2: Game Loop & NPC Agent Framework** | ✅ Complete | 100% |
 | **Phase 2.5: Vulkan Graphics Rendering** | ✅ Complete | 100% |
-| **Phase 3: MCP Server Integration** | ⏳ Pending | 0% |
-| **Phase 4: Unified Command Architecture** | ⏳ Pending | 0% |
+| **Phase 3: MCP Server Integration** | 🔴 DELAYED | 0% |
+| **Phase 4: Unified Command Architecture** | 🔴 DELAYED | 0% |
 
 **Latest Updates (January 10, 2026):**
 - ✅ Full Vulkan graphics rendering pipeline complete
@@ -37,13 +37,7 @@
 - ✅ data_loader.py: JSON data loading for NPCs, quests, items
 - ✅ data/: Village NPCs, quests, and items JSON files
 - ✅ Game loop orchestration with physics and behavior tree ticking
-- 🔄 Next: Phase 3 MCP server for AI-powered NPCs
-- ✅ Save/load serialization (JSON, file I/O)
-- ✅ player_controller.py: Input abstraction, camera system, player controller
-- ✅ data_loader.py: JSON data loading for NPCs, quests, items
-- ✅ data/: Village NPCs, quests, and items JSON files
-- ✅ Game loop orchestration with physics and behavior tree ticking
-- 🔄 Next: Phase 3 MCP server for AI-powered NPCs
+- 🔄 Next: Focus on shippable demo, Phase 3/4 DELAYED
 
 ---
 
@@ -710,7 +704,10 @@ def game_loop():
 
 ## Phase 3: MCP Server Integration
 
-**Duration:** 2-3 weeks  
+> **STATUS: DELAYED**
+> Reason: Focusing on building core game loop from Phase 2 out into a full shippable demo for Steam launch. Phase 3 and 4 will resume after demo release.
+
+**Duration:** 2-3 weeks
 **Goal:** Enable Claude and other MCP-compatible agents to control and enhance the game
 
 ### 3.1 MCP Architecture
@@ -943,7 +940,10 @@ Settings menu includes:
 
 ## Phase 4: Unified Command Architecture
 
-**Duration:** 2-3 weeks  
+> **STATUS: DELAYED**
+> Reason: Focusing on building core game loop from Phase 2 out into a full shippable demo for Steam launch. Phase 3 and 4 will resume after demo release.
+
+**Duration:** 2-3 weeks
 **Goal:** Create a single command surface accessible via Console, GUI, MCP, keybinds, and scripts
 
 ### 4.1 The Command System Principle
