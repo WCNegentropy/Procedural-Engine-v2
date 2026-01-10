@@ -611,6 +611,9 @@ class GameRunner:
         if self.config.enable_ui:
             self._init_ui()
 
+        # Setup terrain
+        self._setup_terrain()
+
         # Load game content
         self._load_game_content()
 
@@ -913,27 +916,48 @@ class GameRunner:
         if entity_id in self._entity_meshes:
             return self._entity_meshes[entity_id]
 
-        # For now, use a placeholder mesh name based on type
-        # In a full implementation, this would generate/load the actual mesh
+        # Create mesh name
         mesh_name = f"{entity_type}_{entity_id}"
 
-        # Create a placeholder mesh entry in headless mode
-        if self._graphics_bridge and self._graphics_bridge.is_headless:
-            self._graphics_bridge._meshes[mesh_name] = {
-                "type": entity_type,
-                "entity_id": entity_id,
-            }
-        else:
-            # In real graphics mode, we would upload actual geometry here
-            # For now, create a simple placeholder
-            self._graphics_bridge._meshes[mesh_name] = {
-                "type": entity_type,
-                "entity_id": entity_id,
-            }
+        # Create and upload mesh using graphics bridge
+        if self._graphics_bridge:
+            self._graphics_bridge.upload_entity_mesh(mesh_name, entity_type)
 
         self._entity_meshes[entity_id] = mesh_name
         return mesh_name
 
+    def _setup_terrain(self) -> None:
+        """Setup terrain mesh from world data."""
+        if not self._graphics_bridge or not self._world:
+            return
+
+        try:
+            import numpy as np
+
+            # Generate a simple test terrain heightmap
+            # In a full implementation, this would come from the world generation
+            size = 64
+            heightmap = np.zeros((size, size), dtype=np.float32)
+
+            # Create some hills for testing
+            for z in range(size):
+                for x in range(size):
+                    # Simple sine wave terrain
+                    heightmap[z, x] = (
+                        np.sin(x * 0.2) * np.cos(z * 0.2) * 5.0 + 
+                        np.sin(x * 0.1) * 3.0 +
+                        np.cos(z * 0.15) * 2.0
+                    )
+
+            # Upload terrain mesh
+            self._graphics_bridge.upload_terrain_mesh(
+                self._terrain_mesh_name,
+                heightmap,
+                cell_size=1.0,
+            )
+
+        except Exception as e:
+            print(f"Warning: Could not setup terrain mesh: {e}")
     def _render_ui(self) -> None:
         """Render UI elements."""
         if self._ui_manager and self.config.enable_ui:
