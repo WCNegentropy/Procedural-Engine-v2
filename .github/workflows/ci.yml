@@ -240,6 +240,34 @@ jobs:
           Copy-Item build/Release/procengine_cpp*.pyd . -ErrorAction SilentlyContinue
           Copy-Item build/procengine_cpp*.pyd . -ErrorAction SilentlyContinue
 
+      - name: Copy required DLLs for testing
+        shell: powershell
+        run: |
+          # Copy OpenSSL DLLs to project root (so Python can find them)
+          $opensslBin = "C:\Program Files\OpenSSL\bin"
+          if (Test-Path "$opensslBin\libcrypto-3-x64.dll") {
+            Copy-Item "$opensslBin\libcrypto-3-x64.dll" . -Force
+            echo "Copied libcrypto-3-x64.dll"
+          }
+          if (Test-Path "$opensslBin\libssl-3-x64.dll") {
+            Copy-Item "$opensslBin\libssl-3-x64.dll" . -Force
+            echo "Copied libssl-3-x64.dll"
+          }
+          
+          # Copy Vulkan and shaderc DLLs from Vulkan SDK
+          $vulkanBin = "$env:VULKAN_SDK\Bin"
+          if (Test-Path "$vulkanBin\vulkan-1.dll") {
+            Copy-Item "$vulkanBin\vulkan-1.dll" . -Force
+            echo "Copied vulkan-1.dll"
+          }
+          if (Test-Path "$vulkanBin\shaderc_shared.dll") {
+            Copy-Item "$vulkanBin\shaderc_shared.dll" . -Force
+            echo "Copied shaderc_shared.dll"
+          }
+          
+          echo "=== DLLs in project directory ==="
+          Get-ChildItem *.dll
+
       - name: Run integration tests
         shell: powershell
         run: |
@@ -261,6 +289,10 @@ jobs:
             build/Release/procengine_cpp*.pyd
             build/procengine_cpp*.pyd
             SDL2.dll
+            libcrypto-3-x64.dll
+            libssl-3-x64.dll
+            vulkan-1.dll
+            shaderc_shared.dll
             cpp/
             *.py
             !test_*.py
@@ -480,6 +512,15 @@ jobs:
           # List what we have
           ls -la procengine_cpp* 2>/dev/null || echo "No module found"
 
+      - name: Copy DLLs from artifact (Windows)
+        if: matrix.platform == 'windows'
+        shell: bash
+        run: |
+          # Copy DLLs from artifact if they exist
+          cp ./artifact/*.dll . 2>/dev/null || echo "No DLLs in artifact"
+          echo "=== DLLs copied from artifact ==="
+          ls -la *.dll 2>/dev/null || echo "No DLLs found"
+
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
@@ -533,17 +574,41 @@ jobs:
           
           if ($moduleFile) {
             Write-Host "Found module: $moduleFile"
-            pyinstaller `
-              --name ProceduralEngine `
-              --onedir `
-              --console `
-              --add-data "data;data" `
-              --add-binary "$moduleFile;." `
-              --hidden-import numpy `
-              --hidden-import numpy.core `
-              --hidden-import pybind11 `
-              --collect-submodules numpy `
-              main.py
+            
+            # Build base PyInstaller args
+            $args = @(
+              "--name", "ProceduralEngine",
+              "--onedir",
+              "--console",
+              "--add-data", "data;data",
+              "--add-binary", "$moduleFile;.",
+              "--hidden-import", "numpy",
+              "--hidden-import", "numpy.core",
+              "--hidden-import", "pybind11",
+              "--collect-submodules", "numpy"
+            )
+            
+            # Add DLLs if they exist
+            if (Test-Path "SDL2.dll") {
+              $args += "--add-binary", "SDL2.dll;."
+            }
+            if (Test-Path "libcrypto-3-x64.dll") {
+              $args += "--add-binary", "libcrypto-3-x64.dll;."
+            }
+            if (Test-Path "libssl-3-x64.dll") {
+              $args += "--add-binary", "libssl-3-x64.dll;."
+            }
+            if (Test-Path "vulkan-1.dll") {
+              $args += "--add-binary", "vulkan-1.dll;."
+            }
+            if (Test-Path "shaderc_shared.dll") {
+              $args += "--add-binary", "shaderc_shared.dll;."
+            }
+            
+            $args += "main.py"
+            
+            Write-Host "PyInstaller args: $args"
+            pyinstaller @args
           } else {
             Write-Host "ERROR: No C++ module found - cannot build standalone"
             exit 1
