@@ -96,6 +96,70 @@ struct ShaderModule {
 };
 
 /**
+ * Vertex format for mesh rendering.
+ */
+struct Vertex {
+    float position[3];
+    float normal[3];
+    float uv[2];
+    
+    static VkVertexInputBindingDescription get_binding_description() {
+        VkVertexInputBindingDescription binding{};
+        binding.binding = 0;
+        binding.stride = sizeof(Vertex);
+        binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+        return binding;
+    }
+    
+    static std::array<VkVertexInputAttributeDescription, 3> get_attribute_descriptions() {
+        std::array<VkVertexInputAttributeDescription, 3> attrs{};
+        // Position
+        attrs[0].binding = 0;
+        attrs[0].location = 0;
+        attrs[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+        attrs[0].offset = offsetof(Vertex, position);
+        // Normal
+        attrs[1].binding = 0;
+        attrs[1].location = 1;
+        attrs[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+        attrs[1].offset = offsetof(Vertex, normal);
+        // UV
+        attrs[2].binding = 0;
+        attrs[2].location = 2;
+        attrs[2].format = VK_FORMAT_R32G32_SFLOAT;
+        attrs[2].offset = offsetof(Vertex, uv);
+        return attrs;
+    }
+};
+
+/**
+ * Uniform buffer for per-frame data (camera, lighting).
+ */
+struct FrameUniforms {
+    float view[16];           // View matrix
+    float projection[16];      // Projection matrix
+    float view_projection[16]; // Combined VP matrix
+    float camera_pos[4];       // Camera position (w unused)
+    float time[4];             // Time data: x=total, y=delta, z=frame, w=unused
+};
+
+/**
+ * Uniform buffer for per-object data (transforms).
+ */
+struct ObjectUniforms {
+    float model[16];          // Model matrix
+    float normal_matrix[16];  // Normal matrix (inverse transpose of model)
+};
+
+/**
+ * Push constants for quick per-draw updates.
+ */
+struct PushConstants {
+    float model[16];          // Model transform
+    float color[4];           // Base color / tint
+};
+
+/**
  * Graphics pipeline configuration.
  */
 struct PipelineConfig {
@@ -103,9 +167,13 @@ struct PipelineConfig {
     std::string fragment_shader;
     VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     VkCullModeFlags cull_mode = VK_CULL_MODE_BACK_BIT;
+    VkPolygonMode polygon_mode = VK_POLYGON_MODE_FILL;
     bool depth_test = true;
     bool depth_write = true;
     VkCompareOp depth_compare = VK_COMPARE_OP_LESS;
+    bool blend_enable = false;
+    VkBlendFactor src_blend = VK_BLEND_FACTOR_SRC_ALPHA;
+    VkBlendFactor dst_blend = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
 };
 
 /**
@@ -115,9 +183,11 @@ struct Pipeline {
     VkPipeline pipeline = VK_NULL_HANDLE;
     VkPipelineLayout layout = VK_NULL_HANDLE;
     VkDescriptorSetLayout descriptor_layout = VK_NULL_HANDLE;
+    ShaderModule vertex_shader;
+    ShaderModule fragment_shader;
     uint64_t hash = 0;
 
-    bool is_valid() const { return pipeline != VK_NULL_HANDLE; }
+    bool is_valid() const { return pipeline != VK_NULL_HANDLE && layout != VK_NULL_HANDLE; }
 };
 
 // ============================================================================
@@ -262,6 +332,16 @@ public:
      */
     void shutdown();
 
+    /**
+     * Create a swapchain for windowed rendering.
+     */
+    bool create_swapchain(uint32_t width, uint32_t height);
+    
+    /**
+     * Recreate swapchain after window resize.
+     */
+    bool recreate_swapchain(uint32_t width, uint32_t height);
+
     // Resource creation
     GPUBuffer create_buffer(VkDeviceSize size, VkBufferUsageFlags usage,
                            VkMemoryPropertyFlags properties);
@@ -270,6 +350,13 @@ public:
     GPUImage create_image(uint32_t width, uint32_t height, VkFormat format,
                          VkImageUsageFlags usage, uint32_t mip_levels = 1);
     void destroy_image(GPUImage& image);
+    
+    /**
+     * Create a sampler for texture sampling.
+     */
+    VkSampler create_sampler(VkFilter filter = VK_FILTER_LINEAR, 
+                            VkSamplerAddressMode address_mode = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+                            float max_anisotropy = 16.0f);
 
     GPUMesh upload_mesh(const props::Mesh& mesh);
     void destroy_mesh(GPUMesh& gpu_mesh);
@@ -280,8 +367,20 @@ public:
     void destroy_shader_module(ShaderModule& shader);
 
     // Pipeline management
-    Pipeline create_pipeline(const PipelineConfig& config, VkRenderPass render_pass);
+    Pipeline create_pipeline(const PipelineConfig& config, VkRenderPass render_pass,
+                            const std::vector<uint32_t>& vertex_spirv,
+                            const std::vector<uint32_t>& fragment_spirv);
     void destroy_pipeline(Pipeline& pipeline);
+    
+    // Descriptor management
+    VkDescriptorPool create_descriptor_pool(uint32_t max_sets, 
+                                           const std::vector<VkDescriptorPoolSize>& pool_sizes);
+    VkDescriptorSet allocate_descriptor_set(VkDescriptorPool pool, 
+                                           VkDescriptorSetLayout layout);
+    void update_descriptor_set(VkDescriptorSet set, uint32_t binding,
+                              VkDescriptorType type, const GPUBuffer& buffer);
+    void update_descriptor_set(VkDescriptorSet set, uint32_t binding,
+                              const GPUImage& image, VkSampler sampler);
 
     // Memory mapping
     void* map_buffer(GPUBuffer& buffer);
@@ -296,10 +395,18 @@ public:
     VkDevice device() const { return device_; }
     VkPhysicalDevice physical_device() const { return physical_device_; }
     VkQueue graphics_queue() const { return graphics_queue_; }
+    VkQueue present_queue() const { return present_queue_; }
     VkCommandPool command_pool() const { return command_pool_; }
+    VkInstance instance() const { return instance_; }
+    VkSurfaceKHR surface() const { return surface_; }
+    VkSwapchainKHR swapchain() const { return swapchain_; }
+    VkFormat swapchain_format() const { return swapchain_format_; }
+    VkExtent2D swapchain_extent() const { return swapchain_extent_; }
+    const std::vector<VkImageView>& swapchain_image_views() const { return swapchain_image_views_; }
     const QueueFamilyIndices& queue_families() const { return queue_families_; }
 
     bool is_initialized() const { return device_ != VK_NULL_HANDLE; }
+    bool has_swapchain() const { return swapchain_ != VK_NULL_HANDLE; }
 
 private:
     // Vulkan core objects
@@ -331,11 +438,16 @@ private:
     bool pick_physical_device();
     bool create_logical_device();
     bool create_command_pool();
+    void cleanup_swapchain();
 
     QueueFamilyIndices find_queue_families(VkPhysicalDevice device);
     bool check_device_extension_support(VkPhysicalDevice device);
     SwapchainSupportDetails query_swapchain_support(VkPhysicalDevice device);
     uint32_t find_memory_type(uint32_t type_filter, VkMemoryPropertyFlags properties);
+    VkSurfaceFormatKHR choose_swap_surface_format(const std::vector<VkSurfaceFormatKHR>& formats);
+    VkPresentModeKHR choose_swap_present_mode(const std::vector<VkPresentModeKHR>& modes);
+    VkExtent2D choose_swap_extent(const VkSurfaceCapabilitiesKHR& capabilities, 
+                                  uint32_t width, uint32_t height);
 
     std::vector<const char*> get_required_extensions(bool enable_validation);
     bool check_validation_layer_support();
@@ -378,6 +490,16 @@ struct Light {
 };
 
 /**
+ * Queued draw command for deferred rendering.
+ */
+struct DrawCommand {
+    const GPUMesh* mesh;
+    const Pipeline* pipeline;
+    std::array<float, 16> transform;
+    std::array<float, 4> color;
+};
+
+/**
  * High-level render context managing the full render pipeline.
  */
 class RenderContext {
@@ -392,11 +514,12 @@ public:
 
     /**
      * Begin a new frame.
+     * @return Image index acquired from swapchain (or 0 for headless)
      */
-    void begin_frame();
+    uint32_t begin_frame();
 
     /**
-     * Render a mesh with a material.
+     * Queue a mesh for rendering.
      */
     void draw_mesh(const GPUMesh& mesh, const Pipeline& material_pipeline,
                    const std::array<float, 16>& transform);
@@ -407,6 +530,11 @@ public:
     void draw_terrain(const GPUMesh& terrain_mesh, const Pipeline& pipeline);
 
     /**
+     * Execute all queued draw commands.
+     */
+    void flush_draws();
+
+    /**
      * End frame and present.
      */
     void end_frame();
@@ -414,12 +542,12 @@ public:
     /**
      * Set camera parameters.
      */
-    void set_camera(const Camera& camera) { camera_ = camera; }
+    void set_camera(const Camera& camera) { camera_ = camera; update_camera_uniforms(); }
 
     /**
      * Add a light to the scene.
      */
-    void add_light(const Light& light) { lights_.push_back(light); }
+    void add_light(const Light& light) { if (lights_.size() < MAX_LIGHTS) lights_.push_back(light); }
 
     /**
      * Clear all lights.
@@ -435,6 +563,19 @@ public:
      * Resize framebuffers.
      */
     void resize(uint32_t width, uint32_t height);
+    
+    /**
+     * Get the main render pass (for pipeline creation).
+     */
+    VkRenderPass render_pass() const { return forward_pass_; }
+    
+    /**
+     * Get current frame's command buffer (for external command recording).
+     */
+    VkCommandBuffer command_buffer() const { return command_buffers_[current_frame_]; }
+
+    static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
+    static constexpr uint32_t MAX_LIGHTS = 128;
 
 private:
     GraphicsDevice* device_ = nullptr;
@@ -444,39 +585,60 @@ private:
     VkRenderPass forward_pass_ = VK_NULL_HANDLE;
     VkRenderPass post_pass_ = VK_NULL_HANDLE;
 
-    // Framebuffers
+    // Framebuffers (one per swapchain image or single for headless)
+    std::vector<VkFramebuffer> swapchain_framebuffers_;
     VkFramebuffer depth_framebuffer_ = VK_NULL_HANDLE;
-    VkFramebuffer forward_framebuffer_ = VK_NULL_HANDLE;
     VkFramebuffer post_framebuffer_ = VK_NULL_HANDLE;
 
     // Render targets
     GPUImage depth_image_;
     GPUImage color_image_;
     GPUImage post_image_;
+    GPUImage resolve_image_;  // For MSAA resolve
 
-    // Command buffers
-    VkCommandBuffer command_buffer_ = VK_NULL_HANDLE;
-
-    // Synchronization
-    VkSemaphore image_available_semaphore_ = VK_NULL_HANDLE;
-    VkSemaphore render_finished_semaphore_ = VK_NULL_HANDLE;
-    VkFence in_flight_fence_ = VK_NULL_HANDLE;
+    // Per-frame resources
+    std::vector<VkCommandBuffer> command_buffers_;
+    std::vector<VkSemaphore> image_available_semaphores_;
+    std::vector<VkSemaphore> render_finished_semaphores_;
+    std::vector<VkFence> in_flight_fences_;
+    
+    // Uniform buffers (per frame)
+    std::vector<GPUBuffer> frame_uniform_buffers_;
+    
+    // Descriptor pool and sets
+    VkDescriptorPool descriptor_pool_ = VK_NULL_HANDLE;
+    VkDescriptorSetLayout frame_descriptor_layout_ = VK_NULL_HANDLE;
+    std::vector<VkDescriptorSet> frame_descriptor_sets_;
 
     // Scene data
     Camera camera_;
     std::vector<Light> lights_;
+    std::vector<DrawCommand> draw_queue_;
     RenderStats stats_;
 
     // Frame state
     uint32_t width_ = 0;
     uint32_t height_ = 0;
     uint64_t frame_number_ = 0;
+    uint32_t current_frame_ = 0;  // Index for frames in flight
+    uint32_t current_image_index_ = 0;  // Swapchain image index
+    bool frame_started_ = false;
 
     // Helper functions
     bool create_render_passes();
     bool create_framebuffers();
     bool create_sync_objects();
+    bool create_command_buffers();
+    bool create_uniform_buffers();
+    bool create_descriptor_resources();
     void cleanup_framebuffers();
+    void update_camera_uniforms();
+    void record_draw_commands();
+    
+    // Matrix utilities
+    void compute_view_matrix(float* out, const Camera& cam);
+    void compute_projection_matrix(float* out, float fov, float aspect, float near, float far);
+    void multiply_matrices(float* out, const float* a, const float* b);
 };
 
 // ============================================================================
@@ -501,22 +663,48 @@ public:
      */
     bool initialize(uint32_t width = 1920, uint32_t height = 1080,
                    bool enable_validation = false);
+    
+    /**
+     * Initialize with window surface for windowed rendering.
+     */
+    bool initialize_with_surface(VkSurfaceKHR surface, uint32_t width, uint32_t height,
+                                bool enable_validation = false);
 
     /**
      * Shutdown the graphics system.
      */
     void shutdown();
+    
+    /**
+     * Resize the render targets.
+     */
+    void resize(uint32_t width, uint32_t height);
 
     /**
      * Upload a mesh to GPU.
      */
     GPUMesh upload_mesh(const props::Mesh& mesh);
+    
+    /**
+     * Destroy a mesh and free GPU resources.
+     */
+    void destroy_mesh(GPUMesh& mesh);
 
     /**
      * Create a material pipeline from GLSL shaders.
      */
     Pipeline create_material_pipeline(const std::string& vertex_glsl,
                                      const std::string& fragment_glsl);
+    
+    /**
+     * Destroy a pipeline.
+     */
+    void destroy_pipeline(Pipeline& pipeline);
+    
+    /**
+     * Create default shaders for basic rendering.
+     */
+    Pipeline create_default_pipeline();
 
     /**
      * Begin rendering a frame.
@@ -528,6 +716,13 @@ public:
      */
     void draw_mesh(const GPUMesh& mesh, const Pipeline& pipeline,
                    const std::array<float, 16>& transform);
+    
+    /**
+     * Draw a mesh with transform and color.
+     */
+    void draw_mesh(const GPUMesh& mesh, const Pipeline& pipeline,
+                   const std::array<float, 16>& transform,
+                   const std::array<float, 4>& color);
 
     /**
      * End frame and present.
@@ -543,6 +738,11 @@ public:
      * Add light to scene.
      */
     void add_light(const Light& light);
+    
+    /**
+     * Clear all lights from the scene.
+     */
+    void clear_lights();
 
     /**
      * Get render statistics.
@@ -553,12 +753,30 @@ public:
      * Check if initialized.
      */
     bool is_initialized() const { return device_ && device_->is_initialized(); }
+    
+    /**
+     * Get underlying device (for advanced usage).
+     */
+    GraphicsDevice* device() { return device_.get(); }
+    
+    /**
+     * Get render context (for advanced usage).
+     */
+    RenderContext* render_context() { return render_context_.get(); }
 
 private:
     std::unique_ptr<GraphicsDevice> device_;
     std::unique_ptr<RenderContext> render_context_;
     std::unique_ptr<ShaderCompiler> shader_compiler_;
     std::unique_ptr<VirtualTextureCache> texture_cache_;
+    
+    // Default resources
+    Pipeline default_pipeline_;
+    bool default_pipeline_created_ = false;
+    
+    // Create default shaders source
+    std::string get_default_vertex_shader() const;
+    std::string get_default_fragment_shader() const;
 };
 
 } // namespace graphics

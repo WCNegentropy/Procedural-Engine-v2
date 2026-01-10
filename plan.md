@@ -2,9 +2,9 @@
 
 ## From Functional Base Engine to AI-Native Open World RPG Platform
 
-**Document Version:** 1.2
-**Date:** January 4, 2026
-**Current State:** v1.2 Alpha (Game Systems Complete)
+**Document Version:** 1.3
+**Date:** January 10, 2026
+**Current State:** v1.3 Alpha (Full Vulkan Graphics)
 **Target State:** v2.0 Release Candidate (AI-Native RPG Platform)
 
 ---
@@ -15,19 +15,29 @@
 |-------|--------|----------|
 | **Phase 1: Physics Upgrade & Engine Polish** | ✅ Complete | 100% |
 | **Phase 2: Game Loop & NPC Agent Framework** | ✅ Complete | 100% |
+| **Phase 2.5: Vulkan Graphics Rendering** | ✅ Complete | 100% |
 | **Phase 3: MCP Server Integration** | ⏳ Pending | 0% |
 | **Phase 4: Unified Command Architecture** | ⏳ Pending | 0% |
 
-**Latest Updates (January 4, 2026):**
-- ✅ Phase 2 complete - 348 non-graphics tests passing
-- ✅ game_api.py: GameWorld, Entity hierarchy, Event system, behavior tree integration
-- ✅ Player entity with movement, interaction, dialogue history
-- ✅ NPC entity with personality, behavior, relationships
-- ✅ LocalAgent with automatic behavior tree configuration
-- ✅ behavior_tree.py: Full behavior tree system (Selector, Sequence, Parallel, decorators)
-- ✅ Dialogue system with context and response handling
-- ✅ Quest system with objectives, tracking, and rewards
-- ✅ Inventory system with items, capacity limits
+**Latest Updates (January 10, 2026):**
+- ✅ Full Vulkan graphics rendering pipeline complete
+- ✅ VkPipeline creation with shader modules and descriptor layouts
+- ✅ vkCmdDraw calls with proper pipeline/descriptor binding
+- ✅ Depth prepass + forward render passes
+- ✅ VkFramebuffer management for swapchain and headless
+- ✅ Swapchain creation and recreation on resize
+- ✅ Per-frame uniform buffers (view/projection/camera)
+- ✅ Descriptor sets with uniform buffer binding
+- ✅ Push constants for per-draw transforms
+- ✅ Default shaders with diffuse lighting
+- ✅ GraphicsSystem::clear_lights() implemented
+- ✅ 426 tests passing (all non-graphics tests)
+- ✅ Save/load serialization (JSON, file I/O)
+- ✅ player_controller.py: Input abstraction, camera system, player controller
+- ✅ data_loader.py: JSON data loading for NPCs, quests, items
+- ✅ data/: Village NPCs, quests, and items JSON files
+- ✅ Game loop orchestration with physics and behavior tree ticking
+- 🔄 Next: Phase 3 MCP server for AI-powered NPCs
 - ✅ Save/load serialization (JSON, file I/O)
 - ✅ player_controller.py: Input abstraction, camera system, player controller
 - ✅ data_loader.py: JSON data loading for NPCs, quests, items

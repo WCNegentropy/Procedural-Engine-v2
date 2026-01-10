@@ -561,8 +561,11 @@ class GraphicsBridge:
         """Clear all lights from the scene."""
         self._render_state.light_count = 0
 
-        # Note: GraphicsSystem doesn't have clear_lights in current API
-        # Would need to be added for full functionality
+        if not self._headless and self._graphics_system:
+            try:
+                self._graphics_system.clear_lights()
+            except (ImportError, AttributeError):
+                pass
 
     # -------------------------------------------------------------------------
     # Statistics

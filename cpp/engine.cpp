@@ -1002,15 +1002,26 @@ PYBIND11_MODULE(procengine_cpp, m) {
              "Initialize the graphics system")
         .def("shutdown", &graphics::GraphicsSystem::shutdown,
              "Shutdown the graphics system")
+        .def("resize", &graphics::GraphicsSystem::resize,
+             py::arg("width"),
+             py::arg("height"),
+             "Resize the render targets")
         .def("upload_mesh", &graphics::GraphicsSystem::upload_mesh,
              "Upload a mesh to GPU")
+        .def("destroy_mesh", &graphics::GraphicsSystem::destroy_mesh,
+             "Destroy a mesh and free GPU resources")
         .def("create_material_pipeline", &graphics::GraphicsSystem::create_material_pipeline,
              py::arg("vertex_glsl"),
              py::arg("fragment_glsl"),
              "Create a material pipeline from GLSL shaders")
+        .def("destroy_pipeline", &graphics::GraphicsSystem::destroy_pipeline,
+             "Destroy a pipeline")
+        .def("create_default_pipeline", &graphics::GraphicsSystem::create_default_pipeline,
+             "Create default shaders for basic rendering")
         .def("begin_frame", &graphics::GraphicsSystem::begin_frame,
              "Begin rendering a frame")
-        .def("draw_mesh", &graphics::GraphicsSystem::draw_mesh,
+        .def("draw_mesh", py::overload_cast<const graphics::GPUMesh&, const graphics::Pipeline&,
+             const std::array<float, 16>&>(&graphics::GraphicsSystem::draw_mesh),
              py::arg("mesh"),
              py::arg("pipeline"),
              py::arg("transform"),
@@ -1021,6 +1032,8 @@ PYBIND11_MODULE(procengine_cpp, m) {
              "Set camera parameters")
         .def("add_light", &graphics::GraphicsSystem::add_light,
              "Add light to scene")
+        .def("clear_lights", &graphics::GraphicsSystem::clear_lights,
+             "Clear all lights from the scene")
         .def("get_stats", &graphics::GraphicsSystem::get_stats,
              "Get render statistics")
         .def("is_initialized", &graphics::GraphicsSystem::is_initialized,

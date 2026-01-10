@@ -104,17 +104,34 @@ Engine.snapshot_state(frame:int) -> bytes   # returns deterministic hash
 
 ## 7 · Graphics Implementation Status
 
-The Vulkan graphics backend has core infrastructure but rendering is not fully operational.
-Headless mode is fully functional for testing and CI.
+The Vulkan graphics backend is now fully operational with complete rendering pipeline.
+Headless mode remains fully functional for testing and CI.
 
-| Component | File:Line | Current State | What's Missing |
-|-----------|-----------|---------------|----------------|
-| `draw_mesh()` | cpp/graphics.cpp:1020-1026 | Stats only | `vkCmdDraw*` calls, pipeline/descriptor binding |
-| `create_pipeline()` | cpp/graphics.cpp:769-801 | Layout only | VkPipeline creation, shader module binding |
-| Render passes | cpp/graphics.cpp:1050-1080 | Forward only | Depth prepass, post-process pass |
-| Framebuffers | cpp/graphics.cpp:1082-1099 | Images only | VkFramebuffer objects |
-| Material pipeline | cpp/graphics.cpp:1208 | Null render pass | Valid render pass binding |
-| `clear_lights()` | graphics_bridge.py:564 | Python only | C++ GraphicsSystem method |
-| Terrain mesh API | graphics_bridge.py:361 | Placeholder | Proper mesh generation |
+| Component | File:Line | Status | Description |
+|-----------|-----------|--------|-------------|
+| `draw_mesh()` | cpp/graphics.cpp | ✅ Complete | Full vkCmdDraw calls with pipeline/descriptor binding |
+| `create_pipeline()` | cpp/graphics.cpp | ✅ Complete | VkPipeline creation with shader modules |
+| Render passes | cpp/graphics.cpp | ✅ Complete | Depth prepass + forward pass |
+| Framebuffers | cpp/graphics.cpp | ✅ Complete | VkFramebuffer for swapchain and headless |
+| Swapchain | cpp/graphics.cpp | ✅ Complete | Full swapchain management with resize support |
+| Uniform buffers | cpp/graphics.cpp | ✅ Complete | Per-frame uniforms (view/projection/camera) |
+| Descriptor sets | cpp/graphics.cpp | ✅ Complete | Frame descriptor sets with uniform binding |
+| Push constants | cpp/graphics.cpp | ✅ Complete | Per-draw model transforms and color |
+| `clear_lights()` | cpp/graphics.cpp | ✅ Complete | C++ GraphicsSystem method |
+| Default shaders | cpp/graphics.cpp | ✅ Complete | Basic diffuse lighting shaders |
 
-**For Phase 3+**: Complete the above to enable real-time rendering. Headless mode works for all non-graphics testing.
+### Rendering Pipeline
+
+The graphics system implements a deferred command recording approach:
+1. **begin_frame()** - Acquire swapchain image, reset command buffer
+2. **draw_mesh()** - Queue draw commands with transforms
+3. **end_frame()** - Record render pass, submit, present
+
+### Key Features
+- Double-buffered rendering with MAX_FRAMES_IN_FLIGHT = 2
+- Depth pre-pass for early Z rejection
+- Forward rendering with basic diffuse lighting
+- Dynamic viewport/scissor for window resizing
+- Push constants for per-draw transforms (no descriptor updates)
+- Swapchain recreation on window resize
+- Headless mode for CI/testing without display

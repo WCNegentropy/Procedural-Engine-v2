@@ -8,11 +8,11 @@ This file configures Claude Code for optimal assistance with the Procedural Engi
 
 **Procedural Engine v2** is a hybrid Python/C++ procedural game engine with:
 - 100% deterministic world generation from a single 64-bit seed
-- Vulkan-based rendering with virtual texture paging
+- Full Vulkan-based rendering pipeline with depth prepass and forward rendering
 - 3D physics with hybrid 2D+height approach
 - Hot-reload infrastructure for iterative development
 
-**Current Status:** Production Ready (v1.1) — Active development toward v2.0 AI-native RPG platform.
+**Current Status:** Production Ready (v1.3) — Full Vulkan graphics, active development toward v2.0 AI-native RPG platform.
 
 ---
 
@@ -42,7 +42,7 @@ cmake .. -DNO_GRAPHICS=ON && make
 # Full build with graphics
 cmake .. && make
 
-# Run tests (172+ tests)
+# Run tests (426+ tests)
 python -m pytest -q
 
 # Lint and format
