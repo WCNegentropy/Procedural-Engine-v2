@@ -188,7 +188,12 @@ class TestGameRunner:
         player = runner.player
         assert player is not None
         assert player.name == "Hero"
-        assert player.position.y == 10  # Initial spawn height
+        # Player should be on terrain surface (terrain height + 2.0 offset)
+        # With seed=42, chunk_size=64, player spawns at center (32, ?, 32)
+        assert player.position.x == 32
+        assert player.position.z == 32
+        # Player should be above ground level (terrain varies by seed)
+        assert player.position.y > 0
 
         runner.shutdown()
 

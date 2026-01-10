@@ -45,6 +45,7 @@ from graphics_bridge import GraphicsBridge
 
 if TYPE_CHECKING:
     from ui_system import UIManager
+    import numpy as np
 
 __all__ = [
     "RunnerConfig",
@@ -550,6 +551,12 @@ class GameRunner:
         self._entity_meshes: Dict[str, str] = {}  # entity_id -> mesh_name
         self._terrain_mesh_name: str = "terrain"
 
+        # Terrain data storage
+        self._terrain_heightmap: Optional["np.ndarray"] = None
+        self._terrain_biome: Optional["np.ndarray"] = None
+        self._terrain_river: Optional["np.ndarray"] = None
+        self._terrain_slope: Optional["np.ndarray"] = None
+
         # Timing
         self._last_time: float = 0.0
         self._accumulator: float = 0.0
@@ -604,12 +611,26 @@ class GameRunner:
         )
         self._world = GameWorld(world_config)
 
-        # Create player
-        self._world.create_player(name="Hero", position=Vec3(0, 10, 0))
+        # Create player at center of terrain, high up initially
+        spawn_x = self.config.chunk_size // 2
+        spawn_z = self.config.chunk_size // 2
+        self._world.create_player(name="Hero", position=Vec3(spawn_x, 50, spawn_z))
 
         # Initialize UI if enabled
         if self.config.enable_ui:
             self._init_ui()
+
+        # Setup terrain
+        self._setup_terrain()
+
+        # Adjust player position to terrain height
+        if self._terrain_heightmap is not None:
+            player = self._world.get_player()
+            if player:
+                px = int(player.position.x) % self.config.chunk_size
+                pz = int(player.position.z) % self.config.chunk_size
+                terrain_y = self._terrain_heightmap[pz, px]
+                player.position = Vec3(player.position.x, terrain_y + 2.0, player.position.z)
 
         # Load game content
         self._load_game_content()
@@ -913,26 +934,132 @@ class GameRunner:
         if entity_id in self._entity_meshes:
             return self._entity_meshes[entity_id]
 
-        # For now, use a placeholder mesh name based on type
-        # In a full implementation, this would generate/load the actual mesh
+        # Create mesh name
         mesh_name = f"{entity_type}_{entity_id}"
 
-        # Create a placeholder mesh entry in headless mode
-        if self._graphics_bridge and self._graphics_bridge.is_headless:
-            self._graphics_bridge._meshes[mesh_name] = {
-                "type": entity_type,
-                "entity_id": entity_id,
-            }
-        else:
-            # In real graphics mode, we would upload actual geometry here
-            # For now, create a simple placeholder
-            self._graphics_bridge._meshes[mesh_name] = {
-                "type": entity_type,
-                "entity_id": entity_id,
-            }
+        # Create and upload mesh using graphics bridge
+        if self._graphics_bridge:
+            self._graphics_bridge.upload_entity_mesh(mesh_name, entity_type)
 
         self._entity_meshes[entity_id] = mesh_name
         return mesh_name
+
+    def _setup_terrain(self) -> None:
+        """Setup terrain mesh from world data using C++ terrain generation."""
+        if not self._graphics_bridge or not self._world:
+            return
+
+        try:
+            import numpy as np
+            import procengine_cpp as cpp
+
+            size = self.config.chunk_size
+            seed = self.config.world_seed
+
+            print(f"Generating terrain: size={size}, seed={seed}")
+
+            # Use generate_terrain_standalone which is bound to Python
+            result = cpp.generate_terrain_standalone(
+                seed=seed,
+                size=size,
+                octaves=6,
+                macro_points=8,
+                erosion_iters=500,
+                return_slope=True
+            )
+            
+            # Unpack results (returns tuple of height, biome, river, slope)
+            heightmap = result[0]
+            biome_map = result[1]
+            river_map = result[2]
+            slope_map = result[3] if len(result) > 3 else None
+            
+            # Scale heights to world units
+            HEIGHT_SCALE = 30.0
+            heightmap = heightmap * HEIGHT_SCALE
+            
+            # Store terrain data for other systems
+            self._terrain_heightmap = heightmap
+            self._terrain_biome = biome_map
+            self._terrain_river = river_map
+            if slope_map is not None:
+                self._terrain_slope = slope_map
+
+            # Upload terrain mesh to GPU
+            success = self._graphics_bridge.upload_terrain_mesh(
+                self._terrain_mesh_name,
+                heightmap,
+                cell_size=1.0,
+            )
+            
+            if success:
+                print(f"Terrain mesh uploaded: {size}x{size}")
+            else:
+                print("Warning: Failed to upload terrain mesh")
+                return
+
+            # Update physics height field
+            self._update_physics_terrain(heightmap, size)
+
+        except ImportError as e:
+            print(f"Warning: C++ module not available: {e}")
+            self._setup_terrain_fallback()
+        except AttributeError as e:
+            print(f"Warning: C++ terrain API mismatch: {e}")
+            self._setup_terrain_fallback()
+        except Exception as e:
+            print(f"Warning: Terrain setup failed: {e}")
+            import traceback
+            traceback.print_exc()
+            self._setup_terrain_fallback()
+
+    def _setup_terrain_fallback(self) -> None:
+        """Fallback terrain using simple procedural generation."""
+        try:
+            import numpy as np
+            
+            size = self.config.chunk_size
+            heightmap = np.zeros((size, size), dtype=np.float32)
+
+            for z in range(size):
+                for x in range(size):
+                    heightmap[z, x] = (
+                        np.sin(x * 0.05) * np.cos(z * 0.05) * 10.0 +
+                        np.sin(x * 0.1 + 1.5) * np.cos(z * 0.08) * 5.0 +
+                        np.sin(x * 0.2) * np.sin(z * 0.15) * 2.5 +
+                        np.cos(x * 0.03) * np.sin(z * 0.04) * 15.0
+                    )
+
+            self._terrain_heightmap = heightmap
+            
+            self._graphics_bridge.upload_terrain_mesh(
+                self._terrain_mesh_name,
+                heightmap,
+                cell_size=1.0,
+            )
+            print(f"Using fallback terrain: {size}x{size}")
+            
+            self._update_physics_terrain(heightmap, size)
+            
+        except Exception as e:
+            print(f"Fallback terrain setup failed: {e}")
+
+    def _update_physics_terrain(self, heightmap: "np.ndarray", size: int) -> None:
+        """Update physics system with terrain height field."""
+        try:
+            from physics import HeightField2D
+            
+            height_field = HeightField2D(
+                heightmap,  # Pass numpy array directly
+                x0=0.0,
+                z0=0.0,
+                cell_size=1.0,
+            )
+            
+            if hasattr(self._world, 'set_height_field'):
+                self._world.set_height_field(height_field)
+        except Exception as e:
+            print(f"Warning: Could not update physics terrain: {e}")
 
     def _render_ui(self) -> None:
         """Render UI elements."""

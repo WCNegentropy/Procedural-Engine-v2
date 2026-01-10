@@ -1,4 +1,5 @@
 #include "terrain.h"
+#include "props.h"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -393,6 +394,85 @@ TerrainMaps generate_terrain_maps(SeedRegistry& registry, const TerrainConfig& c
     }
 
     return maps;
+}
+
+::props::Mesh generate_terrain_mesh(
+    const std::vector<float>& heightmap,
+    uint32_t size,
+    float cell_size,
+    float height_scale
+) {
+    ::props::Mesh mesh;
+
+    if (heightmap.size() != size * size) {
+        // Invalid heightmap size
+        return mesh;
+    }
+
+    // 1. Generate vertices
+    mesh.vertices.reserve(size * size);
+    for (uint32_t z = 0; z < size; ++z) {
+        for (uint32_t x = 0; x < size; ++x) {
+            float world_x = static_cast<float>(x) * cell_size;
+            float world_y = heightmap[z * size + x] * height_scale;
+            float world_z = static_cast<float>(z) * cell_size;
+            mesh.vertices.push_back(::props::Vec3(world_x, world_y, world_z));
+        }
+    }
+
+    // 2. Generate indices (2 triangles per quad)
+    mesh.indices.reserve((size - 1) * (size - 1) * 6);
+    for (uint32_t z = 0; z < size - 1; ++z) {
+        for (uint32_t x = 0; x < size - 1; ++x) {
+            uint32_t tl = z * size + x;           // top-left
+            uint32_t tr = z * size + x + 1;       // top-right
+            uint32_t bl = (z + 1) * size + x;     // bottom-left
+            uint32_t br = (z + 1) * size + x + 1; // bottom-right
+
+            // Triangle 1: tl -> bl -> tr
+            mesh.indices.push_back(tl);
+            mesh.indices.push_back(bl);
+            mesh.indices.push_back(tr);
+
+            // Triangle 2: tr -> bl -> br
+            mesh.indices.push_back(tr);
+            mesh.indices.push_back(bl);
+            mesh.indices.push_back(br);
+        }
+    }
+
+    // 3. Compute smooth normals using central differences on heightmap
+    mesh.normals.reserve(size * size);
+    for (uint32_t z = 0; z < size; ++z) {
+        for (uint32_t x = 0; x < size; ++x) {
+            // Compute gradient using central differences
+            float gx, gz;
+
+            // X gradient (dh/dx)
+            if (x == 0) {
+                gx = (heightmap[z * size + 1] - heightmap[z * size]) * height_scale / cell_size;
+            } else if (x == size - 1) {
+                gx = (heightmap[z * size + x] - heightmap[z * size + x - 1]) * height_scale / cell_size;
+            } else {
+                gx = (heightmap[z * size + x + 1] - heightmap[z * size + x - 1]) * height_scale / (2.0f * cell_size);
+            }
+
+            // Z gradient (dh/dz)
+            if (z == 0) {
+                gz = (heightmap[size + x] - heightmap[x]) * height_scale / cell_size;
+            } else if (z == size - 1) {
+                gz = (heightmap[z * size + x] - heightmap[(z - 1) * size + x]) * height_scale / cell_size;
+            } else {
+                gz = (heightmap[(z + 1) * size + x] - heightmap[(z - 1) * size + x]) * height_scale / (2.0f * cell_size);
+            }
+
+            // Normal is perpendicular to gradient: (-gx, 1, -gz) normalized
+            ::props::Vec3 normal(-gx, 1.0f, -gz);
+            mesh.normals.push_back(normal.normalized());
+        }
+    }
+
+    return mesh;
 }
 
 } // namespace terrain

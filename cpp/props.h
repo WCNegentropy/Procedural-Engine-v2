@@ -292,4 +292,57 @@ Mesh generate_creature_mesh(
  */
 Mesh generate_lod(const Mesh& mesh, float target_ratio);
 
+// ============================================================================
+// Primitive Mesh Generation
+// ============================================================================
+
+/**
+ * Generate an axis-aligned box mesh.
+ *
+ * @param size Size of the box (width, height, depth)
+ * @param center Center position of the box
+ * @return Triangle mesh for the box
+ */
+Mesh generate_box_mesh(const Vec3& size, const Vec3& center = Vec3(0, 0, 0));
+
+/**
+ * Generate a capsule mesh (cylinder with hemisphere caps).
+ *
+ * @param radius Radius of the capsule
+ * @param height Height of the cylindrical section (excluding caps)
+ * @param segments Number of segments around the circumference
+ * @param rings Number of rings in each hemisphere cap
+ * @return Triangle mesh for the capsule
+ */
+Mesh generate_capsule_mesh(float radius, float height, uint32_t segments = 16, uint32_t rings = 8);
+
+/**
+ * Generate a cylinder mesh.
+ *
+ * @param radius Radius of the cylinder
+ * @param height Height of the cylinder
+ * @param segments Number of segments around the circumference
+ * @return Triangle mesh for the cylinder
+ */
+Mesh generate_cylinder_mesh(float radius, float height, uint32_t segments = 16);
+
+/**
+ * Generate a cone mesh.
+ *
+ * @param radius Base radius of the cone
+ * @param height Height of the cone
+ * @param segments Number of segments around the base
+ * @return Triangle mesh for the cone
+ */
+Mesh generate_cone_mesh(float radius, float height, uint32_t segments = 16);
+
+/**
+ * Generate a subdivided plane mesh.
+ *
+ * @param size Size of the plane (width, depth)
+ * @param subdivisions Number of subdivisions per axis
+ * @return Triangle mesh for the plane
+ */
+Mesh generate_plane_mesh(const Vec3& size, uint32_t subdivisions = 1);
+
 } // namespace props

@@ -345,37 +345,110 @@ class GraphicsBridge:
         try:
             import procengine_cpp as cpp
 
-            # Create mesh from heightmap
-            mesh = cpp.Mesh()
+            # Generate mesh from heightmap using C++
+            mesh = cpp.generate_terrain_mesh(heightmap, cell_size, 1.0)
 
-            height, width = heightmap.shape
+            # Validate mesh
+            if not mesh.validate():
+                return False
 
-            # Generate vertices
-            for z in range(height):
-                for x in range(width):
-                    vertex = cpp.Vec3(
-                        x * cell_size,
-                        float(heightmap[z, x]),
-                        z * cell_size,
-                    )
-                    # Add to mesh (would need proper API)
+            # Upload to GPU if graphics available
+            if not self._headless and self._graphics_system:
+                gpu_mesh = self._graphics_system.upload_mesh(mesh)
+                if gpu_mesh.is_valid():
+                    self._meshes[name] = gpu_mesh
+                    return True
+                return False
+            else:
+                # Headless mode - store mesh reference
+                self._meshes[name] = {
+                    "type": "terrain",
+                    "mesh": mesh,
+                    "width": heightmap.shape[1],
+                    "height": heightmap.shape[0],
+                    "cell_size": cell_size,
+                }
+                return True
 
-            # For now, store heightmap info for headless mode
+        except (ImportError, AttributeError) as e:
+            # Fallback for headless mode without C++ module
             self._meshes[name] = {
                 "type": "terrain",
-                "width": width,
-                "height": height,
-                "cell_size": cell_size,
                 "heightmap": heightmap,
+                "cell_size": cell_size,
             }
             return True
 
-        except (ImportError, AttributeError):
-            # Headless mode
+    def upload_entity_mesh(
+        self,
+        name: str,
+        entity_type: str,
+    ) -> bool:
+        """Create and upload an entity placeholder mesh.
+
+        Parameters
+        ----------
+        name:
+            Unique name for the entity mesh.
+        entity_type:
+            Type of entity (player, npc, rock, tree, building, etc.).
+
+        Returns
+        -------
+        bool:
+            True if uploaded successfully.
+        """
+        try:
+            import procengine_cpp as cpp
+
+            # Select appropriate primitive mesh based on entity type
+            if entity_type in ("player", "npc", "character"):
+                # Capsule for humanoid characters (radius, height, segments, rings)
+                mesh = cpp.generate_capsule_mesh(0.5, 1.5, 16, 8)
+            elif entity_type == "rock":
+                # Use existing rock mesh generator
+                desc = cpp.RockDescriptor()
+                desc.position = cpp.Vec3(0, 0, 0)
+                desc.radius = 0.5
+                mesh = cpp.generate_rock_mesh(desc)
+            elif entity_type == "tree":
+                # Cylinder as placeholder for trees (radius, height, segments)
+                mesh = cpp.generate_cylinder_mesh(0.2, 3.0, 16)
+            elif entity_type == "building":
+                # Box for buildings
+                mesh = cpp.generate_box_mesh(cpp.Vec3(3, 2, 3))
+            else:
+                # Default small box
+                mesh = cpp.generate_box_mesh(cpp.Vec3(0.5, 0.5, 0.5))
+
+            # Validate mesh (warn but don't fail for complex meshes)
+            if not mesh.validate():
+                # Log warning but continue - some complex meshes may have issues
+                import warnings
+                warnings.warn(f"Mesh validation failed for entity type '{entity_type}', continuing anyway")
+
+            # Upload to GPU if graphics available
+            if not self._headless and self._graphics_system:
+                try:
+                    gpu_mesh = self._graphics_system.upload_mesh(mesh)
+                    if gpu_mesh.is_valid():
+                        self._meshes[name] = gpu_mesh
+                        return True
+                    return False
+                except Exception:
+                    return False
+            else:
+                # Headless mode - store mesh reference
+                self._meshes[name] = {
+                    "type": entity_type,
+                    "mesh": mesh,
+                }
+                return True
+
+        except (ImportError, AttributeError) as e:
+            # Fallback for headless mode
             self._meshes[name] = {
-                "type": "terrain",
-                "heightmap": heightmap,
-                "cell_size": cell_size,
+                "type": entity_type,
             }
             return True
 
