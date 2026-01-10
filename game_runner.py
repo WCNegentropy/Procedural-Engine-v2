@@ -770,6 +770,10 @@ class GameRunner:
 
         Returns False if the game should exit.
         """
+        # Debug once per second
+        if self._frame_count % 60 == 0:
+            self._debug_render_state()
+        
         # Timing
         current_time = self._backend.get_time()
         frame_time = current_time - self._last_time
@@ -1035,6 +1039,40 @@ class GameRunner:
                 self._world.set_height_field(height_field)
         except Exception as e:
             print(f"Warning: Could not update physics terrain: {e}")
+
+    def _debug_render_state(self) -> None:
+        """Print debug info about render state."""
+        if not self._graphics_bridge:
+            print("DEBUG: No graphics bridge!")
+            return
+        
+        print("=== RENDER DEBUG ===")
+        print(f"Headless: {self._graphics_bridge.is_headless}")
+        print(f"Meshes: {list(self._graphics_bridge._meshes.keys())}")
+        print(f"Pipelines: {list(self._graphics_bridge._pipelines.keys())}")
+        print(f"Camera pos: {self._graphics_bridge._camera_position}")
+        print(f"Camera target: {self._graphics_bridge._camera_target}")
+        
+        # Check terrain mesh
+        terrain = self._graphics_bridge._meshes.get("terrain")
+        if terrain:
+            if isinstance(terrain, dict):
+                print("Terrain: PLACEHOLDER (not on GPU!)")
+            else:
+                print(f"Terrain: GPU mesh, valid={terrain.is_valid()}")
+        else:
+            print("Terrain: NOT FOUND")
+        
+        # Check pipeline
+        pipeline = self._graphics_bridge._pipelines.get("default")
+        if pipeline:
+            if isinstance(pipeline, dict):
+                print("Pipeline: PLACEHOLDER")
+            else:
+                print(f"Pipeline: valid={pipeline.is_valid()}")
+        else:
+            print("Pipeline: NOT FOUND")
+        print("====================")
 
     def _render_ui(self) -> None:
         """Render UI elements."""
