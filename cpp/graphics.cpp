@@ -935,7 +935,7 @@ Pipeline GraphicsDevice::create_pipeline(const PipelineConfig& config, VkRenderP
     rasterizer.rasterizerDiscardEnable = VK_FALSE;
     rasterizer.polygonMode = config.polygon_mode;
     rasterizer.lineWidth = 1.0f;
-    rasterizer.cullMode = config.cull_mode;
+    rasterizer.cullMode = VK_CULL_MODE_NONE;  // Disable culling until rendering confirmed
     rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     rasterizer.depthBiasEnable = VK_FALSE;
 
@@ -950,7 +950,7 @@ Pipeline GraphicsDevice::create_pipeline(const PipelineConfig& config, VkRenderP
     depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
     depth_stencil.depthTestEnable = config.depth_test ? VK_TRUE : VK_FALSE;
     depth_stencil.depthWriteEnable = config.depth_write ? VK_TRUE : VK_FALSE;
-    depth_stencil.depthCompareOp = config.depth_compare;
+    depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;  // Fixed depth compare for proper depth test
     depth_stencil.depthBoundsTestEnable = VK_FALSE;
     depth_stencil.stencilTestEnable = VK_FALSE;
 
@@ -2154,7 +2154,7 @@ void RenderContext::record_draw_commands() {
     render_pass_info.renderArea.extent = {width_, height_};
 
     std::array<VkClearValue, 2> clear_values{};
-    clear_values[0].color = {{0.4f, 0.1f, 0.15f, 1.0f}};  // Reddish background for debug visibility
+    clear_values[0].color = {{0.1f, 0.1f, 0.15f, 1.0f}};  // Dark blue background
     clear_values[1].depthStencil = {1.0f, 0};
 
     render_pass_info.clearValueCount = static_cast<uint32_t>(clear_values.size());
@@ -2240,16 +2240,17 @@ void RenderContext::compute_view_matrix(float* out, const Camera& cam) {
 }
 
 void RenderContext::compute_projection_matrix(float* out, float fov, float aspect, float near, float far) {
-    // Vulkan perspective projection (Y-down, Z 0-1)
+    // Vulkan clip space: X [-1,1], Y [-1,1], Z [0,1]
+    // Y is flipped (negative) for Vulkan's coordinate system
     float fov_rad = fov * 3.14159265358979f / 180.0f;
     float tan_half_fov = std::tan(fov_rad / 2.0f);
     
     std::memset(out, 0, 16 * sizeof(float));
     out[0] = 1.0f / (aspect * tan_half_fov);
     out[5] = -1.0f / tan_half_fov;  // Flip Y for Vulkan
-    out[10] = far / (near - far);
+    out[10] = far / (far - near);   // FIXED: was (near - far), should be (far - near)
     out[11] = -1.0f;
-    out[14] = (near * far) / (near - far);
+    out[14] = -(near * far) / (far - near);  // FIXED: was positive, needs negative
 }
 
 void RenderContext::multiply_matrices(float* out, const float* a, const float* b) {
