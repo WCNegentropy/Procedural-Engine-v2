@@ -1039,11 +1039,11 @@ class GameRunner:
                 cell_size=1.0,
             )
             
-            if hasattr(self._world, 'set_height_field'):
-                self._world.set_height_field(height_field)
+            if hasattr(self._world, 'set_heightfield'):
+                self._world.set_heightfield(height_field)
                 print(f"Physics heightfield set: {size}x{size}, height range [{heightmap.min():.1f}, {heightmap.max():.1f}]")
             else:
-                print("Warning: GameWorld does not have set_height_field method")
+                print("Warning: GameWorld does not have set_heightfield method")
         except Exception as e:
             print(f"Warning: Could not update physics terrain: {e}")
             import traceback
