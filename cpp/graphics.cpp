@@ -570,6 +570,40 @@ void GraphicsDevice::destroy_image(GPUImage& image) {
 }
 
 GPUMesh GraphicsDevice::upload_mesh(const props::Mesh& mesh) {
+    // DEBUG: Validate mesh before upload
+    std::cout << "=== MESH UPLOAD ===" << std::endl;
+    std::cout << "Vertices: " << mesh.vertices.size() << std::endl;
+    std::cout << "Normals: " << mesh.normals.size() << std::endl;
+    std::cout << "Indices: " << mesh.indices.size() << std::endl;
+
+    if (mesh.vertices.empty()) {
+        std::cout << "ERROR: Mesh has no vertices!" << std::endl;
+        return GPUMesh{};
+    }
+
+    if (mesh.indices.empty()) {
+        std::cout << "ERROR: Mesh has no indices!" << std::endl;
+        return GPUMesh{};
+    }
+
+    if (mesh.normals.size() != mesh.vertices.size()) {
+        std::cout << "WARNING: Normal count mismatch! Vertices: "
+                  << mesh.vertices.size() << ", Normals: " << mesh.normals.size() << std::endl;
+    }
+
+    // Log bounding box
+    float minX = 1e10f, maxX = -1e10f;
+    float minY = 1e10f, maxY = -1e10f;
+    float minZ = 1e10f, maxZ = -1e10f;
+    for (const auto& v : mesh.vertices) {
+        minX = std::min(minX, v.x); maxX = std::max(maxX, v.x);
+        minY = std::min(minY, v.y); maxY = std::max(maxY, v.y);
+        minZ = std::min(minZ, v.z); maxZ = std::max(maxZ, v.z);
+    }
+    std::cout << "Bounding box: (" << minX << "," << minY << "," << minZ << ") to ("
+              << maxX << "," << maxY << "," << maxZ << ")" << std::endl;
+    std::cout << "==================" << std::endl;
+
     GPUMesh gpu_mesh;
     gpu_mesh.vertex_count = static_cast<uint32_t>(mesh.vertices.size());
     gpu_mesh.index_count = static_cast<uint32_t>(mesh.indices.size());
@@ -1235,6 +1269,10 @@ std::vector<uint32_t> ShaderCompiler::compile_glsl(
     VkShaderStageFlagBits stage,
     const std::string& entry_point)
 {
+    std::cout << "Compiling " << (stage == VK_SHADER_STAGE_VERTEX_BIT ? "VERTEX" :
+                                   (stage == VK_SHADER_STAGE_FRAGMENT_BIT ? "FRAGMENT" : "COMPUTE"))
+              << " shader..." << std::endl;
+
     shaderc::Compiler compiler;
     shaderc::CompileOptions options;
 
@@ -1255,6 +1293,7 @@ std::vector<uint32_t> ShaderCompiler::compile_glsl(
             break;
         default:
             last_error_ = "Unsupported shader stage";
+            std::cout << "ERROR: " << last_error_ << std::endl;
             return {};
     }
 
@@ -1263,10 +1302,15 @@ std::vector<uint32_t> ShaderCompiler::compile_glsl(
 
     if (result.GetCompilationStatus() != shaderc_compilation_status_success) {
         last_error_ = result.GetErrorMessage();
+        std::cout << "SHADER COMPILATION FAILED:" << std::endl;
+        std::cout << last_error_ << std::endl;
         return {};
     }
 
-    return {result.cbegin(), result.cend()};
+    std::vector<uint32_t> spirv = {result.cbegin(), result.cend()};
+    std::cout << "SUCCESS: Compiled to " << spirv.size() << " SPIR-V words" << std::endl;
+
+    return spirv;
 }
 
 // ============================================================================
@@ -1422,6 +1466,20 @@ bool RenderContext::initialize(uint32_t width, uint32_t height) {
     if (!create_command_buffers()) return false;
     if (!create_uniform_buffers()) return false;
     if (!create_descriptor_resources()) return false;
+
+    // Set default camera to view typical terrain
+    // Assumes terrain is centered around (32, 0, 32) for 64x64 terrain
+    camera_.position = {32.0f, 100.0f, 80.0f};
+    camera_.target = {32.0f, 0.0f, 32.0f};
+    camera_.up = {0.0f, 1.0f, 0.0f};
+    camera_.fov = 60.0f;
+    camera_.near_plane = 0.1f;
+    camera_.far_plane = 1000.0f;
+
+    std::cout << "Default camera set: pos(" << camera_.position[0] << ", "
+              << camera_.position[1] << ", " << camera_.position[2] << ") -> target("
+              << camera_.target[0] << ", " << camera_.target[1] << ", "
+              << camera_.target[2] << ")" << std::endl;
 
     return true;
 }
@@ -1967,7 +2025,30 @@ void RenderContext::update_camera_uniforms() {
 }
 
 void RenderContext::record_draw_commands() {
-    if (draw_queue_.empty()) return;
+    // DEBUG: Log draw state (only on first few frames to avoid spam)
+    if (frame_number_ <= 5) {
+        std::cout << "=== RENDER DEBUG (frame " << frame_number_ << ") ===" << std::endl;
+        std::cout << "Draw queue size: " << draw_queue_.size() << std::endl;
+        std::cout << "Camera position: (" << camera_.position[0] << ", "
+                  << camera_.position[1] << ", " << camera_.position[2] << ")" << std::endl;
+        std::cout << "Camera target: (" << camera_.target[0] << ", "
+                  << camera_.target[1] << ", " << camera_.target[2] << ")" << std::endl;
+        std::cout << "Viewport: " << width_ << "x" << height_ << std::endl;
+
+        if (!draw_queue_.empty()) {
+            const auto& first = draw_queue_[0];
+            std::cout << "First mesh - vertices: " << first.mesh->vertex_count
+                      << ", indices: " << first.mesh->index_count << std::endl;
+        }
+        std::cout << "===================" << std::endl;
+    }
+
+    if (draw_queue_.empty()) {
+        if (frame_number_ <= 5) {
+            std::cout << "WARNING: Draw queue is EMPTY!" << std::endl;
+        }
+        return;
+    }
 
     VkCommandBuffer cmd = command_buffers_[current_frame_];
 
@@ -1983,7 +2064,7 @@ void RenderContext::record_draw_commands() {
     render_pass_info.renderArea.extent = {width_, height_};
 
     std::array<VkClearValue, 2> clear_values{};
-    clear_values[0].color = {{0.1f, 0.1f, 0.15f, 1.0f}};  // Dark blue background
+    clear_values[0].color = {{0.4f, 0.1f, 0.15f, 1.0f}};  // Reddish background for debug visibility
     clear_values[1].depthStencil = {1.0f, 0};
 
     render_pass_info.clearValueCount = static_cast<uint32_t>(clear_values.size());
@@ -2186,6 +2267,7 @@ Pipeline GraphicsSystem::create_material_pipeline(const std::string& vertex_glsl
 
     // Create pipeline with render pass
     PipelineConfig config;
+    config.cull_mode = VK_CULL_MODE_NONE;  // DEBUG: Disable culling for visibility
     return device_->create_pipeline(config, render_context_->render_pass(),
                                    vertex_spirv, fragment_spirv);
 }
@@ -2196,15 +2278,28 @@ void GraphicsSystem::destroy_pipeline(Pipeline& pipeline) {
 
 Pipeline GraphicsSystem::create_default_pipeline() {
     if (default_pipeline_created_) {
+        std::cout << "Returning cached default pipeline" << std::endl;
         return default_pipeline_;
     }
-    
+
+    std::cout << "Creating default pipeline..." << std::endl;
+
     std::string vertex_src = get_default_vertex_shader();
     std::string fragment_src = get_default_fragment_shader();
-    
+
+    std::cout << "Vertex shader length: " << vertex_src.length() << std::endl;
+    std::cout << "Fragment shader length: " << fragment_src.length() << std::endl;
+
     default_pipeline_ = create_material_pipeline(vertex_src, fragment_src);
-    default_pipeline_created_ = default_pipeline_.is_valid();
-    
+
+    if (default_pipeline_.is_valid()) {
+        std::cout << "SUCCESS: Default pipeline created" << std::endl;
+        default_pipeline_created_ = true;
+    } else {
+        std::cout << "FAILURE: Default pipeline creation failed!" << std::endl;
+        std::cout << "Check shader compilation errors above" << std::endl;
+    }
+
     return default_pipeline_;
 }
 
@@ -2305,18 +2400,47 @@ layout(push_constant) uniform PushConstants {
 } push;
 
 void main() {
-    // Basic diffuse lighting
+    // DEBUG MODE: Uncomment ONE of these debug outputs to diagnose issues
+
+    // DEBUG 1: Flat magenta - if you see this, the pipeline works
+    outColor = vec4(1.0, 0.0, 1.0, 1.0);
+    return;
+
+    // DEBUG 2: Visualize normals as colors (should see rainbow terrain)
+    // vec3 n = normalize(fragNormal) * 0.5 + 0.5;
+    // outColor = vec4(n, 1.0);
+    // return;
+
+    // DEBUG 3: Visualize world position (should see gradient across terrain)
+    // vec3 p = fract(fragWorldPos * 0.1);
+    // outColor = vec4(p, 1.0);
+    // return;
+
+    // DEBUG 4: Visualize depth (white = close, black = far)
+    // float depth = gl_FragCoord.z;
+    // outColor = vec4(vec3(1.0 - depth), 1.0);
+    // return;
+
+    // DEBUG 5: Visualize push constant color
+    // outColor = push.color;
+    // return;
+
+    // PRODUCTION: Normal lighting
     vec3 normal = normalize(fragNormal);
     vec3 lightDir = normalize(vec3(0.5, 1.0, 0.3));
     float diff = max(dot(normal, lightDir), 0.0);
-    
-    // Ambient + diffuse
-    vec3 ambient = vec3(0.2);
-    vec3 diffuse = vec3(0.8) * diff;
-    
-    // Apply color tint
+
+    // Increased ambient to ensure visibility
+    vec3 ambient = vec3(0.3);
+    vec3 diffuse = vec3(0.7) * diff;
+
     vec3 baseColor = push.color.rgb;
-    outColor = vec4(baseColor * (ambient + diffuse), push.color.a);
+
+    // Ensure minimum visibility
+    vec3 finalColor = baseColor * (ambient + diffuse);
+    finalColor = max(finalColor, vec3(0.1)); // Floor to prevent pure black
+
+    outColor = vec4(finalColor, push.color.a);
 }
 )";
 }
