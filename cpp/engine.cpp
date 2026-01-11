@@ -1053,7 +1053,19 @@ PYBIND11_MODULE(procengine_cpp, m) {
              py::arg("height") = 1080,
              py::arg("enable_validation") = false,
              py::arg("enable_vsync") = true,
-             "Initialize the graphics system")
+             "Initialize the graphics system (headless mode)")
+        .def("create_instance_with_extensions", &graphics::GraphicsSystem::create_instance_with_extensions,
+             py::arg("extensions"),
+             py::arg("enable_validation") = false,
+             "Create Vulkan instance with specified extensions (phase 1 of two-phase init)")
+        .def("complete_initialization_with_surface", &graphics::GraphicsSystem::complete_initialization_with_surface,
+             py::arg("surface"),
+             py::arg("width"),
+             py::arg("height"),
+             py::arg("enable_vsync") = true,
+             "Complete initialization with a surface (phase 2 of two-phase init)")
+        .def("get_instance_handle", &graphics::GraphicsSystem::get_instance_handle,
+             "Get the Vulkan instance handle as uint64 for FFI")
         .def("shutdown", &graphics::GraphicsSystem::shutdown,
              "Shutdown the graphics system")
         .def("resize", &graphics::GraphicsSystem::resize,

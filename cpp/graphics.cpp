@@ -46,9 +46,47 @@ GraphicsDevice::~GraphicsDevice() {
 bool GraphicsDevice::initialize(VkSurfaceKHR surface, bool enable_validation, bool enable_vsync) {
     surface_ = surface;
     enable_vsync_ = enable_vsync;
+    enable_validation_ = enable_validation;
 
     if (!create_instance(enable_validation)) return false;
     if (enable_validation && !setup_debug_messenger()) return false;
+    if (!pick_physical_device()) return false;
+    if (!create_logical_device()) return false;
+    if (!create_command_pool()) return false;
+
+    return true;
+}
+
+bool GraphicsDevice::create_instance_with_extensions(const std::vector<std::string>& extensions,
+                                                     bool enable_validation) {
+    enable_validation_ = enable_validation;
+    
+    // Convert string extensions to const char* for Vulkan API
+    std::vector<const char*> ext_ptrs;
+    for (const auto& ext : extensions) {
+        ext_ptrs.push_back(ext.c_str());
+    }
+    
+    // Add debug extension if validation is enabled
+    if (enable_validation) {
+        ext_ptrs.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+    }
+    
+    return create_instance_impl(ext_ptrs, enable_validation);
+}
+
+bool GraphicsDevice::complete_initialization(VkSurfaceKHR surface, bool enable_vsync) {
+    if (instance_ == VK_NULL_HANDLE) {
+        std::cerr << "Cannot complete initialization: instance not created" << std::endl;
+        return false;
+    }
+    
+    surface_ = surface;
+    enable_vsync_ = enable_vsync;
+    
+    if (enable_validation_ && debug_messenger_ == VK_NULL_HANDLE) {
+        if (!setup_debug_messenger()) return false;
+    }
     if (!pick_physical_device()) return false;
     if (!create_logical_device()) return false;
     if (!create_command_pool()) return false;
@@ -102,6 +140,12 @@ void GraphicsDevice::shutdown() {
 }
 
 bool GraphicsDevice::create_instance(bool enable_validation) {
+    auto extensions = get_required_extensions(enable_validation);
+    return create_instance_impl(extensions, enable_validation);
+}
+
+bool GraphicsDevice::create_instance_impl(const std::vector<const char*>& extensions,
+                                          bool enable_validation) {
     if (enable_validation && !check_validation_layer_support()) {
         std::cerr << "Validation layers requested but not available" << std::endl;
         return false;
@@ -119,7 +163,6 @@ bool GraphicsDevice::create_instance(bool enable_validation) {
     create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     create_info.pApplicationInfo = &app_info;
 
-    auto extensions = get_required_extensions(enable_validation);
     create_info.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
     create_info.ppEnabledExtensionNames = extensions.data();
 
@@ -150,6 +193,7 @@ bool GraphicsDevice::create_instance(bool enable_validation) {
         return false;
     }
 
+    std::cout << "Vulkan instance created with " << extensions.size() << " extensions" << std::endl;
     return true;
 }
 
@@ -2222,6 +2266,55 @@ bool GraphicsSystem::initialize_with_surface(VkSurfaceKHR surface, uint32_t widt
     texture_cache_ = std::make_unique<VirtualTextureCache>(device_.get());
 
     return true;
+}
+
+bool GraphicsSystem::create_instance_with_extensions(const std::vector<std::string>& extensions,
+                                                     bool enable_validation) {
+    device_ = std::make_unique<GraphicsDevice>();
+    if (!device_->create_instance_with_extensions(extensions, enable_validation)) {
+        device_.reset();
+        return false;
+    }
+    return true;
+}
+
+bool GraphicsSystem::complete_initialization_with_surface(uint64_t surface, uint32_t width,
+                                                          uint32_t height, bool enable_vsync) {
+    if (!device_) {
+        std::cerr << "Cannot complete init: device not created (call create_instance_with_extensions first)" << std::endl;
+        return false;
+    }
+    
+    VkSurfaceKHR vk_surface = reinterpret_cast<VkSurfaceKHR>(surface);
+    
+    if (!device_->complete_initialization(vk_surface, enable_vsync)) {
+        return false;
+    }
+    
+    // Create swapchain if we have a surface
+    if (vk_surface != VK_NULL_HANDLE) {
+        if (!device_->create_swapchain(width, height)) {
+            return false;
+        }
+    }
+    
+    render_context_ = std::make_unique<RenderContext>(device_.get());
+    if (!render_context_->initialize(width, height)) {
+        return false;
+    }
+    
+    shader_compiler_ = std::make_unique<ShaderCompiler>();
+    texture_cache_ = std::make_unique<VirtualTextureCache>(device_.get());
+    
+    std::cout << "GraphicsSystem initialization complete with surface" << std::endl;
+    return true;
+}
+
+uint64_t GraphicsSystem::get_instance_handle() const {
+    if (device_) {
+        return device_->get_instance_handle();
+    }
+    return 0;
 }
 
 void GraphicsSystem::shutdown() {

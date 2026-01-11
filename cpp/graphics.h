@@ -331,6 +331,31 @@ public:
     bool initialize(VkSurfaceKHR surface = VK_NULL_HANDLE, bool enable_validation = false, bool enable_vsync = true);
 
     /**
+     * Create only the Vulkan instance with specified extensions.
+     * Use this for two-phase initialization where a surface needs to be created
+     * from the instance before completing initialization.
+     * @param extensions List of required instance extensions
+     * @param enable_validation Enable Vulkan validation layers
+     * @return true on success
+     */
+    bool create_instance_with_extensions(const std::vector<std::string>& extensions, bool enable_validation = false);
+
+    /**
+     * Complete initialization after instance and surface creation.
+     * Call this after create_instance_with_extensions and creating a surface.
+     * @param surface The Vulkan surface created from the instance
+     * @param enable_vsync Enable vsync (FIFO present mode)
+     * @return true on success
+     */
+    bool complete_initialization(VkSurfaceKHR surface, bool enable_vsync = true);
+
+    /**
+     * Get the instance handle as a 64-bit integer for FFI.
+     * @return VkInstance cast to uint64_t, or 0 if not initialized
+     */
+    uint64_t get_instance_handle() const { return reinterpret_cast<uint64_t>(instance_); }
+
+    /**
      * Shutdown and cleanup all Vulkan resources.
      */
     void shutdown();
@@ -438,6 +463,7 @@ private:
 
     // Helper functions
     bool create_instance(bool enable_validation);
+    bool create_instance_impl(const std::vector<const char*>& extensions, bool enable_validation);
     bool setup_debug_messenger();
     bool pick_physical_device();
     bool create_logical_device();
@@ -452,6 +478,9 @@ private:
     VkPresentModeKHR choose_swap_present_mode(const std::vector<VkPresentModeKHR>& modes);
     VkExtent2D choose_swap_extent(const VkSurfaceCapabilitiesKHR& capabilities, 
                                   uint32_t width, uint32_t height);
+    
+    // Store validation flag for two-phase init
+    bool enable_validation_ = false;
 
     std::vector<const char*> get_required_extensions(bool enable_validation);
     bool check_validation_layer_support();
@@ -675,6 +704,34 @@ public:
      */
     bool initialize_with_surface(VkSurfaceKHR surface, uint32_t width, uint32_t height,
                                 bool enable_validation = false, bool enable_vsync = true);
+
+    /**
+     * Create Vulkan instance with specified extensions (phase 1 of two-phase init).
+     * Use this when you need to create a surface from the instance before completing init.
+     * @param extensions List of required instance extension names
+     * @param enable_validation Enable Vulkan validation layers
+     * @return true on success
+     */
+    bool create_instance_with_extensions(const std::vector<std::string>& extensions,
+                                         bool enable_validation = false);
+
+    /**
+     * Complete initialization with a surface (phase 2 of two-phase init).
+     * Call this after create_instance_with_extensions and creating a surface.
+     * @param surface The VkSurfaceKHR handle (as uint64_t for FFI)
+     * @param width Render target width
+     * @param height Render target height
+     * @param enable_vsync Enable vsync
+     * @return true on success
+     */
+    bool complete_initialization_with_surface(uint64_t surface, uint32_t width,
+                                              uint32_t height, bool enable_vsync = true);
+
+    /**
+     * Get the Vulkan instance handle (as uint64_t for FFI).
+     * @return Instance handle, or 0 if not initialized
+     */
+    uint64_t get_instance_handle() const;
 
     /**
      * Shutdown the graphics system.
