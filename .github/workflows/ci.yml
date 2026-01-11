@@ -146,6 +146,7 @@ jobs:
         with:
           name: procengine-linux-x64
           path: |
+            procengine_cpp*.so
             build/procengine_cpp*.so
             cpp/
             *.py
@@ -286,6 +287,7 @@ jobs:
         with:
           name: procengine-windows-x64
           path: |
+            procengine_cpp*.pyd
             build/Release/procengine_cpp*.pyd
             build/procengine_cpp*.pyd
             SDL2.dll
@@ -420,6 +422,8 @@ jobs:
         with:
           name: procengine-macos-x64
           path: |
+            procengine_cpp*.so
+            procengine_cpp*.dylib
             build/procengine_cpp*.so
             build/procengine_cpp*.dylib
             cpp/
@@ -502,24 +506,47 @@ jobs:
       - name: Copy module from artifact
         shell: bash
         run: |
-          # Find and copy the C++ module
-          find ./artifact -name "procengine_cpp*" -type f | head -5
-          cp ./artifact/build/procengine_cpp*${{ matrix.module_ext }} . 2>/dev/null || \
-          cp ./artifact/build/Release/procengine_cpp*${{ matrix.module_ext }} . 2>/dev/null || \
-          cp ./artifact/procengine_cpp*${{ matrix.module_ext }} . 2>/dev/null || \
-          echo "Warning: Could not find pre-built module"
+          echo "=== Searching for C++ module in artifact ==="
+          find ./artifact -name "procengine_cpp*" -type f
           
-          # List what we have
-          ls -la procengine_cpp* 2>/dev/null || echo "No module found"
+          echo ""
+          echo "=== Attempting to copy module ==="
+          # Try multiple possible locations
+          if [ -f ./artifact/build/procengine_cpp*${{ matrix.module_ext }} ]; then
+            cp ./artifact/build/procengine_cpp*${{ matrix.module_ext }} .
+            echo "Copied from ./artifact/build/"
+          elif [ -f ./artifact/build/Release/procengine_cpp*${{ matrix.module_ext }} ]; then
+            cp ./artifact/build/Release/procengine_cpp*${{ matrix.module_ext }} .
+            echo "Copied from ./artifact/build/Release/"
+          elif [ -f ./artifact/procengine_cpp*${{ matrix.module_ext }} ]; then
+            cp ./artifact/procengine_cpp*${{ matrix.module_ext }} .
+            echo "Copied from ./artifact/"
+          else
+            echo "ERROR: Could not find pre-built module!"
+            echo "Artifact contents:"
+            ls -R ./artifact/ | head -50
+            exit 1
+          fi
+          
+          echo ""
+          echo "=== Module in current directory ==="
+          ls -la procengine_cpp* || exit 1
 
       - name: Copy DLLs from artifact (Windows)
         if: matrix.platform == 'windows'
         shell: bash
         run: |
+          echo "=== Searching for DLLs in artifact ==="
+          find ./artifact -name "*.dll" -type f
+          
+          echo ""
+          echo "=== Copying DLLs ==="
           # Copy DLLs from artifact if they exist
-          cp ./artifact/*.dll . 2>/dev/null || echo "No DLLs in artifact"
-          echo "=== DLLs copied from artifact ==="
-          ls -la *.dll 2>/dev/null || echo "No DLLs found"
+          cp ./artifact/*.dll . 2>/dev/null || echo "No DLLs in artifact root"
+          
+          echo ""
+          echo "=== DLLs in current directory ==="
+          ls -la *.dll 2>/dev/null || echo "Warning: No DLLs found"
 
       - name: Install Python dependencies
         run: |
