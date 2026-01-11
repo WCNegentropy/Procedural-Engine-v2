@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """Demonstration script for frame rate limiting.
 
-This script shows how the frame rate limiting works in both
+This script demonstrates how the frame rate limiting works in both
 headless and windowed modes with different configurations.
+
+Note: This is NOT a pytest test file - it's a standalone demo script.
+Run it directly with: python demo_frame_timing.py
 """
 import time
 from game_runner import GameRunner, RunnerConfig, HeadlessBackend
 
 
-def test_frame_timing(description: str, config: RunnerConfig, num_frames: int = 60):
-    """Test frame timing with a specific configuration."""
+def demo_frame_timing(description: str, config: RunnerConfig, num_frames: int = 60):
+    """Demonstrate frame timing with a specific configuration."""
     print(f"\n{'='*60}")
     print(f"TEST: {description}")
     print(f"Config: target_fps={config.target_fps}, vsync={config.vsync}, headless={config.headless}")
@@ -44,28 +47,28 @@ def main():
     print("="*60)
     
     # Test 1: Headless with 60 FPS target (should ignore limit)
-    test_frame_timing(
+    demo_frame_timing(
         "Headless mode with 60 FPS target",
         RunnerConfig(headless=True, target_fps=60),
         num_frames=60
     )
     
     # Test 2: Headless with 30 FPS target (should ignore limit)
-    test_frame_timing(
+    demo_frame_timing(
         "Headless mode with 30 FPS target",
         RunnerConfig(headless=True, target_fps=30),
         num_frames=30
     )
     
     # Test 3: Headless with unlimited FPS
-    test_frame_timing(
+    demo_frame_timing(
         "Headless mode with unlimited FPS",
         RunnerConfig(headless=True, target_fps=0),
         num_frames=100
     )
     
     # Test 4: Headless with vsync disabled
-    test_frame_timing(
+    demo_frame_timing(
         "Headless mode with vsync disabled",
         RunnerConfig(headless=True, target_fps=60, vsync=False),
         num_frames=60
