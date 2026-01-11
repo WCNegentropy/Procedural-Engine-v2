@@ -630,7 +630,11 @@ class GameRunner:
                 px = int(player.position.x) % self.config.chunk_size
                 pz = int(player.position.z) % self.config.chunk_size
                 terrain_y = self._terrain_heightmap[pz, px]
+                # Position player on terrain and reset velocity to prevent falling
                 player.position = Vec3(player.position.x, terrain_y + 2.0, player.position.z)
+                player.velocity = Vec3(0, 0, 0)  # Reset velocity
+                player.grounded = True  # Mark as grounded
+                print(f"Player spawned at terrain height: {terrain_y + 2.0}")
 
         # Set initial camera to view terrain
         if self._graphics_bridge and self._player_controller:
@@ -1037,8 +1041,13 @@ class GameRunner:
             
             if hasattr(self._world, 'set_height_field'):
                 self._world.set_height_field(height_field)
+                print(f"Physics heightfield set: {size}x{size}, height range [{heightmap.min():.1f}, {heightmap.max():.1f}]")
+            else:
+                print("Warning: GameWorld does not have set_height_field method")
         except Exception as e:
             print(f"Warning: Could not update physics terrain: {e}")
+            import traceback
+            traceback.print_exc()
 
     def _debug_render_state(self) -> None:
         """Print debug info about render state."""
