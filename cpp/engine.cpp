@@ -526,6 +526,7 @@ PYBIND11_MODULE(procengine_cpp, m) {
         .def(py::init<>())
         .def_readonly("vertices", &props::Mesh::vertices)
         .def_readonly("normals", &props::Mesh::normals)
+        .def_readonly("colors", &props::Mesh::colors)
         .def_readonly("indices", &props::Mesh::indices)
         .def("vertex_count", &props::Mesh::vertex_count)
         .def("triangle_count", &props::Mesh::triangle_count)
@@ -535,6 +536,8 @@ PYBIND11_MODULE(procengine_cpp, m) {
              "Validate mesh integrity (vertices/normals count, index bounds)")
         .def("ensure_normals", &props::Mesh::ensure_normals,
              "Ensure normals array matches vertices array size")
+        .def("ensure_colors", &props::Mesh::ensure_colors,
+             "Ensure colors array matches vertices array size")
         .def("get_vertices_numpy", [](const props::Mesh& mesh) {
             auto arr = py::array_t<float>({mesh.vertices.size(), size_t(3)});
             auto ptr = arr.mutable_data();
