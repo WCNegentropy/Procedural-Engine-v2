@@ -735,8 +735,13 @@ class GameRunner:
         if self._graphics_bridge and self._player_controller:
             # Position camera above and behind player, looking at terrain center
             center = self.config.chunk_size // 2
-            self._player_controller.camera.camera.position = Vec3(center, 50, center + 30)
-            self._player_controller.camera.camera.target = Vec3(center, 0, center)
+            # Get terrain height at center if available
+            terrain_target_y = 0.0
+            if self._terrain_heightmap is not None:
+                terrain_target_y = float(self._terrain_heightmap[center, center])
+            camera_y = terrain_target_y + 35.0  # Above terrain
+            self._player_controller.camera.camera.position = Vec3(center, camera_y, center + 30)
+            self._player_controller.camera.camera.target = Vec3(center, terrain_target_y, center)
 
         # Load game content
         self._load_game_content()
@@ -1088,19 +1093,22 @@ class GameRunner:
 
                 # Position camera to view terrain after upload
                 center = size / 2.0
-                camera_height = size * 1.5  # High enough to see whole terrain
+                # Calculate terrain center height for proper camera targeting
+                terrain_center_y = float(heightmap[int(center), int(center)])
+                terrain_mean_y = float(heightmap.mean())
+                camera_height = terrain_mean_y + size * 1.2  # Above terrain
                 camera_distance = size * 0.8
 
                 self._graphics_bridge.set_camera_direct(
                     position=(center, camera_height, center + camera_distance),
-                    target=(center, 0.0, center),
+                    target=(center, terrain_mean_y, center),  # Look at terrain center height
                     fov=60.0,
                 )
 
                 print(
-                    f"Camera positioned at ({center}, {camera_height}, {center + camera_distance})"
+                    f"Camera positioned at ({center}, {camera_height:.1f}, {center + camera_distance})"
                 )
-                print(f"Looking at ({center}, 0.0, {center})")
+                print(f"Looking at ({center}, {terrain_mean_y:.1f}, {center})")
             else:
                 print("Warning: Failed to upload terrain mesh")
                 return
