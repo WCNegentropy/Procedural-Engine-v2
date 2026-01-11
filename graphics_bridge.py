@@ -26,6 +26,7 @@ Usage:
 """
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
@@ -35,6 +36,9 @@ from physics import Vec3
 if TYPE_CHECKING:
     from player_controller import Camera as GameCamera, CameraController
     import numpy as np
+
+# Logger for graphics bridge operations
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "GraphicsBridge",
@@ -133,6 +137,23 @@ class RenderState:
     camera_position: Tuple[float, float, float] = (0.0, 0.0, 0.0)
     camera_target: Tuple[float, float, float] = (0.0, 0.0, 0.0)
     light_count: int = 0
+
+
+# =============================================================================
+# Entity Color Mapping
+# =============================================================================
+
+# Entity type to base color mapping (RGB values in [0, 1])
+# These colors are used as base albedo for rendering different entity types
+ENTITY_COLORS = {
+    "player": (0.85, 0.65, 0.55),     # Skin tone
+    "npc": (0.75, 0.60, 0.50),        # Slightly different skin tone
+    "character": (0.80, 0.62, 0.52),  # Generic character skin
+    "rock": (0.55, 0.50, 0.45),       # Gray rock
+    "tree": (0.45, 0.35, 0.25),       # Brown bark
+    "building": (0.70, 0.65, 0.60),   # Stone/concrete
+}
+DEFAULT_ENTITY_COLOR = (0.60, 0.60, 0.60)  # Neutral gray for unknown types
 
 
 # =============================================================================
@@ -436,40 +457,35 @@ class GraphicsBridge:
                 mesh = cpp.generate_terrain_mesh_with_biomes(
                     heightmap, biome_map, cell_size, 1.0
                 )
-                print(f"[TERRAIN] Generated mesh with biome colors:")
-                print(f"  vertices: {len(mesh.vertices)}")
-                print(f"  normals: {len(mesh.normals)}")
-                print(f"  colors: {len(mesh.colors)}")
-                print(f"  indices: {len(mesh.indices)}")
-                # Log sample colors
+                logger.debug("Generated terrain mesh with biome colors: "
+                            f"vertices={len(mesh.vertices)}, normals={len(mesh.normals)}, "
+                            f"colors={len(mesh.colors)}, indices={len(mesh.indices)}")
+                # Log sample colors at debug level
                 if len(mesh.colors) > 0:
                     c = mesh.colors[0]
-                    print(f"  sample color[0]: R={c.x:.3f}, G={c.y:.3f}, B={c.z:.3f}")
-                if len(mesh.colors) > 500:
-                    c = mesh.colors[500]
-                    print(f"  sample color[500]: R={c.x:.3f}, G={c.y:.3f}, B={c.z:.3f}")
+                    logger.debug(f"Sample color[0]: R={c.x:.3f}, G={c.y:.3f}, B={c.z:.3f}")
             else:
                 mesh = cpp.generate_terrain_mesh(heightmap, cell_size, 1.0)
-                print(f"[TERRAIN] Generated mesh without biome colors (height-based)")
-                print(f"  vertices: {len(mesh.vertices)}")
-                print(f"  colors: {len(mesh.colors)}")
+                logger.debug("Generated terrain mesh without biome colors (height-based): "
+                            f"vertices={len(mesh.vertices)}, colors={len(mesh.colors)}")
 
             if not mesh.validate():
-                print(f"Warning: Terrain mesh validation failed")
+                logger.warning("Terrain mesh validation failed")
                 return False
 
             # Upload to GPU
             if not self._headless and self._graphics_system:
-                print(f"[TERRAIN] Uploading mesh to GPU...")
+                logger.debug("Uploading terrain mesh to GPU...")
                 gpu_mesh = self._graphics_system.upload_mesh(mesh)
                 if gpu_mesh.is_valid():
                     self._meshes[name] = gpu_mesh
-                    print(f"[TERRAIN] GPU mesh uploaded: vertex_count={gpu_mesh.vertex_count}, index_count={gpu_mesh.index_count}")
+                    logger.debug(f"Terrain mesh uploaded: vertex_count={gpu_mesh.vertex_count}, "
+                                f"index_count={gpu_mesh.index_count}")
                     return True
-                print(f"[TERRAIN] ERROR: GPU mesh is not valid!")
+                logger.error("GPU mesh is not valid after upload!")
                 return False
             else:
-                print(f"[TERRAIN] Storing as placeholder (headless mode)")
+                logger.debug("Storing terrain mesh as placeholder (headless mode)")
                 self._meshes[name] = {
                     "type": "terrain",
                     "mesh": mesh,
@@ -479,7 +495,7 @@ class GraphicsBridge:
                 return True
 
         except (ImportError, AttributeError) as e:
-            print(f"Warning: C++ terrain mesh generation failed: {e}")
+            logger.warning(f"C++ terrain mesh generation failed: {e}")
             self._meshes[name] = {
                 "type": "terrain",
                 "heightmap": heightmap,
@@ -509,18 +525,6 @@ class GraphicsBridge:
         try:
             import procengine_cpp as cpp
 
-            # Entity type to base color mapping (RGB)
-            # These colors will be used as the base albedo for each entity type
-            entity_colors = {
-                "player": cpp.Vec3(0.85, 0.65, 0.55),     # Skin tone
-                "npc": cpp.Vec3(0.75, 0.60, 0.50),        # Slightly different skin tone
-                "character": cpp.Vec3(0.80, 0.62, 0.52),  # Generic character skin
-                "rock": cpp.Vec3(0.55, 0.50, 0.45),       # Gray rock
-                "tree": cpp.Vec3(0.45, 0.35, 0.25),       # Brown bark
-                "building": cpp.Vec3(0.70, 0.65, 0.60),   # Stone/concrete
-            }
-            default_color = cpp.Vec3(0.60, 0.60, 0.60)    # Neutral gray
-
             # Select appropriate primitive mesh based on entity type
             if entity_type in ("player", "npc", "character"):
                 # Capsule for humanoid characters (radius, height, segments, rings)
@@ -542,7 +546,8 @@ class GraphicsBridge:
                 mesh = cpp.generate_box_mesh(cpp.Vec3(0.5, 0.5, 0.5))
 
             # Set entity-specific uniform color for the mesh
-            entity_color = entity_colors.get(entity_type, default_color)
+            color_tuple = ENTITY_COLORS.get(entity_type, DEFAULT_ENTITY_COLOR)
+            entity_color = cpp.Vec3(color_tuple[0], color_tuple[1], color_tuple[2])
             mesh.set_uniform_color(entity_color)
 
             # Validate mesh (warn but don't fail for complex meshes)
@@ -679,15 +684,13 @@ class GraphicsBridge:
 
         # Debug: Log draw call details on first few frames
         if self._render_state.frame_count < 5:
-            print(f"[DRAW] mesh={mesh_name}, pipeline={pipeline_name}")
-            print(f"  mesh type: {type(mesh).__name__ if mesh else 'None'}")
-            print(f"  pipeline type: {type(pipeline).__name__ if pipeline else 'None'}")
-            print(f"  headless: {self._headless}")
-            print(f"  graphics_system: {self._graphics_system is not None}")
+            logger.debug(f"draw_mesh: mesh={mesh_name}, pipeline={pipeline_name}, "
+                        f"mesh_type={type(mesh).__name__ if mesh else 'None'}, "
+                        f"pipeline_type={type(pipeline).__name__ if pipeline else 'None'}")
 
         if mesh is None or pipeline is None:
             if self._render_state.frame_count < 5:
-                print(f"  SKIPPED: mesh={mesh is not None}, pipeline={pipeline is not None}")
+                logger.debug(f"draw_mesh SKIPPED: mesh={mesh is not None}, pipeline={pipeline is not None}")
             return
 
         # Skip if mesh is a placeholder dict (not a real GPU mesh)
@@ -695,14 +698,14 @@ class GraphicsBridge:
             # Placeholder mesh - just count the draw call for headless stats
             self._render_state.draw_calls += 1
             if self._render_state.frame_count < 5:
-                print(f"  SKIPPED: mesh is placeholder dict")
+                logger.debug("draw_mesh SKIPPED: mesh is placeholder dict")
             return
 
         # Skip if pipeline is a placeholder dict
         if isinstance(pipeline, dict):
             self._render_state.draw_calls += 1
             if self._render_state.frame_count < 5:
-                print(f"  SKIPPED: pipeline is placeholder dict")
+                logger.debug("draw_mesh SKIPPED: pipeline is placeholder dict")
             return
 
         if transform is None:
@@ -712,10 +715,10 @@ class GraphicsBridge:
 
         if not self._headless and self._graphics_system:
             if self._render_state.frame_count < 5:
-                print(f"  CALLING graphics_system.draw_mesh()")
+                logger.debug("draw_mesh: calling graphics_system.draw_mesh()")
             self._graphics_system.draw_mesh(mesh, pipeline, transform)
         elif self._render_state.frame_count < 5:
-            print(f"  SKIPPED: headless={self._headless}")
+            logger.debug(f"draw_mesh SKIPPED: headless={self._headless}")
 
     def draw_entity(
         self,

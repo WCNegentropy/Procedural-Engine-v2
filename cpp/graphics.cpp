@@ -9,6 +9,12 @@
 
 namespace graphics {
 
+// Debug logging control - set to false for production builds
+static constexpr bool ENABLE_DEBUG_LOGGING = true;
+
+// Helper macro for conditional debug output
+#define DEBUG_LOG(msg) do { if (ENABLE_DEBUG_LOGGING) { std::cout << msg << std::endl; } } while(0)
+
 // ============================================================================
 // Validation Layer Helpers
 // ============================================================================
