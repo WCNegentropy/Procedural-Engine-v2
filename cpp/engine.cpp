@@ -526,6 +526,7 @@ PYBIND11_MODULE(procengine_cpp, m) {
         .def(py::init<>())
         .def_readonly("vertices", &props::Mesh::vertices)
         .def_readonly("normals", &props::Mesh::normals)
+        .def_readonly("colors", &props::Mesh::colors)
         .def_readonly("indices", &props::Mesh::indices)
         .def("vertex_count", &props::Mesh::vertex_count)
         .def("triangle_count", &props::Mesh::triangle_count)
@@ -535,6 +536,8 @@ PYBIND11_MODULE(procengine_cpp, m) {
              "Validate mesh integrity (vertices/normals count, index bounds)")
         .def("ensure_normals", &props::Mesh::ensure_normals,
              "Ensure normals array matches vertices array size")
+        .def("ensure_colors", &props::Mesh::ensure_colors,
+             "Ensure colors array matches vertices array size")
         .def("get_vertices_numpy", [](const props::Mesh& mesh) {
             auto arr = py::array_t<float>({mesh.vertices.size(), size_t(3)});
             auto ptr = arr.mutable_data();
@@ -708,6 +711,33 @@ PYBIND11_MODULE(procengine_cpp, m) {
     py::arg("cell_size") = 1.0f,
     py::arg("height_scale") = 1.0f,
     "Generate terrain mesh from heightmap (2D numpy array)");
+
+    // Generate terrain mesh with biome colors
+    m.def("generate_terrain_mesh_with_biomes", 
+        [](py::array_t<float> heightmap, py::array_t<uint8_t> biome_map, 
+           float cell_size, float height_scale) {
+            auto h_buf = heightmap.request();
+            auto b_buf = biome_map.request();
+            
+            if (h_buf.ndim != 2 || b_buf.ndim != 2) {
+                throw std::runtime_error("heightmap and biome_map must be 2D arrays");
+            }
+            
+            uint32_t size = static_cast<uint32_t>(h_buf.shape[0]);
+            
+            std::vector<float> h_vec(static_cast<float*>(h_buf.ptr),
+                                      static_cast<float*>(h_buf.ptr) + h_buf.size);
+            std::vector<uint8_t> b_vec(static_cast<uint8_t*>(b_buf.ptr),
+                                        static_cast<uint8_t*>(b_buf.ptr) + b_buf.size);
+            
+            return terrain::generate_terrain_mesh(h_vec, &b_vec, size, cell_size, height_scale);
+        },
+        py::arg("heightmap"),
+        py::arg("biome_map"),
+        py::arg("cell_size") = 1.0f,
+        py::arg("height_scale") = 1.0f,
+        "Generate terrain mesh with biome-based vertex colors"
+    );
 
     // Helper function to create descriptors from Python dicts with error handling
     m.def("create_rock_from_dict", [](py::dict d) {

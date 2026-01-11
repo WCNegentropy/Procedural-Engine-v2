@@ -97,11 +97,13 @@ struct ShaderModule {
 
 /**
  * Vertex format for mesh rendering.
+ * Includes position, normal, UV, and vertex color for terrain/biome rendering.
  */
 struct Vertex {
     float position[3];
     float normal[3];
     float uv[2];
+    float color[4];  // RGBA vertex color for biome/material tinting
     
     static VkVertexInputBindingDescription get_binding_description() {
         VkVertexInputBindingDescription binding{};
@@ -111,8 +113,8 @@ struct Vertex {
         return binding;
     }
     
-    static std::array<VkVertexInputAttributeDescription, 3> get_attribute_descriptions() {
-        std::array<VkVertexInputAttributeDescription, 3> attrs{};
+    static std::array<VkVertexInputAttributeDescription, 4> get_attribute_descriptions() {
+        std::array<VkVertexInputAttributeDescription, 4> attrs{};
         // Position
         attrs[0].binding = 0;
         attrs[0].location = 0;
@@ -128,6 +130,11 @@ struct Vertex {
         attrs[2].location = 2;
         attrs[2].format = VK_FORMAT_R32G32_SFLOAT;
         attrs[2].offset = offsetof(Vertex, uv);
+        // Color
+        attrs[3].binding = 0;
+        attrs[3].location = 3;
+        attrs[3].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+        attrs[3].offset = offsetof(Vertex, color);
         return attrs;
     }
 };

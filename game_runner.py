@@ -1080,6 +1080,7 @@ class GameRunner:
                 self._terrain_mesh_name,
                 heightmap,
                 cell_size=1.0,
+                biome_map=biome_map,  # Pass biome data for coloring
             )
 
             if success:
