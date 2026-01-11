@@ -169,6 +169,7 @@ class GraphicsBridge:
         height: int = 1080,
         enable_validation: bool = True,  # DEBUG: Enable validation by default
         enable_vsync: bool = True,
+        window_backend: Optional[Any] = None,
     ) -> bool:
         """Initialize graphics backend.
 
@@ -182,6 +183,9 @@ class GraphicsBridge:
             Enable Vulkan validation layers for debugging
         enable_vsync:
             Enable vsync (FIFO present mode) for frame rate limiting
+        window_backend:
+            Optional SDL2Backend with Vulkan support. If provided and supports
+            Vulkan, will create a proper swapchain for windowed rendering.
 
         Returns
         -------
@@ -194,14 +198,78 @@ class GraphicsBridge:
             # Check if graphics module is available
             if hasattr(cpp, "GraphicsSystem"):
                 self._graphics_system = cpp.GraphicsSystem()
-                if self._graphics_system.initialize(width, height, enable_validation, enable_vsync):
-                    self._headless = False
-                    self._initialized = True
-                    return True
-        except (ImportError, AttributeError):
-            pass
+                
+                # Check if we have an SDL2 backend with Vulkan support
+                if (window_backend is not None and 
+                    hasattr(window_backend, 'get_vulkan_instance_extensions') and
+                    hasattr(window_backend, 'create_vulkan_surface')):
+                    
+                    # Two-phase initialization for windowed Vulkan rendering
+                    print("Initializing graphics with SDL2 Vulkan surface...")
+                    
+                    # Phase 1: Get required extensions and create Vulkan instance
+                    extensions = window_backend.get_vulkan_instance_extensions()
+                    if not extensions:
+                        print("Warning: Failed to get Vulkan extensions from SDL2")
+                        # Fall back to headless
+                        return self._init_headless(cpp, width, height, enable_validation, enable_vsync)
+                    
+                    if not self._graphics_system.create_instance_with_extensions(
+                        extensions, enable_validation
+                    ):
+                        print("Warning: Failed to create Vulkan instance with SDL2 extensions")
+                        return self._init_headless(cpp, width, height, enable_validation, enable_vsync)
+                    
+                    # Phase 2: Create surface from instance
+                    instance_handle = self._graphics_system.get_instance_handle()
+                    if instance_handle == 0:
+                        print("Warning: Invalid Vulkan instance handle")
+                        return self._init_headless(cpp, width, height, enable_validation, enable_vsync)
+                    
+                    surface_handle = window_backend.create_vulkan_surface(instance_handle)
+                    if surface_handle is None:
+                        print("Warning: Failed to create Vulkan surface from SDL2 window")
+                        return self._init_headless(cpp, width, height, enable_validation, enable_vsync)
+                    
+                    # Phase 3: Complete initialization with the surface
+                    if self._graphics_system.complete_initialization_with_surface(
+                        surface_handle, width, height, enable_vsync
+                    ):
+                        self._headless = False
+                        self._initialized = True
+                        print("Graphics initialized with Vulkan surface (windowed mode)")
+                        return True
+                    else:
+                        print("Warning: Failed to complete graphics init with surface")
+                        return self._init_headless(cpp, width, height, enable_validation, enable_vsync)
+                
+                else:
+                    # Standard headless initialization
+                    return self._init_headless(cpp, width, height, enable_validation, enable_vsync)
+                    
+        except (ImportError, AttributeError) as e:
+            print(f"Graphics module import error: {e}")
 
         # Fall back to headless mode
+        self._headless = True
+        self._initialized = True
+        return False
+
+    def _init_headless(
+        self,
+        cpp: Any,
+        width: int,
+        height: int,
+        enable_validation: bool,
+        enable_vsync: bool,
+    ) -> bool:
+        """Initialize in headless mode."""
+        if self._graphics_system.initialize(width, height, enable_validation, enable_vsync):
+            self._headless = False
+            self._initialized = True
+            print("Graphics initialized in headless mode")
+            return True
+        
         self._headless = True
         self._initialized = True
         return False

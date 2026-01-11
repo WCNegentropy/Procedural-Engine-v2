@@ -428,3 +428,66 @@ class TestGraphicsBridgeIntegration:
         # Stats should reflect current frame only
         stats = bridge.get_stats()
         assert stats["draw_calls"] == 1  # Reset each frame
+
+
+# =============================================================================
+# Vulkan Surface Integration Tests
+# =============================================================================
+
+
+class TestVulkanSurfaceIntegration:
+    """Tests for Vulkan surface initialization flow."""
+
+    def test_initialize_with_mock_backend_no_vulkan_support(self):
+        """Test initialization with backend that doesn't support Vulkan."""
+        bridge = GraphicsBridge()
+        
+        # Backend without Vulkan methods
+        class MockBackend:
+            pass
+        
+        # Should fall back to headless mode gracefully
+        result = bridge.initialize(
+            width=800,
+            height=600,
+            enable_validation=False,
+            window_backend=MockBackend(),
+        )
+        
+        # Should still initialize (in headless mode)
+        assert bridge.is_initialized
+
+    def test_initialize_with_vulkan_backend_extensions_failure(self):
+        """Test initialization when Vulkan extension retrieval fails."""
+        bridge = GraphicsBridge()
+        
+        class MockVulkanBackend:
+            def get_vulkan_instance_extensions(self):
+                return []  # Empty list indicates failure
+            
+            def create_vulkan_surface(self, instance):
+                return None
+        
+        # Should fall back to headless mode
+        result = bridge.initialize(
+            width=800,
+            height=600,
+            enable_validation=False,
+            window_backend=MockVulkanBackend(),
+        )
+        
+        # Should still initialize (in headless mode)
+        assert bridge.is_initialized
+
+    def test_initialize_with_none_backend(self):
+        """Test initialization with None backend (default headless)."""
+        bridge = GraphicsBridge()
+        
+        result = bridge.initialize(
+            width=1920,
+            height=1080,
+            window_backend=None,
+        )
+        
+        assert bridge.is_initialized
+        assert bridge.is_headless  # Should be headless without backend

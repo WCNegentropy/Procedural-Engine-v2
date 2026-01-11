@@ -320,7 +320,7 @@ def create_sdl2_backend() -> Optional[WindowBackend]:
         import sdl2.ext
 
         class SDL2Backend(WindowBackend):
-            """SDL2-based window backend."""
+            """SDL2-based window backend with Vulkan support."""
 
             def __init__(self) -> None:
                 self._window = None
@@ -329,6 +329,7 @@ def create_sdl2_backend() -> Optional[WindowBackend]:
                 self._height: int = 1080
                 self._focused: bool = True
                 self._start_time: float = 0.0
+                self._vk_surface: Optional[int] = None  # VkSurfaceKHR handle as int
 
                 # Key mapping from SDL2 scancodes to our key names
                 self._key_map: Dict[int, str] = {
@@ -364,9 +365,11 @@ def create_sdl2_backend() -> Optional[WindowBackend]:
 
             def initialize(self, config: RunnerConfig) -> bool:
                 if sdl2.SDL_Init(sdl2.SDL_INIT_VIDEO | sdl2.SDL_INIT_EVENTS) < 0:
+                    print(f"SDL2 init failed: {sdl2.SDL_GetError()}")
                     return False
 
-                flags = sdl2.SDL_WINDOW_SHOWN | sdl2.SDL_WINDOW_RESIZABLE
+                # Add SDL_WINDOW_VULKAN flag for Vulkan rendering
+                flags = sdl2.SDL_WINDOW_SHOWN | sdl2.SDL_WINDOW_RESIZABLE | sdl2.SDL_WINDOW_VULKAN
                 if config.fullscreen:
                     flags |= sdl2.SDL_WINDOW_FULLSCREEN_DESKTOP
 
@@ -380,6 +383,7 @@ def create_sdl2_backend() -> Optional[WindowBackend]:
                 )
 
                 if not self._window:
+                    print(f"SDL2 window creation failed: {sdl2.SDL_GetError()}")
                     sdl2.SDL_Quit()
                     return False
 
@@ -390,9 +394,97 @@ def create_sdl2_backend() -> Optional[WindowBackend]:
                 # Capture mouse for FPS-style controls
                 sdl2.SDL_SetRelativeMouseMode(sdl2.SDL_TRUE)
 
+                print(f"SDL2 window created with Vulkan support: {self._width}x{self._height}")
                 return True
 
+            def get_vulkan_instance_extensions(self) -> List[str]:
+                """Get the Vulkan instance extensions required by SDL2.
+                
+                Returns a list of extension names that must be enabled when
+                creating the Vulkan instance for SDL2 surface support.
+                """
+                import ctypes
+                from sdl2 import vulkan as sdl_vulkan
+                
+                if not self._window:
+                    return []
+                
+                # Get the count first
+                count = ctypes.c_uint(0)
+                if not sdl_vulkan.SDL_Vulkan_GetInstanceExtensions(
+                    self._window, ctypes.byref(count), None
+                ):
+                    print(f"Failed to get Vulkan extension count: {sdl2.SDL_GetError()}")
+                    return []
+                
+                if count.value == 0:
+                    return []
+                
+                # Allocate array and get extensions
+                extensions = (ctypes.c_char_p * count.value)()
+                if not sdl_vulkan.SDL_Vulkan_GetInstanceExtensions(
+                    self._window, ctypes.byref(count), extensions
+                ):
+                    print(f"Failed to get Vulkan extensions: {sdl2.SDL_GetError()}")
+                    return []
+                
+                # Convert to Python list of strings, filtering out any null pointers
+                result = [ext.decode('utf-8') for ext in extensions if ext is not None]
+                print(f"SDL2 requires Vulkan extensions: {result}")
+                return result
+
+            def create_vulkan_surface(self, vk_instance: int) -> Optional[int]:
+                """Create a Vulkan surface for this window.
+                
+                Parameters
+                ----------
+                vk_instance:
+                    The VkInstance handle as an integer (from C++ get_instance_handle()).
+                    
+                Returns
+                -------
+                int or None:
+                    The VkSurfaceKHR handle as an integer, or None on failure.
+                """
+                import ctypes
+                from sdl2 import vulkan as sdl_vulkan
+                
+                if not self._window:
+                    print("Cannot create Vulkan surface: no window")
+                    return None
+                
+                if vk_instance == 0:
+                    print("Cannot create Vulkan surface: invalid instance handle")
+                    return None
+                
+                # Create surface
+                surface = ctypes.c_uint64(0)  # VkSurfaceKHR is a 64-bit handle
+                
+                # Cast the instance handle to VkInstance (void pointer)
+                vk_instance_ptr = ctypes.c_void_p(vk_instance)
+                
+                result = sdl_vulkan.SDL_Vulkan_CreateSurface(
+                    self._window,
+                    vk_instance_ptr,
+                    ctypes.byref(surface)
+                )
+                
+                if not result:
+                    print(f"Failed to create Vulkan surface: {sdl2.SDL_GetError()}")
+                    return None
+                
+                self._vk_surface = surface.value
+                print(f"Vulkan surface created: handle={hex(self._vk_surface)}")
+                return self._vk_surface
+
+            @property
+            def vulkan_surface(self) -> Optional[int]:
+                """Get the Vulkan surface handle (or None if not created)."""
+                return self._vk_surface
+
             def shutdown(self) -> None:
+                # Note: The Vulkan surface is destroyed by the C++ GraphicsSystem
+                # when it shuts down, not here. SDL2 cleanup should happen after.
                 if self._window:
                     sdl2.SDL_DestroyWindow(self._window)
                 sdl2.SDL_Quit()
@@ -581,13 +673,14 @@ class GameRunner:
             print("Failed to initialize window backend")
             return False
 
-        # Initialize graphics bridge
+        # Initialize graphics bridge, passing the backend for Vulkan surface creation
         self._graphics_bridge = GraphicsBridge()
         graphics_available = self._graphics_bridge.initialize(
             width=self.config.window_width,
             height=self.config.window_height,
             enable_validation=self.config.enable_debug,
             enable_vsync=self.config.vsync,
+            window_backend=self._backend,  # Pass backend for Vulkan surface support
         )
         if graphics_available:
             self._init_graphics_resources()

@@ -4,3 +4,6 @@ build/
 *.so
 *.dylib
 *.dll
+*.egg-info/
+dist/
+_codeql*
