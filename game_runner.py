@@ -974,9 +974,25 @@ class GameRunner:
                 heightmap,
                 cell_size=1.0,
             )
-            
+
             if success:
                 print(f"Terrain mesh uploaded: {size}x{size}")
+
+                # Position camera to view terrain after upload
+                center = size / 2.0
+                camera_height = size * 1.5  # High enough to see whole terrain
+                camera_distance = size * 0.8
+
+                self._graphics_bridge.set_camera_direct(
+                    position=(center, camera_height, center + camera_distance),
+                    target=(center, 0.0, center),
+                    fov=60.0,
+                )
+
+                print(
+                    f"Camera positioned at ({center}, {camera_height}, {center + camera_distance})"
+                )
+                print(f"Looking at ({center}, 0.0, {center})")
             else:
                 print("Warning: Failed to upload terrain mesh")
                 return

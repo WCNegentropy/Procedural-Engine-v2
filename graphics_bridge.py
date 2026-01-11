@@ -167,7 +167,7 @@ class GraphicsBridge:
         self,
         width: int = 1920,
         height: int = 1080,
-        enable_validation: bool = False,
+        enable_validation: bool = True,  # DEBUG: Enable validation by default
     ) -> bool:
         """Initialize graphics backend.
 
