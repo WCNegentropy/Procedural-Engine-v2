@@ -1629,7 +1629,11 @@ uint32_t RenderContext::begin_frame() {
 
 void RenderContext::draw_mesh(const GPUMesh& mesh, const Pipeline& material_pipeline,
                              const std::array<float, 16>& transform) {
-    if (!mesh.is_valid() || !material_pipeline.is_valid()) return;
+    if (!mesh.is_valid() || !material_pipeline.is_valid()) {
+        std::cout << "draw_mesh: SKIPPED - mesh valid=" << mesh.is_valid() 
+                  << ", pipeline valid=" << material_pipeline.is_valid() << std::endl;
+        return;
+    }
 
     DrawCommand cmd;
     cmd.mesh = &mesh;
@@ -1637,6 +1641,12 @@ void RenderContext::draw_mesh(const GPUMesh& mesh, const Pipeline& material_pipe
     cmd.transform = transform;
     cmd.color = {1.0f, 1.0f, 1.0f, 1.0f};  // Default white
     draw_queue_.push_back(cmd);
+
+    // Debug: Log draw command on first few frames
+    if (frame_number_ <= 3) {
+        std::cout << "draw_mesh: queued mesh with " << mesh.vertex_count 
+                  << " vertices, " << mesh.index_count << " indices" << std::endl;
+    }
 
     stats_.draw_calls++;
     stats_.triangles += mesh.index_count / 3;
@@ -2221,6 +2231,14 @@ void RenderContext::record_draw_commands() {
         VkDeviceSize offsets[] = {0};
         vkCmdBindVertexBuffers(cmd, 0, 1, vertex_buffers, offsets);
         vkCmdBindIndexBuffer(cmd, draw.mesh->index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+
+        // Debug: Log draw call details on first few frames
+        if (frame_number_ <= 3) {
+            std::cout << "  vkCmdDrawIndexed: " << draw.mesh->index_count << " indices, "
+                      << draw.mesh->vertex_count << " vertices" << std::endl;
+            std::cout << "  push.color: (" << push.color[0] << ", " << push.color[1] << ", " 
+                      << push.color[2] << ", " << push.color[3] << ")" << std::endl;
+        }
 
         // Draw!
         vkCmdDrawIndexed(cmd, draw.mesh->index_count, 1, 0, 0, 0);
