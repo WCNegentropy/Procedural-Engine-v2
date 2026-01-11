@@ -115,6 +115,18 @@ struct Mesh {
         }
     }
 
+    /**
+     * Set all vertex colors to a uniform color.
+     * Useful for entity meshes that should have consistent coloring.
+     */
+    void set_uniform_color(const Vec3& color) {
+        colors.clear();
+        colors.reserve(vertices.size());
+        for (size_t i = 0; i < vertices.size(); ++i) {
+            colors.push_back(color);
+        }
+    }
+
     // Append another mesh
     void append(const Mesh& other) {
         uint32_t base_idx = static_cast<uint32_t>(vertices.size());

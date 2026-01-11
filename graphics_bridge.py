@@ -509,6 +509,18 @@ class GraphicsBridge:
         try:
             import procengine_cpp as cpp
 
+            # Entity type to base color mapping (RGB)
+            # These colors will be used as the base albedo for each entity type
+            entity_colors = {
+                "player": cpp.Vec3(0.85, 0.65, 0.55),     # Skin tone
+                "npc": cpp.Vec3(0.75, 0.60, 0.50),        # Slightly different skin tone
+                "character": cpp.Vec3(0.80, 0.62, 0.52),  # Generic character skin
+                "rock": cpp.Vec3(0.55, 0.50, 0.45),       # Gray rock
+                "tree": cpp.Vec3(0.45, 0.35, 0.25),       # Brown bark
+                "building": cpp.Vec3(0.70, 0.65, 0.60),   # Stone/concrete
+            }
+            default_color = cpp.Vec3(0.60, 0.60, 0.60)    # Neutral gray
+
             # Select appropriate primitive mesh based on entity type
             if entity_type in ("player", "npc", "character"):
                 # Capsule for humanoid characters (radius, height, segments, rings)
@@ -528,6 +540,10 @@ class GraphicsBridge:
             else:
                 # Default small box
                 mesh = cpp.generate_box_mesh(cpp.Vec3(0.5, 0.5, 0.5))
+
+            # Set entity-specific uniform color for the mesh
+            entity_color = entity_colors.get(entity_type, default_color)
+            mesh.set_uniform_color(entity_color)
 
             # Validate mesh (warn but don't fail for complex meshes)
             if not mesh.validate():
