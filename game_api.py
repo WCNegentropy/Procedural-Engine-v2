@@ -1612,6 +1612,12 @@ class GameWorld:
         if not bodies:
             return
 
+        # Debug heightfield on first physics step
+        if self._frame == 1 and self._heightfield is not None:
+            print(f"Physics step: heightfield active, size {self._heightfield.size_x}x{self._heightfield.size_z}")
+        elif self._frame == 1:
+            print("WARNING: Physics step with NO heightfield - characters will fall forever!")
+
         # Run physics
         step_physics_3d(
             bodies,
