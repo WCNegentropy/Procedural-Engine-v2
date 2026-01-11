@@ -43,8 +43,9 @@ GraphicsDevice::~GraphicsDevice() {
     shutdown();
 }
 
-bool GraphicsDevice::initialize(VkSurfaceKHR surface, bool enable_validation) {
+bool GraphicsDevice::initialize(VkSurfaceKHR surface, bool enable_validation, bool enable_vsync) {
     surface_ = surface;
+    enable_vsync_ = enable_vsync;
 
     if (!create_instance(enable_validation)) return false;
     if (enable_validation && !setup_debug_messenger()) return false;
@@ -1025,12 +1026,21 @@ VkSurfaceFormatKHR GraphicsDevice::choose_swap_surface_format(
 
 VkPresentModeKHR GraphicsDevice::choose_swap_present_mode(
     const std::vector<VkPresentModeKHR>& modes) {
-    for (const auto& mode : modes) {
-        if (mode == VK_PRESENT_MODE_MAILBOX_KHR) {
-            return mode;  // Triple buffering
+    // If vsync is enabled, prefer FIFO (vsync) over MAILBOX
+    // If vsync is disabled, prefer MAILBOX (triple buffering, no vsync) over FIFO
+    if (enable_vsync_) {
+        // Always use FIFO when vsync enabled - it's guaranteed to be available
+        return VK_PRESENT_MODE_FIFO_KHR;
+    } else {
+        // Try to use MAILBOX for lowest latency without vsync
+        for (const auto& mode : modes) {
+            if (mode == VK_PRESENT_MODE_MAILBOX_KHR) {
+                return mode;  // Triple buffering, no vsync
+            }
         }
+        // Fall back to FIFO if MAILBOX not available
+        return VK_PRESENT_MODE_FIFO_KHR;
     }
-    return VK_PRESENT_MODE_FIFO_KHR;  // V-sync (always available)
 }
 
 VkExtent2D GraphicsDevice::choose_swap_extent(const VkSurfaceCapabilitiesKHR& capabilities,
@@ -2185,14 +2195,14 @@ GraphicsSystem::~GraphicsSystem() {
     shutdown();
 }
 
-bool GraphicsSystem::initialize(uint32_t width, uint32_t height, bool enable_validation) {
-    return initialize_with_surface(VK_NULL_HANDLE, width, height, enable_validation);
+bool GraphicsSystem::initialize(uint32_t width, uint32_t height, bool enable_validation, bool enable_vsync) {
+    return initialize_with_surface(VK_NULL_HANDLE, width, height, enable_validation, enable_vsync);
 }
 
 bool GraphicsSystem::initialize_with_surface(VkSurfaceKHR surface, uint32_t width, 
-                                             uint32_t height, bool enable_validation) {
+                                             uint32_t height, bool enable_validation, bool enable_vsync) {
     device_ = std::make_unique<GraphicsDevice>();
-    if (!device_->initialize(surface, enable_validation)) {
+    if (!device_->initialize(surface, enable_validation, enable_vsync)) {
         return false;
     }
 

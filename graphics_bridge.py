@@ -168,10 +168,25 @@ class GraphicsBridge:
         width: int = 1920,
         height: int = 1080,
         enable_validation: bool = True,  # DEBUG: Enable validation by default
+        enable_vsync: bool = True,
     ) -> bool:
         """Initialize graphics backend.
 
-        Returns True if graphics are available, False for headless mode.
+        Parameters
+        ----------
+        width:
+            Render target width
+        height:
+            Render target height
+        enable_validation:
+            Enable Vulkan validation layers for debugging
+        enable_vsync:
+            Enable vsync (FIFO present mode) for frame rate limiting
+
+        Returns
+        -------
+        bool:
+            True if graphics are available, False for headless mode.
         """
         try:
             import procengine_cpp as cpp
@@ -179,7 +194,7 @@ class GraphicsBridge:
             # Check if graphics module is available
             if hasattr(cpp, "GraphicsSystem"):
                 self._graphics_system = cpp.GraphicsSystem()
-                if self._graphics_system.initialize(width, height, enable_validation):
+                if self._graphics_system.initialize(width, height, enable_validation, enable_vsync):
                     self._headless = False
                     self._initialized = True
                     return True

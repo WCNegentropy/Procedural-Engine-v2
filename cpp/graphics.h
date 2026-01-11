@@ -324,8 +324,11 @@ public:
     /**
      * Initialize Vulkan with optional window surface.
      * For headless rendering, pass VK_NULL_HANDLE.
+     * @param surface Vulkan surface for windowed rendering (VK_NULL_HANDLE for headless)
+     * @param enable_validation Enable Vulkan validation layers
+     * @param enable_vsync Enable vsync (FIFO present mode), otherwise prefer MAILBOX
      */
-    bool initialize(VkSurfaceKHR surface = VK_NULL_HANDLE, bool enable_validation = false);
+    bool initialize(VkSurfaceKHR surface = VK_NULL_HANDLE, bool enable_validation = false, bool enable_vsync = true);
 
     /**
      * Shutdown and cleanup all Vulkan resources.
@@ -431,6 +434,7 @@ private:
     std::vector<VkImageView> swapchain_image_views_;
     VkFormat swapchain_format_ = VK_FORMAT_UNDEFINED;
     VkExtent2D swapchain_extent_ = {0, 0};
+    bool enable_vsync_ = true;  // Prefer FIFO (vsync) over MAILBOX
 
     // Helper functions
     bool create_instance(bool enable_validation);
@@ -659,16 +663,18 @@ public:
      * @param width Render target width
      * @param height Render target height
      * @param enable_validation Enable Vulkan validation layers
+     * @param enable_vsync Enable vsync (FIFO present mode)
      * @return true on success
      */
     bool initialize(uint32_t width = 1920, uint32_t height = 1080,
-                   bool enable_validation = false);
+                   bool enable_validation = false, bool enable_vsync = true);
     
     /**
      * Initialize with window surface for windowed rendering.
+     * @param enable_vsync Enable vsync (FIFO present mode)
      */
     bool initialize_with_surface(VkSurfaceKHR surface, uint32_t width, uint32_t height,
-                                bool enable_validation = false);
+                                bool enable_validation = false, bool enable_vsync = true);
 
     /**
      * Shutdown the graphics system.
