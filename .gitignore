@@ -6,3 +6,4 @@ build/
 *.dll
 *.egg-info/
 dist/
+_codeql*
