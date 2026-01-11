@@ -1052,6 +1052,7 @@ PYBIND11_MODULE(procengine_cpp, m) {
              py::arg("width") = 1920,
              py::arg("height") = 1080,
              py::arg("enable_validation") = false,
+             py::arg("enable_vsync") = true,
              "Initialize the graphics system")
         .def("shutdown", &graphics::GraphicsSystem::shutdown,
              "Shutdown the graphics system")

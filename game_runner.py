@@ -564,6 +564,7 @@ class GameRunner:
         self._fps: float = 0.0
         self._fps_update_time: float = 0.0
         self._fps_frame_count: int = 0
+        self._frame_start_time: float = 0.0  # For frame rate limiting
 
         # Callbacks
         self._on_update: Optional[Callable[[float], None]] = None
@@ -586,6 +587,7 @@ class GameRunner:
             width=self.config.window_width,
             height=self.config.window_height,
             enable_validation=self.config.enable_debug,
+            enable_vsync=self.config.vsync,
         )
         if graphics_available:
             self._init_graphics_resources()
@@ -774,6 +776,18 @@ class GameRunner:
 
         Returns False if the game should exit.
         """
+        # Frame rate limiting (fallback if Vulkan vsync doesn't work)
+        # Only apply limiting if target_fps is set and we're not in headless mode
+        if self.config.target_fps > 0 and not isinstance(self._backend, HeadlessBackend):
+            min_frame_time = 1.0 / self.config.target_fps
+            if self._frame_start_time > 0:
+                elapsed = self._backend.get_time() - self._frame_start_time
+                if elapsed < min_frame_time:
+                    sleep_time = min_frame_time - elapsed
+                    time.sleep(sleep_time)
+        
+        self._frame_start_time = self._backend.get_time()
+        
         # Debug once per second
         if self._frame_count % 60 == 0:
             self._debug_render_state()

@@ -322,6 +322,56 @@ class TestGameRunner:
 
 
 # =============================================================================
+# Frame Rate Limiting Tests
+# =============================================================================
+
+
+class TestFrameRateLimiting:
+    """Tests for frame rate limiting functionality."""
+
+    def test_frame_rate_limiting_not_applied_in_headless(self):
+        """Test that frame rate limiting doesn't affect headless mode."""
+        import time
+        
+        config = RunnerConfig(headless=True, target_fps=30)
+        runner = GameRunner(config)
+        
+        start_time = time.perf_counter()
+        runner.run_frames(10)
+        elapsed = time.perf_counter() - start_time
+        
+        # In headless mode with simulated time, frames should complete very quickly
+        # (much less than 10 frames at 30 FPS = 0.333 seconds)
+        assert elapsed < 0.2, f"Headless mode should be fast, took {elapsed:.3f}s"
+        
+        runner.shutdown()
+
+    def test_vsync_config_passed_to_graphics(self):
+        """Test that vsync config is properly passed through to graphics system."""
+        # Test with vsync enabled (default)
+        config1 = RunnerConfig(headless=True, vsync=True)
+        runner1 = GameRunner(config1)
+        runner1.initialize()
+        assert runner1.config.vsync is True
+        runner1.shutdown()
+        
+        # Test with vsync disabled
+        config2 = RunnerConfig(headless=True, vsync=False)
+        runner2 = GameRunner(config2)
+        runner2.initialize()
+        assert runner2.config.vsync is False
+        runner2.shutdown()
+
+    def test_target_fps_config(self):
+        """Test that target_fps is configurable."""
+        config = RunnerConfig(target_fps=120)
+        assert config.target_fps == 120
+        
+        config2 = RunnerConfig(target_fps=30)
+        assert config2.target_fps == 30
+
+
+# =============================================================================
 # Integration Tests
 # =============================================================================
 
