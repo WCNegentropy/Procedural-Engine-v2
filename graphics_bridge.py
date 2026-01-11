@@ -408,8 +408,9 @@ class GraphicsBridge:
         name: str,
         heightmap: "np.ndarray",
         cell_size: float = 1.0,
+        biome_map: Optional["np.ndarray"] = None,
     ) -> bool:
-        """Upload terrain mesh from heightmap.
+        """Upload terrain mesh from heightmap with optional biome colors.
 
         Parameters
         ----------
@@ -419,6 +420,8 @@ class GraphicsBridge:
             2D numpy array of height values.
         cell_size:
             Size of each terrain cell.
+        biome_map:
+            Optional 2D numpy array of biome indices (uint8).
 
         Returns
         -------
@@ -428,14 +431,19 @@ class GraphicsBridge:
         try:
             import procengine_cpp as cpp
 
-            # Generate mesh from heightmap using C++
-            mesh = cpp.generate_terrain_mesh(heightmap, cell_size, 1.0)
+            # Generate mesh from heightmap with biome colors
+            if biome_map is not None:
+                mesh = cpp.generate_terrain_mesh_with_biomes(
+                    heightmap, biome_map, cell_size, 1.0
+                )
+            else:
+                mesh = cpp.generate_terrain_mesh(heightmap, cell_size, 1.0)
 
-            # Validate mesh
             if not mesh.validate():
+                print(f"Warning: Terrain mesh validation failed")
                 return False
 
-            # Upload to GPU if graphics available
+            # Upload to GPU
             if not self._headless and self._graphics_system:
                 gpu_mesh = self._graphics_system.upload_mesh(mesh)
                 if gpu_mesh.is_valid():
@@ -443,18 +451,16 @@ class GraphicsBridge:
                     return True
                 return False
             else:
-                # Headless mode - store mesh reference
                 self._meshes[name] = {
                     "type": "terrain",
                     "mesh": mesh,
                     "width": heightmap.shape[1],
                     "height": heightmap.shape[0],
-                    "cell_size": cell_size,
                 }
                 return True
 
         except (ImportError, AttributeError) as e:
-            # Fallback for headless mode without C++ module
+            print(f"Warning: C++ terrain mesh generation failed: {e}")
             self._meshes[name] = {
                 "type": "terrain",
                 "heightmap": heightmap,
