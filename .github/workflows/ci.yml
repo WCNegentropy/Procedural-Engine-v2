@@ -511,17 +511,25 @@ jobs:
           
           echo ""
           echo "=== Attempting to copy module ==="
-          # Try multiple possible locations
-          if [ -f ./artifact/build/procengine_cpp*${{ matrix.module_ext }} ]; then
-            cp ./artifact/build/procengine_cpp*${{ matrix.module_ext }} .
-            echo "Copied from ./artifact/build/"
-          elif [ -f ./artifact/build/Release/procengine_cpp*${{ matrix.module_ext }} ]; then
-            cp ./artifact/build/Release/procengine_cpp*${{ matrix.module_ext }} .
-            echo "Copied from ./artifact/build/Release/"
-          elif [ -f ./artifact/procengine_cpp*${{ matrix.module_ext }} ]; then
+          # Try multiple possible locations using find to handle wildcards
+          MODULE_FOUND=false
+          
+          # Try artifact root first (most likely after our upload changes)
+          if [ -n "$(find ./artifact -maxdepth 1 -name 'procengine_cpp*${{ matrix.module_ext }}' -type f)" ]; then
             cp ./artifact/procengine_cpp*${{ matrix.module_ext }} .
             echo "Copied from ./artifact/"
-          else
+            MODULE_FOUND=true
+          elif [ -n "$(find ./artifact/build -maxdepth 1 -name 'procengine_cpp*${{ matrix.module_ext }}' -type f 2>/dev/null)" ]; then
+            cp ./artifact/build/procengine_cpp*${{ matrix.module_ext }} .
+            echo "Copied from ./artifact/build/"
+            MODULE_FOUND=true
+          elif [ -n "$(find ./artifact/build/Release -maxdepth 1 -name 'procengine_cpp*${{ matrix.module_ext }}' -type f 2>/dev/null)" ]; then
+            cp ./artifact/build/Release/procengine_cpp*${{ matrix.module_ext }} .
+            echo "Copied from ./artifact/build/Release/"
+            MODULE_FOUND=true
+          fi
+          
+          if [ "$MODULE_FOUND" = false ]; then
             echo "ERROR: Could not find pre-built module!"
             echo "Artifact contents:"
             ls -R ./artifact/ | head -50
@@ -530,7 +538,7 @@ jobs:
           
           echo ""
           echo "=== Module in current directory ==="
-          ls -la procengine_cpp* || exit 1
+          ls -la procengine_cpp*${{ matrix.module_ext }} || exit 1
 
       - name: Copy DLLs from artifact (Windows)
         if: matrix.platform == 'windows'
