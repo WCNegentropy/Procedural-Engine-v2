@@ -738,7 +738,11 @@ class GameRunner:
             # Get terrain height at center if available
             terrain_target_y = 0.0
             if self._terrain_heightmap is not None:
-                terrain_target_y = float(self._terrain_heightmap[center, center])
+                # Safely clamp center to heightmap bounds
+                h, w = self._terrain_heightmap.shape
+                safe_z = min(center, h - 1)
+                safe_x = min(center, w - 1)
+                terrain_target_y = float(self._terrain_heightmap[safe_z, safe_x])
             camera_y = terrain_target_y + 35.0  # Above terrain
             self._player_controller.camera.camera.position = Vec3(center, camera_y, center + 30)
             self._player_controller.camera.camera.target = Vec3(center, terrain_target_y, center)
@@ -1093,8 +1097,7 @@ class GameRunner:
 
                 # Position camera to view terrain after upload
                 center = size / 2.0
-                # Calculate terrain center height for proper camera targeting
-                terrain_center_y = float(heightmap[int(center), int(center)])
+                # Calculate terrain mean height for proper camera targeting
                 terrain_mean_y = float(heightmap.mean())
                 camera_height = terrain_mean_y + size * 1.2  # Above terrain
                 camera_distance = size * 0.8
