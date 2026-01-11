@@ -436,8 +436,23 @@ class GraphicsBridge:
                 mesh = cpp.generate_terrain_mesh_with_biomes(
                     heightmap, biome_map, cell_size, 1.0
                 )
+                print(f"[TERRAIN] Generated mesh with biome colors:")
+                print(f"  vertices: {len(mesh.vertices)}")
+                print(f"  normals: {len(mesh.normals)}")
+                print(f"  colors: {len(mesh.colors)}")
+                print(f"  indices: {len(mesh.indices)}")
+                # Log sample colors
+                if len(mesh.colors) > 0:
+                    c = mesh.colors[0]
+                    print(f"  sample color[0]: R={c.x:.3f}, G={c.y:.3f}, B={c.z:.3f}")
+                if len(mesh.colors) > 500:
+                    c = mesh.colors[500]
+                    print(f"  sample color[500]: R={c.x:.3f}, G={c.y:.3f}, B={c.z:.3f}")
             else:
                 mesh = cpp.generate_terrain_mesh(heightmap, cell_size, 1.0)
+                print(f"[TERRAIN] Generated mesh without biome colors (height-based)")
+                print(f"  vertices: {len(mesh.vertices)}")
+                print(f"  colors: {len(mesh.colors)}")
 
             if not mesh.validate():
                 print(f"Warning: Terrain mesh validation failed")
@@ -445,12 +460,16 @@ class GraphicsBridge:
 
             # Upload to GPU
             if not self._headless and self._graphics_system:
+                print(f"[TERRAIN] Uploading mesh to GPU...")
                 gpu_mesh = self._graphics_system.upload_mesh(mesh)
                 if gpu_mesh.is_valid():
                     self._meshes[name] = gpu_mesh
+                    print(f"[TERRAIN] GPU mesh uploaded: vertex_count={gpu_mesh.vertex_count}, index_count={gpu_mesh.index_count}")
                     return True
+                print(f"[TERRAIN] ERROR: GPU mesh is not valid!")
                 return False
             else:
+                print(f"[TERRAIN] Storing as placeholder (headless mode)")
                 self._meshes[name] = {
                     "type": "terrain",
                     "mesh": mesh,
@@ -642,13 +661,32 @@ class GraphicsBridge:
         mesh = self._meshes.get(mesh_name)
         pipeline = self._pipelines.get(pipeline_name)
 
+        # Debug: Log draw call details on first few frames
+        if self._render_state.frame_count < 5:
+            print(f"[DRAW] mesh={mesh_name}, pipeline={pipeline_name}")
+            print(f"  mesh type: {type(mesh).__name__ if mesh else 'None'}")
+            print(f"  pipeline type: {type(pipeline).__name__ if pipeline else 'None'}")
+            print(f"  headless: {self._headless}")
+            print(f"  graphics_system: {self._graphics_system is not None}")
+
         if mesh is None or pipeline is None:
+            if self._render_state.frame_count < 5:
+                print(f"  SKIPPED: mesh={mesh is not None}, pipeline={pipeline is not None}")
             return
 
         # Skip if mesh is a placeholder dict (not a real GPU mesh)
         if isinstance(mesh, dict):
             # Placeholder mesh - just count the draw call for headless stats
             self._render_state.draw_calls += 1
+            if self._render_state.frame_count < 5:
+                print(f"  SKIPPED: mesh is placeholder dict")
+            return
+
+        # Skip if pipeline is a placeholder dict
+        if isinstance(pipeline, dict):
+            self._render_state.draw_calls += 1
+            if self._render_state.frame_count < 5:
+                print(f"  SKIPPED: pipeline is placeholder dict")
             return
 
         if transform is None:
@@ -657,7 +695,11 @@ class GraphicsBridge:
         self._render_state.draw_calls += 1
 
         if not self._headless and self._graphics_system:
+            if self._render_state.frame_count < 5:
+                print(f"  CALLING graphics_system.draw_mesh()")
             self._graphics_system.draw_mesh(mesh, pipeline, transform)
+        elif self._render_state.frame_count < 5:
+            print(f"  SKIPPED: headless={self._headless}")
 
     def draw_entity(
         self,

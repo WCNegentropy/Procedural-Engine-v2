@@ -623,6 +623,7 @@ GPUMesh GraphicsDevice::upload_mesh(const props::Mesh& mesh) {
     std::cout << "=== MESH UPLOAD ===" << std::endl;
     std::cout << "Vertices: " << mesh.vertices.size() << std::endl;
     std::cout << "Normals: " << mesh.normals.size() << std::endl;
+    std::cout << "Colors: " << mesh.colors.size() << std::endl;
     std::cout << "Indices: " << mesh.indices.size() << std::endl;
 
     if (mesh.vertices.empty()) {
@@ -638,6 +639,21 @@ GPUMesh GraphicsDevice::upload_mesh(const props::Mesh& mesh) {
     if (mesh.normals.size() != mesh.vertices.size()) {
         std::cout << "WARNING: Normal count mismatch! Vertices: "
                   << mesh.vertices.size() << ", Normals: " << mesh.normals.size() << std::endl;
+    }
+
+    // Log color info
+    if (mesh.colors.empty()) {
+        std::cout << "WARNING: Mesh has no vertex colors - will use height-based fallback" << std::endl;
+    } else {
+        std::cout << "Using " << mesh.colors.size() << " vertex colors from mesh" << std::endl;
+        if (mesh.colors.size() > 0) {
+            std::cout << "  Sample color[0]: R=" << mesh.colors[0].x 
+                      << ", G=" << mesh.colors[0].y << ", B=" << mesh.colors[0].z << std::endl;
+        }
+        if (mesh.colors.size() > 500) {
+            std::cout << "  Sample color[500]: R=" << mesh.colors[500].x 
+                      << ", G=" << mesh.colors[500].y << ", B=" << mesh.colors[500].z << std::endl;
+        }
     }
 
     // Log bounding box
