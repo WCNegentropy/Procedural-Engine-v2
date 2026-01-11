@@ -428,8 +428,8 @@ def create_sdl2_backend() -> Optional[WindowBackend]:
                     print(f"Failed to get Vulkan extensions: {sdl2.SDL_GetError()}")
                     return []
                 
-                # Convert to Python list of strings
-                result = [ext.decode('utf-8') for ext in extensions if ext]
+                # Convert to Python list of strings, filtering out any null pointers
+                result = [ext.decode('utf-8') for ext in extensions if ext is not None]
                 print(f"SDL2 requires Vulkan extensions: {result}")
                 return result
 

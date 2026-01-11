@@ -62,7 +62,11 @@ bool GraphicsDevice::create_instance_with_extensions(const std::vector<std::stri
     enable_validation_ = enable_validation;
     
     // Convert string extensions to const char* for Vulkan API
+    // Note: The ext_ptrs vector's c_str() pointers remain valid because
+    // the extensions vector is passed by const reference and stays alive
+    // until create_instance_impl() completes
     std::vector<const char*> ext_ptrs;
+    ext_ptrs.reserve(extensions.size() + 1);  // +1 for potential debug extension
     for (const auto& ext : extensions) {
         ext_ptrs.push_back(ext.c_str());
     }
