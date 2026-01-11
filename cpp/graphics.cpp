@@ -9,6 +9,12 @@
 
 namespace graphics {
 
+// Debug logging control - set to false for production builds
+static constexpr bool ENABLE_DEBUG_LOGGING = true;
+
+// Helper macro for conditional debug output
+#define DEBUG_LOG(msg) do { if (ENABLE_DEBUG_LOGGING) { std::cout << msg << std::endl; } } while(0)
+
 // ============================================================================
 // Validation Layer Helpers
 // ============================================================================
@@ -623,6 +629,7 @@ GPUMesh GraphicsDevice::upload_mesh(const props::Mesh& mesh) {
     std::cout << "=== MESH UPLOAD ===" << std::endl;
     std::cout << "Vertices: " << mesh.vertices.size() << std::endl;
     std::cout << "Normals: " << mesh.normals.size() << std::endl;
+    std::cout << "Colors: " << mesh.colors.size() << std::endl;
     std::cout << "Indices: " << mesh.indices.size() << std::endl;
 
     if (mesh.vertices.empty()) {
@@ -638,6 +645,21 @@ GPUMesh GraphicsDevice::upload_mesh(const props::Mesh& mesh) {
     if (mesh.normals.size() != mesh.vertices.size()) {
         std::cout << "WARNING: Normal count mismatch! Vertices: "
                   << mesh.vertices.size() << ", Normals: " << mesh.normals.size() << std::endl;
+    }
+
+    // Log color info
+    if (mesh.colors.empty()) {
+        std::cout << "WARNING: Mesh has no vertex colors - will use height-based fallback" << std::endl;
+    } else {
+        std::cout << "Using " << mesh.colors.size() << " vertex colors from mesh" << std::endl;
+        if (mesh.colors.size() > 0) {
+            std::cout << "  Sample color[0]: R=" << mesh.colors[0].x 
+                      << ", G=" << mesh.colors[0].y << ", B=" << mesh.colors[0].z << std::endl;
+        }
+        if (mesh.colors.size() > 500) {
+            std::cout << "  Sample color[500]: R=" << mesh.colors[500].x 
+                      << ", G=" << mesh.colors[500].y << ", B=" << mesh.colors[500].z << std::endl;
+        }
     }
 
     // Log bounding box
@@ -1613,7 +1635,11 @@ uint32_t RenderContext::begin_frame() {
 
 void RenderContext::draw_mesh(const GPUMesh& mesh, const Pipeline& material_pipeline,
                              const std::array<float, 16>& transform) {
-    if (!mesh.is_valid() || !material_pipeline.is_valid()) return;
+    if (!mesh.is_valid() || !material_pipeline.is_valid()) {
+        std::cout << "draw_mesh: SKIPPED - mesh valid=" << mesh.is_valid() 
+                  << ", pipeline valid=" << material_pipeline.is_valid() << std::endl;
+        return;
+    }
 
     DrawCommand cmd;
     cmd.mesh = &mesh;
@@ -1621,6 +1647,12 @@ void RenderContext::draw_mesh(const GPUMesh& mesh, const Pipeline& material_pipe
     cmd.transform = transform;
     cmd.color = {1.0f, 1.0f, 1.0f, 1.0f};  // Default white
     draw_queue_.push_back(cmd);
+
+    // Debug: Log draw command on first few frames
+    if (frame_number_ <= 3) {
+        std::cout << "draw_mesh: queued mesh with " << mesh.vertex_count 
+                  << " vertices, " << mesh.index_count << " indices" << std::endl;
+    }
 
     stats_.draw_calls++;
     stats_.triangles += mesh.index_count / 3;
@@ -2205,6 +2237,14 @@ void RenderContext::record_draw_commands() {
         VkDeviceSize offsets[] = {0};
         vkCmdBindVertexBuffers(cmd, 0, 1, vertex_buffers, offsets);
         vkCmdBindIndexBuffer(cmd, draw.mesh->index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+
+        // Debug: Log draw call details on first few frames
+        if (frame_number_ <= 3) {
+            std::cout << "  vkCmdDrawIndexed: " << draw.mesh->index_count << " indices, "
+                      << draw.mesh->vertex_count << " vertices" << std::endl;
+            std::cout << "  push.color: (" << push.color[0] << ", " << push.color[1] << ", " 
+                      << push.color[2] << ", " << push.color[3] << ")" << std::endl;
+        }
 
         // Draw!
         vkCmdDrawIndexed(cmd, draw.mesh->index_count, 1, 0, 0, 0);

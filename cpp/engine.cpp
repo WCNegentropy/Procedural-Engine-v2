@@ -538,6 +538,9 @@ PYBIND11_MODULE(procengine_cpp, m) {
              "Ensure normals array matches vertices array size")
         .def("ensure_colors", &props::Mesh::ensure_colors,
              "Ensure colors array matches vertices array size")
+        .def("set_uniform_color", &props::Mesh::set_uniform_color,
+             py::arg("color"),
+             "Set all vertex colors to a uniform color")
         .def("get_vertices_numpy", [](const props::Mesh& mesh) {
             auto arr = py::array_t<float>({mesh.vertices.size(), size_t(3)});
             auto ptr = arr.mutable_data();
