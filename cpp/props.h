@@ -55,11 +55,13 @@ struct Vec3 {
 struct Mesh {
     std::vector<Vec3> vertices;     // Vertex positions
     std::vector<Vec3> normals;      // Vertex normals (same count as vertices)
+    std::vector<Vec3> colors;       // Vertex colors RGB (same count as vertices)
     std::vector<uint32_t> indices;  // Triangle indices (multiple of 3)
 
     void clear() {
         vertices.clear();
         normals.clear();
+        colors.clear();
         indices.clear();
     }
 
@@ -68,18 +70,18 @@ struct Mesh {
 
     /**
      * Validate mesh integrity.
-     * Returns true if mesh is valid, false otherwise.
      */
     bool validate() const {
-        // Vertices and normals must have same count
         if (vertices.size() != normals.size()) {
             return false;
         }
-        // Indices must be multiple of 3 (complete triangles)
+        // Colors are optional - if present, must match vertex count
+        if (!colors.empty() && colors.size() != vertices.size()) {
+            return false;
+        }
         if (indices.size() % 3 != 0) {
             return false;
         }
-        // All indices must be valid
         for (uint32_t idx : indices) {
             if (idx >= vertices.size()) {
                 return false;
@@ -90,28 +92,40 @@ struct Mesh {
 
     /**
      * Ensure normals array matches vertices array size.
-     * Fills missing normals with default (0, 1, 0).
      */
     void ensure_normals() {
         while (normals.size() < vertices.size()) {
             normals.push_back(Vec3(0.0f, 1.0f, 0.0f));
         }
-        // Trim excess normals if any
         if (normals.size() > vertices.size()) {
             normals.resize(vertices.size());
         }
     }
 
-    // Append another mesh (for combining multiple props)
+    /**
+     * Ensure colors array matches vertices array size.
+     * Fills missing colors with default white.
+     */
+    void ensure_colors() {
+        while (colors.size() < vertices.size()) {
+            colors.push_back(Vec3(1.0f, 1.0f, 1.0f));
+        }
+        if (colors.size() > vertices.size()) {
+            colors.resize(vertices.size());
+        }
+    }
+
+    // Append another mesh
     void append(const Mesh& other) {
         uint32_t base_idx = static_cast<uint32_t>(vertices.size());
         vertices.insert(vertices.end(), other.vertices.begin(), other.vertices.end());
         normals.insert(normals.end(), other.normals.begin(), other.normals.end());
+        colors.insert(colors.end(), other.colors.begin(), other.colors.end());
         for (uint32_t idx : other.indices) {
             indices.push_back(base_idx + idx);
         }
-        // Ensure normals match after append
         ensure_normals();
+        ensure_colors();
     }
 };
 

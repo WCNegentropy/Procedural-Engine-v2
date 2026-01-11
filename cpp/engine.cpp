@@ -709,6 +709,33 @@ PYBIND11_MODULE(procengine_cpp, m) {
     py::arg("height_scale") = 1.0f,
     "Generate terrain mesh from heightmap (2D numpy array)");
 
+    // Generate terrain mesh with biome colors
+    m.def("generate_terrain_mesh_with_biomes", 
+        [](py::array_t<float> heightmap, py::array_t<uint8_t> biome_map, 
+           float cell_size, float height_scale) {
+            auto h_buf = heightmap.request();
+            auto b_buf = biome_map.request();
+            
+            if (h_buf.ndim != 2 || b_buf.ndim != 2) {
+                throw std::runtime_error("heightmap and biome_map must be 2D arrays");
+            }
+            
+            uint32_t size = static_cast<uint32_t>(h_buf.shape[0]);
+            
+            std::vector<float> h_vec(static_cast<float*>(h_buf.ptr),
+                                      static_cast<float*>(h_buf.ptr) + h_buf.size);
+            std::vector<uint8_t> b_vec(static_cast<uint8_t*>(b_buf.ptr),
+                                        static_cast<uint8_t*>(b_buf.ptr) + b_buf.size);
+            
+            return terrain::generate_terrain_mesh(h_vec, &b_vec, size, cell_size, height_scale);
+        },
+        py::arg("heightmap"),
+        py::arg("biome_map"),
+        py::arg("cell_size") = 1.0f,
+        py::arg("height_scale") = 1.0f,
+        "Generate terrain mesh with biome-based vertex colors"
+    );
+
     // Helper function to create descriptors from Python dicts with error handling
     m.def("create_rock_from_dict", [](py::dict d) {
         props::RockDescriptor desc;

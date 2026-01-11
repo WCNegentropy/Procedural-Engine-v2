@@ -396,8 +396,29 @@ TerrainMaps generate_terrain_maps(SeedRegistry& registry, const TerrainConfig& c
     return maps;
 }
 
+// Biome color palette matching the Biome enum
+static const std::array<std::array<float, 3>, 16> BIOME_COLORS = {{
+    {0.15f, 0.35f, 0.60f},  // 0: Water - deep blue
+    {0.75f, 0.78f, 0.80f},  // 1: Tundra - pale gray
+    {0.20f, 0.35f, 0.25f},  // 2: BorealForest - dark green
+    {0.95f, 0.97f, 1.00f},  // 3: Snow - white
+    {0.30f, 0.35f, 0.30f},  // 4: ColdSwamp - murky green
+    {0.85f, 0.92f, 0.98f},  // 5: Glacier - ice blue
+    {0.72f, 0.68f, 0.50f},  // 6: Steppe - tan/khaki
+    {0.25f, 0.50f, 0.20f},  // 7: Forest - green
+    {0.50f, 0.45f, 0.40f},  // 8: Mountain - gray-brown
+    {0.35f, 0.42f, 0.30f},  // 9: Swamp - dark olive
+    {0.55f, 0.58f, 0.55f},  // 10: Alpine - light gray
+    {0.85f, 0.75f, 0.55f},  // 11: DesertPlateau - sand
+    {0.70f, 0.62f, 0.35f},  // 12: Savanna - golden brown
+    {0.75f, 0.50f, 0.35f},  // 13: Mesa - orange-red
+    {0.15f, 0.55f, 0.25f},  // 14: Jungle - vibrant green
+    {0.20f, 0.48f, 0.30f},  // 15: RainforestHighland - deep green
+}};
+
 ::props::Mesh generate_terrain_mesh(
     const std::vector<float>& heightmap,
+    const std::vector<uint8_t>* biome_map,
     uint32_t size,
     float cell_size,
     float height_scale
@@ -405,18 +426,74 @@ TerrainMaps generate_terrain_maps(SeedRegistry& registry, const TerrainConfig& c
     ::props::Mesh mesh;
 
     if (heightmap.size() != size * size) {
-        // Invalid heightmap size
         return mesh;
     }
 
-    // 1. Generate vertices
+    bool has_biomes = biome_map && biome_map->size() == size * size;
+
+    // 1. Generate vertices with colors
     mesh.vertices.reserve(size * size);
+    mesh.colors.reserve(size * size);
+    
     for (uint32_t z = 0; z < size; ++z) {
         for (uint32_t x = 0; x < size; ++x) {
+            size_t idx = z * size + x;
             float world_x = static_cast<float>(x) * cell_size;
-            float world_y = heightmap[z * size + x] * height_scale;
+            float world_y = heightmap[idx] * height_scale;
             float world_z = static_cast<float>(z) * cell_size;
             mesh.vertices.push_back(::props::Vec3(world_x, world_y, world_z));
+            
+            // Determine color from biome or height
+            ::props::Vec3 color;
+            if (has_biomes) {
+                uint8_t biome_idx = (*biome_map)[idx];
+                if (biome_idx < BIOME_COLORS.size()) {
+                    color = ::props::Vec3(
+                        BIOME_COLORS[biome_idx][0],
+                        BIOME_COLORS[biome_idx][1],
+                        BIOME_COLORS[biome_idx][2]
+                    );
+                } else {
+                    color = ::props::Vec3(1.0f, 0.0f, 1.0f); // Magenta for invalid
+                }
+            } else {
+                // Height-based gradient fallback
+                float h = heightmap[idx];
+                if (h < 0.25f) {
+                    // Low: water/beach blend
+                    float t = h / 0.25f;
+                    color = ::props::Vec3(
+                        0.15f + t * 0.55f,
+                        0.35f + t * 0.30f,
+                        0.60f - t * 0.45f
+                    );
+                } else if (h < 0.5f) {
+                    // Mid-low: grass/forest
+                    float t = (h - 0.25f) / 0.25f;
+                    color = ::props::Vec3(
+                        0.25f - t * 0.05f,
+                        0.50f + t * 0.05f,
+                        0.15f + t * 0.05f
+                    );
+                } else if (h < 0.75f) {
+                    // Mid-high: forest to mountain
+                    float t = (h - 0.5f) / 0.25f;
+                    color = ::props::Vec3(
+                        0.20f + t * 0.30f,
+                        0.55f - t * 0.15f,
+                        0.20f + t * 0.20f
+                    );
+                } else {
+                    // High: mountain to snow
+                    float t = (h - 0.75f) / 0.25f;
+                    color = ::props::Vec3(
+                        0.50f + t * 0.45f,
+                        0.40f + t * 0.55f,
+                        0.40f + t * 0.55f
+                    );
+                }
+            }
+            mesh.colors.push_back(color);
         }
     }
 
@@ -424,31 +501,27 @@ TerrainMaps generate_terrain_maps(SeedRegistry& registry, const TerrainConfig& c
     mesh.indices.reserve((size - 1) * (size - 1) * 6);
     for (uint32_t z = 0; z < size - 1; ++z) {
         for (uint32_t x = 0; x < size - 1; ++x) {
-            uint32_t tl = z * size + x;           // top-left
-            uint32_t tr = z * size + x + 1;       // top-right
-            uint32_t bl = (z + 1) * size + x;     // bottom-left
-            uint32_t br = (z + 1) * size + x + 1; // bottom-right
+            uint32_t tl = z * size + x;
+            uint32_t tr = z * size + x + 1;
+            uint32_t bl = (z + 1) * size + x;
+            uint32_t br = (z + 1) * size + x + 1;
 
-            // Triangle 1: tl -> bl -> tr
             mesh.indices.push_back(tl);
             mesh.indices.push_back(bl);
             mesh.indices.push_back(tr);
 
-            // Triangle 2: tr -> bl -> br
             mesh.indices.push_back(tr);
             mesh.indices.push_back(bl);
             mesh.indices.push_back(br);
         }
     }
 
-    // 3. Compute smooth normals using central differences on heightmap
+    // 3. Compute smooth normals
     mesh.normals.reserve(size * size);
     for (uint32_t z = 0; z < size; ++z) {
         for (uint32_t x = 0; x < size; ++x) {
-            // Compute gradient using central differences
             float gx, gz;
 
-            // X gradient (dh/dx)
             if (x == 0) {
                 gx = (heightmap[z * size + 1] - heightmap[z * size]) * height_scale / cell_size;
             } else if (x == size - 1) {
@@ -457,7 +530,6 @@ TerrainMaps generate_terrain_maps(SeedRegistry& registry, const TerrainConfig& c
                 gx = (heightmap[z * size + x + 1] - heightmap[z * size + x - 1]) * height_scale / (2.0f * cell_size);
             }
 
-            // Z gradient (dh/dz)
             if (z == 0) {
                 gz = (heightmap[size + x] - heightmap[x]) * height_scale / cell_size;
             } else if (z == size - 1) {
@@ -466,7 +538,6 @@ TerrainMaps generate_terrain_maps(SeedRegistry& registry, const TerrainConfig& c
                 gz = (heightmap[(z + 1) * size + x] - heightmap[(z - 1) * size + x]) * height_scale / (2.0f * cell_size);
             }
 
-            // Normal is perpendicular to gradient: (-gx, 1, -gz) normalized
             ::props::Vec3 normal(-gx, 1.0f, -gz);
             mesh.normals.push_back(normal.normalized());
         }

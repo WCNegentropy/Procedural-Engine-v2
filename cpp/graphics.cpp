@@ -657,7 +657,7 @@ GPUMesh GraphicsDevice::upload_mesh(const props::Mesh& mesh) {
     gpu_mesh.vertex_count = static_cast<uint32_t>(mesh.vertices.size());
     gpu_mesh.index_count = static_cast<uint32_t>(mesh.indices.size());
 
-    // Interleave vertex data (position + normal + uv)
+    // Interleave vertex data (position + normal + uv + color)
     std::vector<graphics::Vertex> vertices(mesh.vertices.size());
     for (size_t i = 0; i < mesh.vertices.size(); ++i) {
         vertices[i].position[0] = mesh.vertices[i].x;
@@ -669,6 +669,38 @@ GPUMesh GraphicsDevice::upload_mesh(const props::Mesh& mesh) {
         // Generate UVs from position (simple planar mapping)
         vertices[i].uv[0] = mesh.vertices[i].x * 0.1f;
         vertices[i].uv[1] = mesh.vertices[i].z * 0.1f;
+        
+        // Use vertex colors if available, otherwise default to white
+        if (i < mesh.colors.size()) {
+            vertices[i].color[0] = mesh.colors[i].x;
+            vertices[i].color[1] = mesh.colors[i].y;
+            vertices[i].color[2] = mesh.colors[i].z;
+            vertices[i].color[3] = 1.0f;
+        } else {
+            // Default: derive color from height for visual interest
+            float height_normalized = (mesh.vertices[i].y + 50.0f) / 100.0f;
+            height_normalized = std::clamp(height_normalized, 0.0f, 1.0f);
+            // Gradient from dark green (low) to white (high) via brown
+            if (height_normalized < 0.3f) {
+                // Water/low: blue-green
+                vertices[i].color[0] = 0.1f;
+                vertices[i].color[1] = 0.3f + height_normalized;
+                vertices[i].color[2] = 0.4f;
+            } else if (height_normalized < 0.6f) {
+                // Mid: green to brown
+                float t = (height_normalized - 0.3f) / 0.3f;
+                vertices[i].color[0] = 0.2f + t * 0.3f;
+                vertices[i].color[1] = 0.5f - t * 0.2f;
+                vertices[i].color[2] = 0.1f;
+            } else {
+                // High: brown to white (snow)
+                float t = (height_normalized - 0.6f) / 0.4f;
+                vertices[i].color[0] = 0.5f + t * 0.5f;
+                vertices[i].color[1] = 0.3f + t * 0.7f;
+                vertices[i].color[2] = 0.1f + t * 0.9f;
+            }
+            vertices[i].color[3] = 1.0f;
+        }
     }
 
     VkDeviceSize vertex_buffer_size = sizeof(graphics::Vertex) * vertices.size();
@@ -2454,10 +2486,12 @@ std::string GraphicsSystem::get_default_vertex_shader() const {
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec3 inNormal;
 layout(location = 2) in vec2 inUV;
+layout(location = 3) in vec4 inColor;
 
 layout(location = 0) out vec3 fragNormal;
 layout(location = 1) out vec3 fragWorldPos;
 layout(location = 2) out vec2 fragUV;
+layout(location = 3) out vec4 fragColor;
 
 layout(binding = 0) uniform FrameUniforms {
     mat4 view;
@@ -2479,6 +2513,8 @@ void main() {
     fragWorldPos = worldPos.xyz;
     fragNormal = mat3(push.model) * inNormal;
     fragUV = inUV;
+    // Combine vertex color with push constant color (allows tinting)
+    fragColor = inColor * push.color;
 }
 )";
 }
@@ -2490,6 +2526,7 @@ std::string GraphicsSystem::get_default_fragment_shader() const {
 layout(location = 0) in vec3 fragNormal;
 layout(location = 1) in vec3 fragWorldPos;
 layout(location = 2) in vec2 fragUV;
+layout(location = 3) in vec4 fragColor;
 
 layout(location = 0) out vec4 outColor;
 
@@ -2507,47 +2544,50 @@ layout(push_constant) uniform PushConstants {
 } push;
 
 void main() {
-    // DEBUG MODE: Uncomment ONE of these debug outputs to diagnose issues
-
-    // DEBUG 1: Flat magenta - if you see this, the pipeline works
-    outColor = vec4(1.0, 0.0, 1.0, 1.0);
-    return;
-
-    // DEBUG 2: Visualize normals as colors (should see rainbow terrain)
-    // vec3 n = normalize(fragNormal) * 0.5 + 0.5;
-    // outColor = vec4(n, 1.0);
-    // return;
-
-    // DEBUG 3: Visualize world position (should see gradient across terrain)
-    // vec3 p = fract(fragWorldPos * 0.1);
-    // outColor = vec4(p, 1.0);
-    // return;
-
-    // DEBUG 4: Visualize depth (white = close, black = far)
-    // float depth = gl_FragCoord.z;
-    // outColor = vec4(vec3(1.0 - depth), 1.0);
-    // return;
-
-    // DEBUG 5: Visualize push constant color
-    // outColor = push.color;
-    // return;
-
-    // PRODUCTION: Normal lighting
     vec3 normal = normalize(fragNormal);
-    vec3 lightDir = normalize(vec3(0.5, 1.0, 0.3));
-    float diff = max(dot(normal, lightDir), 0.0);
-
-    // Increased ambient to ensure visibility
-    vec3 ambient = vec3(0.3);
-    vec3 diffuse = vec3(0.7) * diff;
-
-    vec3 baseColor = push.color.rgb;
-
-    // Ensure minimum visibility
-    vec3 finalColor = baseColor * (ambient + diffuse);
-    finalColor = max(finalColor, vec3(0.1)); // Floor to prevent pure black
-
-    outColor = vec4(finalColor, push.color.a);
+    
+    // Sun light from upper-right
+    vec3 sunDir = normalize(vec3(0.5, 0.8, 0.3));
+    vec3 sunColor = vec3(1.0, 0.95, 0.85);
+    
+    // Sky light from above (ambient fill)
+    vec3 skyDir = vec3(0.0, 1.0, 0.0);
+    vec3 skyColor = vec3(0.4, 0.5, 0.7);
+    
+    // Ground bounce from below
+    vec3 groundColor = vec3(0.2, 0.15, 0.1);
+    
+    // Diffuse lighting
+    float sunDiffuse = max(dot(normal, sunDir), 0.0);
+    float skyDiffuse = max(dot(normal, skyDir), 0.0) * 0.5 + 0.5; // Hemisphere
+    float groundDiffuse = max(dot(normal, -skyDir), 0.0) * 0.3;
+    
+    // Combine lighting
+    vec3 lighting = sunColor * sunDiffuse * 0.7 
+                  + skyColor * skyDiffuse * 0.25 
+                  + groundColor * groundDiffuse;
+    
+    // Add ambient minimum
+    lighting += vec3(0.15);
+    
+    // Apply vertex color (biome/material color)
+    vec3 albedo = fragColor.rgb;
+    vec3 finalColor = albedo * lighting;
+    
+    // Simple fog based on distance
+    float dist = length(fragWorldPos - frame.cameraPos.xyz);
+    float fogFactor = 1.0 - exp(-dist * 0.002);
+    fogFactor = clamp(fogFactor, 0.0, 0.7);
+    vec3 fogColor = vec3(0.6, 0.7, 0.85);
+    finalColor = mix(finalColor, fogColor, fogFactor);
+    
+    // Slight tone mapping
+    finalColor = finalColor / (finalColor + vec3(1.0));
+    
+    // Gamma correction
+    finalColor = pow(finalColor, vec3(1.0 / 2.2));
+    
+    outColor = vec4(finalColor, fragColor.a);
 }
 )";
 }

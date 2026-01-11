@@ -169,27 +169,31 @@ std::vector<uint8_t> generate_river_mask(SeedRegistry& registry, uint32_t size,
 TerrainMaps generate_terrain_maps(SeedRegistry& registry, const TerrainConfig& config = {});
 
 /**
- * Generate terrain mesh from heightmap.
- *
- * Converts a 2D heightmap into a renderable triangle mesh with proper vertices,
- * indices, and smooth normals computed from heightmap gradients.
- *
- * Algorithm:
- * 1. Generate vertices: vertex(x,z) = (x * cell_size, heightmap[z,x] * height_scale, z * cell_size)
- * 2. Generate indices: 2 triangles per quad in grid
- * 3. Compute smooth normals using central differences on heightmap
+ * Generate terrain mesh from heightmap with biome colors.
  *
  * @param heightmap Flattened row-major heightmap (size x size)
+ * @param biome_map Optional biome indices (size x size), nullptr for height-based coloring
  * @param size Width and height of heightmap
  * @param cell_size Size of each grid cell in world units (default 1.0)
  * @param height_scale Vertical scaling factor for height values (default 1.0)
- * @return Mesh with vertices, normals, and triangle indices
+ * @return Mesh with vertices, normals, colors, and triangle indices
  */
 ::props::Mesh generate_terrain_mesh(
     const std::vector<float>& heightmap,
+    const std::vector<uint8_t>* biome_map,
     uint32_t size,
     float cell_size = 1.0f,
     float height_scale = 1.0f
 );
+
+// Overload for backwards compatibility (no biome map)
+inline ::props::Mesh generate_terrain_mesh(
+    const std::vector<float>& heightmap,
+    uint32_t size,
+    float cell_size = 1.0f,
+    float height_scale = 1.0f
+) {
+    return generate_terrain_mesh(heightmap, nullptr, size, cell_size, height_scale);
+}
 
 } // namespace terrain
