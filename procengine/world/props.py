@@ -1,0 +1,173 @@
+"""Procedural prop descriptor generation utilities.
+
+This module implements deterministic descriptor generation for simple props
+such as rocks, trees, buildings, and creatures based on
+ :class:`~seed_registry.SeedRegistry`.  The descriptors are stand-ins for
+more complex definitions used by the C++ runtime.
+"""
+from __future__ import annotations
+
+from typing import Dict, List
+
+import numpy as np
+
+from procengine.core.seed_registry import SeedRegistry
+
+__all__ = [
+    "generate_rock_descriptors",
+    "generate_tree_descriptors",
+    "generate_building_descriptors",
+    "generate_creature_descriptors",
+]
+
+
+def generate_rock_descriptors(
+    registry: SeedRegistry,
+    count: int,
+    *,
+    size: float = 1.0,
+) -> List[Dict[str, object]]:
+    """Return ``count`` deterministic rock descriptors.
+
+    Each descriptor contains a ``type`` string, a three component ``position``
+    within ``[0, size]`` cubed, and a ``radius`` scaled by ``size``.  All
+    randomness flows through ``registry`` to satisfy the determinism
+    contract.
+    """
+
+    if count < 0:
+        raise ValueError("count must be non-negative")
+
+    rng = registry.get_rng("props_rock")
+    descriptors: List[Dict[str, object]] = []
+    for _ in range(count):
+        position = rng.random(3) * size
+        radius = float(rng.uniform(0.1, 0.5) * size)
+        descriptors.append(
+            {
+                "type": "rock",
+                "position": position.tolist(),
+                "radius": radius,
+            }
+        )
+    return descriptors
+
+
+def generate_tree_descriptors(
+    registry: SeedRegistry,
+    count: int,
+    *,
+    iterations_range: tuple[int, int] = (2, 4),
+    angle_range: tuple[float, float] = (15.0, 45.0),
+) -> List[Dict[str, object]]:
+    """Return ``count`` deterministic tree descriptors.
+
+    Each descriptor encodes a basic L-system used by the C++ runtime to
+    synthesize a sweep-meshed tree skeleton.  The ``iterations`` and branch
+    ``angle`` are randomized through ``registry`` to ensure reproducible
+    variation.
+    """
+
+    if count < 0:
+        raise ValueError("count must be non-negative")
+
+    rng = registry.get_rng("props_tree")
+    descriptors: List[Dict[str, object]] = []
+    for _ in range(count):
+        iterations = int(
+            rng.integers(iterations_range[0], iterations_range[1] + 1)
+        )
+        angle = float(rng.uniform(angle_range[0], angle_range[1]))
+        descriptors.append(
+            {
+                "type": "tree",
+                "axiom": "F",
+                "rules": {"F": "F[+F]F[-F]F"},
+                "angle": angle,
+                "iterations": iterations,
+            }
+        )
+    return descriptors
+
+
+def generate_building_descriptors(
+    registry: SeedRegistry,
+    count: int,
+    *,
+    size: float = 1.0,
+    splits_range: tuple[int, int] = (1, 3),
+) -> List[Dict[str, object]]:
+    """Return ``count`` deterministic building descriptors.
+
+    Each descriptor encodes a simple binary space partitioning scheme using a
+    shape grammar.  Buildings start as a root block of ``size`` cubed and are
+    recursively split along either the X or Z axis a deterministic number of
+    times.  The resulting tree of blocks is expressed as nested dictionaries.
+    """
+
+    if count < 0:
+        raise ValueError("count must be non-negative")
+
+    rng = registry.get_rng("props_building")
+    descriptors: List[Dict[str, object]] = []
+    for _ in range(count):
+        root = {"shape": "block", "size": [size, size, size], "children": []}
+        nodes = [root]
+        splits = int(rng.integers(splits_range[0], splits_range[1] + 1))
+        for _ in range(splits):
+            node_idx = int(rng.integers(0, len(nodes)))
+            node = nodes.pop(node_idx)
+            axis = int(rng.integers(0, 2))  # 0 -> x, 1 -> z
+            ratio = float(rng.uniform(0.3, 0.7))
+            size_a = node["size"].copy()
+            size_b = node["size"].copy()
+            size_a[axis] *= ratio
+            size_b[axis] *= 1.0 - ratio
+            child_a = {"shape": "block", "size": size_a, "children": []}
+            child_b = {"shape": "block", "size": size_b, "children": []}
+            node["children"] = [child_a, child_b]
+            nodes.extend([child_a, child_b])
+        descriptors.append({"type": "building", "root": root})
+    return descriptors
+
+
+def generate_creature_descriptors(
+    registry: SeedRegistry,
+    count: int,
+    *,
+    bones_range: tuple[int, int] = (3, 5),
+    metaball_count_range: tuple[int, int] = (3, 6),
+) -> List[Dict[str, object]]:
+    """Return ``count`` deterministic creature descriptors.
+
+    Each descriptor contains a parameterized skeleton of ``bones`` segments and
+    a set of metaballs defining the creature's implicit surface.  The output is
+    a lightweight stand-in for a more sophisticated C++ implementation.
+    """
+
+    if count < 0:
+        raise ValueError("count must be non-negative")
+
+    rng = registry.get_rng("props_creature")
+    descriptors: List[Dict[str, object]] = []
+    for _ in range(count):
+        bone_count = int(rng.integers(bones_range[0], bones_range[1] + 1))
+        skeleton = []
+        for _ in range(bone_count):
+            length = float(rng.uniform(0.5, 2.0))
+            angle = float(rng.uniform(-45.0, 45.0))
+            skeleton.append({"length": length, "angle": angle})
+
+        metaball_count = int(
+            rng.integers(metaball_count_range[0], metaball_count_range[1] + 1)
+        )
+        metaballs = []
+        for _ in range(metaball_count):
+            center = rng.random(3).tolist()
+            radius = float(rng.uniform(0.1, 0.5))
+            metaballs.append({"center": center, "radius": radius})
+
+        descriptors.append(
+            {"type": "creature", "skeleton": skeleton, "metaballs": metaballs}
+        )
+    return descriptors

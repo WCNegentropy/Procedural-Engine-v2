@@ -65,24 +65,8 @@ jobs:
       - name: Run Python-only tests
         run: |
           python -m pytest \
-            test_engine.py \
-            test_engine_determinism.py \
-            test_hot_reload.py \
-            test_materials.py \
-            test_physics.py \
-            test_physics_3d.py \
-            test_props.py \
-            test_seed_registry.py \
-            test_seed_sweeper.py \
-            test_terrain.py \
-            test_world.py \
-            test_game_api.py \
-            test_behavior_tree.py \
-            test_player_controller.py \
-            test_data_loader.py \
-            test_game_runner.py \
-            test_ui_system.py \
-            test_graphics_bridge.py \
+            tests/unit/ \
+            tests/integration/test_world.py \
             -v --tb=short
 
   # ===========================================================================
@@ -137,8 +121,8 @@ jobs:
       - name: Run full test suite
         run: |
           python -m pytest \
-            test_*.py \
-            --ignore=test_cpp_graphics.py \
+            tests/ \
+            --ignore=tests/integration/test_cpp_graphics.py \
             -v --tb=short
 
       - name: Upload Linux artifact
@@ -149,10 +133,12 @@ jobs:
             procengine_cpp*.so
             build/procengine_cpp*.so
             cpp/
+            procengine/
             *.py
             !test_*.py
             !conftest.py
             data/
+            tests/
             pyproject.toml
             setup.py
             MANIFEST.in
@@ -273,12 +259,12 @@ jobs:
         shell: powershell
         run: |
           python -m pytest `
-            test_cpp_engine.py `
-            test_cpp_terrain.py `
-            test_cpp_physics.py `
-            test_cpp_props.py `
-            test_cpp_materials.py `
-            test_cpp_seed_registry.py `
+            tests/integration/test_cpp_engine.py `
+            tests/integration/test_cpp_terrain.py `
+            tests/integration/test_cpp_physics.py `
+            tests/integration/test_cpp_props.py `
+            tests/integration/test_cpp_materials.py `
+            tests/integration/test_cpp_seed_registry.py `
             -v --tb=short
         continue-on-error: true
 
@@ -296,10 +282,12 @@ jobs:
             vulkan-1.dll
             shaderc_shared.dll
             cpp/
+            procengine/
             *.py
             !test_*.py
             !conftest.py
             data/
+            tests/
             pyproject.toml
             setup.py
             MANIFEST.in
@@ -408,12 +396,12 @@ jobs:
       - name: Run integration tests
         run: |
           python -m pytest \
-            test_cpp_engine.py \
-            test_cpp_terrain.py \
-            test_cpp_physics.py \
-            test_cpp_props.py \
-            test_cpp_materials.py \
-            test_cpp_seed_registry.py \
+            tests/integration/test_cpp_engine.py \
+            tests/integration/test_cpp_terrain.py \
+            tests/integration/test_cpp_physics.py \
+            tests/integration/test_cpp_props.py \
+            tests/integration/test_cpp_materials.py \
+            tests/integration/test_cpp_seed_registry.py \
             -v --tb=short
         continue-on-error: true
 
@@ -427,10 +415,12 @@ jobs:
             build/procengine_cpp*.so
             build/procengine_cpp*.dylib
             cpp/
+            procengine/
             *.py
             !test_*.py
             !conftest.py
             data/
+            tests/
             pyproject.toml
             setup.py
             MANIFEST.in
