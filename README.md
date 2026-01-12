@@ -1,8 +1,10 @@
-# Procedural Game Engine v1.2
+# Procedural Game Engine v1.3
 
-**Status:** Alpha (Phase 2 Complete)
+**Status:** Alpha (Rendering Complete!)
 
-Hybrid Python/C++ procedural game engine with deterministic world generation, 3D physics, complete game systems, and Vulkan graphics. Building toward v2.0 AI-native RPG platform with MCP integration.
+Hybrid Python/C++ procedural game engine with deterministic world generation, 3D physics, complete game systems, and **fully working Vulkan graphics**. Building toward v2.0 AI-native RPG platform with MCP integration.
+
+**🎉 The game now renders!** Terrain with biome colors, player and NPC entities, and props are all visible with realistic lighting.
 
 ---
 
@@ -73,7 +75,11 @@ python -m pytest -q
 ### Materials & Graphics
 - Node-based material graph DSL
 - GLSL generation and SPIR-V compilation
-- Vulkan backend with shader cache
+- **Vulkan backend with full rendering pipeline**
+- **16-biome terrain color palette** with vertex colors
+- **Entity meshes**: Players, NPCs, rocks, trees, buildings
+- Three-point lighting model (sun, sky, ground bounce)
+- Exponential fog and tone mapping
 - Virtual texture system (128KB tiles, LRU paging)
 - Forward+ rendering pipeline
 
@@ -298,7 +304,7 @@ This project is actively developing toward v2.0, an AI-native RPG platform.
 - [x] NO_GRAPHICS CMake option for headless builds
 - [x] Comprehensive test suite (67 physics tests)
 
-### Phase 2: Game Loop & NPC Framework (In Progress ~70%)
+### Phase 2: Game Loop & NPC Framework (Complete!)
 - [x] GameWorld state management
 - [x] Entity hierarchy (Player, NPC, Prop, Item)
 - [x] NPC agent framework with LocalAgent
@@ -308,9 +314,18 @@ This project is actively developing toward v2.0, an AI-native RPG platform.
 - [x] Inventory system
 - [x] Save/load serialization
 - [x] Event system
-- [ ] Player controller input handling
-- [ ] Camera system
+- [x] Player controller input handling
+- [x] Camera system
+- [x] Graphics bridge with entity rendering
+- [x] Biome terrain coloring (16 biomes)
+- [x] Entity mesh rendering (players, NPCs, props)
+
+### Phase 2.5: Graphics Polish (Current)
+- [x] Vulkan rendering pipeline complete
+- [x] Terrain with biome colors
+- [x] Entity mesh generation fixed (capsule, cylinder, box)
 - [ ] UI framework with Dear ImGui
+- [ ] Advanced prop rendering (L-system trees, metaball creatures)
 
 ### Phase 3: MCP Integration (Pending)
 - MCP server for Claude/AI integration
