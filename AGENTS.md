@@ -104,7 +104,8 @@ Engine.snapshot_state(frame:int) -> bytes   # returns deterministic hash
 
 ## 7 · Graphics Implementation Status
 
-The Vulkan graphics backend is now fully operational with complete rendering pipeline.
+The Vulkan graphics backend is now **fully operational** with complete rendering pipeline.
+**The game successfully renders terrain, entities, and props!**
 Headless mode remains fully functional for testing and CI.
 
 | Component | File:Line | Status | Description |
@@ -119,6 +120,8 @@ Headless mode remains fully functional for testing and CI.
 | Push constants | cpp/graphics.cpp | ✅ Complete | Per-draw model transforms and color |
 | `clear_lights()` | cpp/graphics.cpp | ✅ Complete | C++ GraphicsSystem method |
 | Default shaders | cpp/graphics.cpp | ✅ Complete | Basic diffuse lighting shaders |
+| Biome colors | cpp/terrain.cpp | ✅ Complete | 16-biome color palette with vertex colors |
+| Entity meshes | cpp/props.cpp | ✅ Complete | Capsule, cylinder, box, rock mesh generation |
 
 ### Rendering Pipeline
 
@@ -135,3 +138,16 @@ The graphics system implements a deferred command recording approach:
 - Push constants for per-draw transforms (no descriptor updates)
 - Swapchain recreation on window resize
 - Headless mode for CI/testing without display
+- **16-biome color palette** with realistic three-point lighting
+- **Per-vertex colors** for terrain and entity meshes
+- **Entity-specific coloring** for players, NPCs, rocks, trees, buildings
+
+### Entity Mesh Rendering
+Entity meshes are now fully supported with proper coloring:
+- **Players/NPCs**: Capsule mesh with skin-tone coloring
+- **Rocks**: Sphere mesh with gray coloring  
+- **Trees**: Cylinder mesh with brown bark coloring
+- **Buildings**: Box mesh with stone/concrete coloring
+
+The `upload_entity_mesh()` function in `graphics_bridge.py` handles mesh creation,
+uniform color application, and GPU upload for all entity types.

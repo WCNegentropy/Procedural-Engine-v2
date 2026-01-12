@@ -787,12 +787,17 @@ Mesh generate_capsule_mesh(float radius, float height, uint32_t segments, uint32
     }
 
     // Generate bottom hemisphere
-    for (uint32_t ring = 1; ring <= rings; ++ring) {
+    // phi goes from 0 (equator at y=-half_height) to pi/2 (south pole at y=-half_height-radius)
+    // Using sin(phi) for Y offset: at phi=0, y=-half_height (equator); at phi=pi/2, y=-half_height-radius (pole)
+    // Using cos(phi) for radius: at phi=0, full radius (equator); at phi=pi/2, zero radius (pole point)
+    for (uint32_t ring = 0; ring <= rings; ++ring) {
+        // phi goes from 0 (equator, y=-half_height) to pi/2 (pole, y=-half_height-radius)
         float phi = (PI * 0.5f) * static_cast<float>(ring) / static_cast<float>(rings);
         float sin_phi = std::sin(phi);
         float cos_phi = std::cos(phi);
-        float y = -half_height - radius * cos_phi;
-        float ring_radius = radius * sin_phi;
+        // For bottom hemisphere: y goes down from -half_height
+        float y = -half_height - radius * sin_phi;  // sin so ring=0 is at -half_height
+        float ring_radius = radius * cos_phi;  // cos so ring=0 has full radius
 
         for (uint32_t seg = 0; seg <= segments; ++seg) {
             float theta = 2.0f * PI * static_cast<float>(seg) / static_cast<float>(segments);
@@ -800,7 +805,8 @@ Mesh generate_capsule_mesh(float radius, float height, uint32_t segments, uint32
             float cos_theta = std::cos(theta);
 
             Vec3 position(ring_radius * cos_theta, y, ring_radius * sin_theta);
-            Vec3 normal = Vec3(sin_phi * cos_theta, -cos_phi, sin_phi * sin_theta);
+            // Normal points outward and downward
+            Vec3 normal = Vec3(cos_phi * cos_theta, -sin_phi, cos_phi * sin_theta);
 
             mesh.vertices.push_back(position);
             mesh.normals.push_back(normal);
@@ -839,6 +845,7 @@ Mesh generate_capsule_mesh(float radius, float height, uint32_t segments, uint32
     }
 
     // Generate indices for bottom hemisphere
+    // Now bottom hemisphere has rings+1 rows of vertices (ring 0 to rings), so we connect rings pairs
     uint32_t bottom_start = cyl_start + 2 * (segments + 1);
     for (uint32_t ring = 0; ring < rings; ++ring) {
         for (uint32_t seg = 0; seg < segments; ++seg) {
