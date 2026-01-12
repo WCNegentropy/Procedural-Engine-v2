@@ -61,6 +61,90 @@ Engine.snapshot_state(frame:int) -> bytes   # returns deterministic hash
 
 ---
 
+## 5.1 · Repository Structure
+
+The repository follows a hierarchical package structure for maintainability and AI-agent collaboration:
+
+```
+/
+├── procengine/                 # CORE PYTHON PACKAGE
+│   ├── __init__.py             # Version, public API exports
+│   ├── core/                   # Engine fundamentals
+│   │   ├── engine.py           # Main engine class
+│   │   └── seed_registry.py    # Deterministic sub-seeding
+│   ├── world/                  # World generation
+│   │   ├── terrain.py          # Heightmap, biomes, erosion
+│   │   ├── props.py            # Rock, tree, building generators
+│   │   ├── materials.py        # Material graph DSL
+│   │   └── world.py            # Multi-chunk assembly
+│   ├── physics/                # Physics system
+│   │   ├── bodies.py           # RigidBody, RigidBody3D, Vec3
+│   │   ├── collision.py        # Sequential impulse solver
+│   │   └── heightfield.py      # HeightField, HeightField2D
+│   ├── game/                   # Game layer (Phase 2)
+│   │   ├── game_api.py         # GameWorld, Entity, Events
+│   │   ├── behavior_tree.py    # NPC behavior trees
+│   │   ├── player_controller.py # Input & camera system
+│   │   ├── data_loader.py      # JSON data loading
+│   │   ├── game_runner.py      # Main game loop
+│   │   └── ui_system.py        # UI with headless support
+│   ├── commands/               # Command system (Phase 4)
+│   │   ├── commands.py         # Command registry
+│   │   ├── console.py          # In-game console
+│   │   └── handlers/           # Command implementations
+│   └── graphics/               # Rendering bridge
+│       └── graphics_bridge.py  # Vulkan/headless abstraction
+│
+├── cpp/                        # C++ NATIVE BACKEND
+│   ├── CMakeLists.txt
+│   └── *.cpp, *.h              # Vulkan, physics, terrain
+│
+├── tests/                      # TEST SUITE
+│   ├── conftest.py             # Pytest configuration
+│   ├── unit/                   # Unit tests
+│   │   └── test_*.py
+│   ├── integration/            # Integration tests
+│   │   └── test_*.py
+│   └── performance/            # Performance tests
+│
+├── data/                       # GAME CONTENT (JSON)
+│   ├── npcs/
+│   ├── quests/
+│   └── items/
+│
+├── tools/                      # DEV UTILITIES
+│   └── seed_sweeper.py
+│
+├── examples/                   # DEMOS & TUTORIALS
+│   ├── biome_colors.py
+│   └── frame_timing.py
+│
+├── docs/                       # DOCUMENTATION
+├── scripts/                    # BUILD & CI SCRIPTS
+│
+├── main.py                     # PRIMARY ENTRY POINT
+├── pyproject.toml              # Modern Python packaging
+└── requirements.txt            # Dependencies
+```
+
+### Import Patterns
+
+**New package imports (preferred):**
+```python
+from procengine import Engine, SeedRegistry, generate_terrain_maps
+from procengine.physics import RigidBody, step_physics
+from procengine.game import GameWorld, Player
+```
+
+**Legacy imports (still supported for backward compatibility):**
+```python
+from engine import Engine
+from seed_registry import SeedRegistry
+from physics import RigidBody, step_physics
+```
+
+---
+
 ## 6 · Implementation Status
 
 ### Python Reference Implementation
