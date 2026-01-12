@@ -4,7 +4,7 @@
 This creates a distributable standalone application that bundles:
 - Python 3.12 runtime (embedded)
 - procengine_cpp extension module (C++ core)
-- All Python game modules
+- All Python game modules (procengine package)
 - Data files (JSON configs, shaders)
 - Required DLLs (Vulkan loader, OpenSSL)
 
@@ -33,6 +33,7 @@ IS_LINUX = PLATFORM.startswith('linux')
 PROJECT_ROOT = Path(SPECPATH).resolve()
 DATA_DIR = PROJECT_ROOT / 'data'
 CPP_DIR = PROJECT_ROOT / 'cpp'
+PROCENGINE_DIR = PROJECT_ROOT / 'procengine'
 
 # Find the compiled extension module
 def find_extension():
@@ -65,32 +66,15 @@ else:
 
 block_cipher = None
 
-# Python modules to include (from py-modules in pyproject.toml)
-py_modules = [
-    'engine',
-    'seed_registry',
-    'terrain',
-    'physics',
-    'props',
-    'materials',
-    'world',
-    'seed_sweeper',
-    'main',
-    'game_api',
-    'behavior_tree',
-    'player_controller',
-    'data_loader',
-    'game_runner',
-    'ui_system',
-    'graphics_bridge',
-]
-
 # Hidden imports that PyInstaller might miss
+# These reference the new procengine package structure
 hidden_imports = [
+    # NumPy
     'numpy',
     'numpy.core',
     'numpy.core._methods',
     'numpy.lib.format',
+    # Standard library
     'json',
     'hashlib',
     'dataclasses',
@@ -100,6 +84,37 @@ hidden_imports = [
     'time',
     'pathlib',
     'argparse',
+    # procengine package and submodules
+    'procengine',
+    'procengine.core',
+    'procengine.core.engine',
+    'procengine.core.seed_registry',
+    'procengine.world',
+    'procengine.world.terrain',
+    'procengine.world.props',
+    'procengine.world.materials',
+    'procengine.world.world',
+    'procengine.physics',
+    'procengine.physics.bodies',
+    'procengine.physics.collision',
+    'procengine.physics.heightfield',
+    'procengine.game',
+    'procengine.game.game_api',
+    'procengine.game.behavior_tree',
+    'procengine.game.player_controller',
+    'procengine.game.data_loader',
+    'procengine.game.game_runner',
+    'procengine.game.ui_system',
+    'procengine.graphics',
+    'procengine.graphics.graphics_bridge',
+    'procengine.commands',
+    'procengine.commands.commands',
+    'procengine.commands.console',
+    'procengine.commands.handlers',
+    'procengine.commands.handlers.game_commands',
+    'procengine.utils',
+    'procengine.utils.seed_sweeper',
+    'procengine.agents',
 ]
 
 # Data files to include
@@ -108,6 +123,8 @@ datas = [
     (str(DATA_DIR / 'items'), 'data/items'),
     (str(DATA_DIR / 'npcs'), 'data/npcs'),
     (str(DATA_DIR / 'quests'), 'data/quests'),
+    # Include the procengine package for moddability
+    (str(PROCENGINE_DIR), 'procengine'),
 ]
 
 # Binaries to include
