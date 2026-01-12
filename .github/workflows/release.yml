@@ -292,23 +292,26 @@ jobs:
         if: matrix.platform != 'windows'
         run: |
           MODULE_FILE=$(ls procengine_cpp*${{ matrix.module_ext }} 2>/dev/null | head -1)
-          
+
           if [ -z "$MODULE_FILE" ]; then
             echo "ERROR: C++ module not found!"
             exit 1
           fi
-          
+
           echo "Building with module: $MODULE_FILE"
           pyinstaller \
             --name ${{ env.GAME_NAME }} \
             --onedir \
             --console \
             --add-data "data:data" \
+            --add-data "procengine:procengine" \
             --add-binary "$MODULE_FILE:." \
             --hidden-import numpy \
             --hidden-import numpy.core \
             --hidden-import pybind11 \
+            --hidden-import procengine \
             --collect-submodules numpy \
+            --collect-submodules procengine \
             main.py
 
       - name: Build standalone executable (Windows)
@@ -316,32 +319,35 @@ jobs:
         shell: powershell
         run: |
           $moduleFile = Get-ChildItem -Name "procengine_cpp*.pyd" -ErrorAction SilentlyContinue | Select-Object -First 1
-          
+
           if (-not $moduleFile) {
             Write-Error "ERROR: C++ module not found!"
             exit 1
           }
-          
+
           Write-Host "Building with module: $moduleFile"
-          
+
           # Build PyInstaller command with all DLLs
           $pyinstallerArgs = @(
             "--name", "${{ env.GAME_NAME }}",
             "--onedir",
             "--console",
             "--add-data", "data;data",
+            "--add-data", "procengine;procengine",
             "--add-binary", "$moduleFile;.",
             "--hidden-import", "numpy",
             "--hidden-import", "numpy.core",
             "--hidden-import", "pybind11",
-            "--collect-submodules", "numpy"
+            "--hidden-import", "procengine",
+            "--collect-submodules", "numpy",
+            "--collect-submodules", "procengine"
           )
-          
+
           # Add SDL2.dll if present
           if (Test-Path "SDL2.dll") {
             $pyinstallerArgs += "--add-binary", "SDL2.dll;."
           }
-          
+
           # Add OpenSSL DLLs if present
           if (Test-Path "libcrypto-3-x64.dll") {
             $pyinstallerArgs += "--add-binary", "libcrypto-3-x64.dll;."
@@ -349,19 +355,19 @@ jobs:
           if (Test-Path "libssl-3-x64.dll") {
             $pyinstallerArgs += "--add-binary", "libssl-3-x64.dll;."
           }
-          
+
           # Add Vulkan DLL if present
           if (Test-Path "vulkan-1.dll") {
             $pyinstallerArgs += "--add-binary", "vulkan-1.dll;."
           }
-          
+
           # Add shaderc DLL if present
           if (Test-Path "shaderc_shared.dll") {
             $pyinstallerArgs += "--add-binary", "shaderc_shared.dll;."
           }
-          
+
           $pyinstallerArgs += "main.py"
-          
+
           Write-Host "PyInstaller args: $pyinstallerArgs"
           pyinstaller @pyinstallerArgs
 
@@ -374,20 +380,18 @@ jobs:
           # Ensure data is included
           mkdir -p dist/${{ env.GAME_NAME }}/data
           cp -r data/* dist/${{ env.GAME_NAME }}/data/ 2>/dev/null || true
-          
-          # Copy scripts for moddability
+
+          # Copy procengine package for moddability
           mkdir -p dist/${{ env.GAME_NAME }}/scripts
-          cp engine.py dist/${{ env.GAME_NAME }}/scripts/ 2>/dev/null || true
-          cp game_api.py dist/${{ env.GAME_NAME }}/scripts/ 2>/dev/null || true
-          cp behavior_tree.py dist/${{ env.GAME_NAME }}/scripts/ 2>/dev/null || true
-          
+          cp -r procengine dist/${{ env.GAME_NAME }}/scripts/ 2>/dev/null || true
+
           # Make executable
           chmod +x dist/${{ env.GAME_NAME }}/${{ env.GAME_NAME }}
-          
+
           # Create archive
           cd dist
           tar -czvf ${{ matrix.artifact_name }}.tar.gz ${{ env.GAME_NAME }}/
-          
+
           # List contents
           echo "=== Archive contents ==="
           tar -tzf ${{ matrix.artifact_name }}.tar.gz | head -30
@@ -399,17 +403,15 @@ jobs:
           # Ensure data is included
           New-Item -ItemType Directory -Force -Path dist/${{ env.GAME_NAME }}/data
           Copy-Item -Recurse data/* dist/${{ env.GAME_NAME }}/data/ -ErrorAction SilentlyContinue
-          
-          # Copy scripts for moddability
+
+          # Copy procengine package for moddability
           New-Item -ItemType Directory -Force -Path dist/${{ env.GAME_NAME }}/scripts
-          Copy-Item engine.py dist/${{ env.GAME_NAME }}/scripts/ -ErrorAction SilentlyContinue
-          Copy-Item game_api.py dist/${{ env.GAME_NAME }}/scripts/ -ErrorAction SilentlyContinue
-          Copy-Item behavior_tree.py dist/${{ env.GAME_NAME }}/scripts/ -ErrorAction SilentlyContinue
-          
+          Copy-Item -Recurse procengine dist/${{ env.GAME_NAME }}/scripts/ -ErrorAction SilentlyContinue
+
           # Create archive
           cd dist
           Compress-Archive -Path ${{ env.GAME_NAME }} -DestinationPath "${{ matrix.artifact_name }}.zip"
-          
+
           # List contents
           Write-Host "=== Archive created ==="
           Get-ChildItem "${{ matrix.artifact_name }}.zip"

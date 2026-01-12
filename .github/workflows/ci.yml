@@ -39,7 +39,7 @@ jobs:
         continue-on-error: true
 
       - name: Run mypy type checker
-        run: mypy --ignore-missing-imports *.py
+        run: mypy --ignore-missing-imports *.py procengine/
         continue-on-error: true
 
   # ===========================================================================
@@ -571,7 +571,7 @@ jobs:
         run: |
           # Find the actual module file
           MODULE_FILE=$(ls procengine_cpp*${{ matrix.module_ext }} 2>/dev/null | head -1)
-          
+
           if [ -n "$MODULE_FILE" ]; then
             echo "Found module: $MODULE_FILE"
             pyinstaller \
@@ -579,11 +579,14 @@ jobs:
               --onedir \
               --console \
               --add-data "data:data" \
+              --add-data "procengine:procengine" \
               --add-binary "$MODULE_FILE:." \
               --hidden-import numpy \
               --hidden-import numpy.core \
               --hidden-import pybind11 \
+              --hidden-import procengine \
               --collect-submodules numpy \
+              --collect-submodules procengine \
               main.py
           else
             echo "ERROR: No C++ module found - cannot build standalone"
@@ -596,23 +599,26 @@ jobs:
         run: |
           # Find the module file
           $moduleFile = Get-ChildItem -Name "procengine_cpp*.pyd" -ErrorAction SilentlyContinue | Select-Object -First 1
-          
+
           if ($moduleFile) {
             Write-Host "Found module: $moduleFile"
-            
+
             # Build base PyInstaller args
             $args = @(
               "--name", "ProceduralEngine",
               "--onedir",
               "--console",
               "--add-data", "data;data",
+              "--add-data", "procengine;procengine",
               "--add-binary", "$moduleFile;.",
               "--hidden-import", "numpy",
               "--hidden-import", "numpy.core",
               "--hidden-import", "pybind11",
-              "--collect-submodules", "numpy"
+              "--hidden-import", "procengine",
+              "--collect-submodules", "numpy",
+              "--collect-submodules", "procengine"
             )
-            
+
             # Add DLLs if they exist
             if (Test-Path "SDL2.dll") {
               $args += "--add-binary", "SDL2.dll;."
@@ -629,9 +635,9 @@ jobs:
             if (Test-Path "shaderc_shared.dll") {
               $args += "--add-binary", "shaderc_shared.dll;."
             }
-            
+
             $args += "main.py"
-            
+
             Write-Host "PyInstaller args: $args"
             pyinstaller @args
           } else {
