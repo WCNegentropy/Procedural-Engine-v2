@@ -15,7 +15,7 @@ from pathlib import Path
 import tempfile
 import os
 
-from commands import (
+from procengine.commands.commands import (
     AccessLevel,
     Category,
     Command,

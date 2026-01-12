@@ -1,8 +1,8 @@
 """Tests for the :mod:`engine` module and its deterministic behaviour."""
 
-from engine import Engine
-from seed_registry import SeedRegistry
-from terrain import generate_terrain_maps
+from procengine.core.engine import Engine
+from procengine.core.seed_registry import SeedRegistry
+from procengine.world.terrain import generate_terrain_maps
 
 
 def test_snapshot_deterministic():

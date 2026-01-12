@@ -2,7 +2,8 @@
 
 import numpy as np
 
-from physics import HeightField, RigidBody, _broad_phase_pairs, step_physics
+from procengine.physics import HeightField, RigidBody, step_physics
+from procengine.physics.collision import _broad_phase_pairs
 
 
 def test_head_on_collision_deterministic():

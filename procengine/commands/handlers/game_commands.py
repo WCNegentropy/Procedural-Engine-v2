@@ -295,7 +295,7 @@ def cmd_npc_list() -> CommandResult:
 )
 def cmd_npc_spawn(npc_id: str, name: str, x: float, y: float, z: float) -> CommandResult:
     """Spawn an NPC."""
-    from game_api import NPC
+    from procengine.game.game_api import NPC
     
     ctx = registry.get_context()
     if not ctx or not hasattr(ctx, "world"):
@@ -342,7 +342,7 @@ def cmd_npc_remove(npc_id: str) -> CommandResult:
 )
 def cmd_npc_behavior(npc_id: str, behavior: str) -> CommandResult:
     """Set NPC behavior."""
-    from game_api import NPC
+    from procengine.game.game_api import NPC
     
     ctx = registry.get_context()
     if not ctx or not hasattr(ctx, "world"):
@@ -370,7 +370,7 @@ def cmd_npc_behavior(npc_id: str, behavior: str) -> CommandResult:
 )
 def cmd_npc_teleport(npc_id: str, x: float, y: float, z: float) -> CommandResult:
     """Teleport an NPC."""
-    from game_api import NPC
+    from procengine.game.game_api import NPC
     
     ctx = registry.get_context()
     if not ctx or not hasattr(ctx, "world"):
@@ -448,7 +448,7 @@ def cmd_quest_list(filter_type: str = "all") -> CommandResult:
                     lines.append(f"  ✓ {quest.title}")
     
     if filter_type in ("all", "available"):
-        from game_api import QuestState
+        from procengine.game.game_api import QuestState
         available = []
         for quest_id, quest in ctx.world._quests.items():
             if quest.state == QuestState.AVAILABLE and quest_id not in player.active_quests:
@@ -519,7 +519,7 @@ def cmd_quest_start(quest_id: str) -> CommandResult:
     if not ctx or not hasattr(ctx, "world"):
         return CommandResult.error("No game context")
     
-    from game_api import QuestState
+    from procengine.game.game_api import QuestState
     
     quest = ctx.world.get_quest(quest_id)
     if not quest:
@@ -573,7 +573,7 @@ def cmd_quest_abandon(quest_id: str) -> CommandResult:
     if not ctx or not hasattr(ctx, "world"):
         return CommandResult.error("No game context")
     
-    from game_api import QuestState
+    from procengine.game.game_api import QuestState
     
     player = ctx.world.get_player()
     if not player:

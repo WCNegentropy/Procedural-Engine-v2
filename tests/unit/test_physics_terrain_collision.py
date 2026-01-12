@@ -4,8 +4,8 @@ This test verifies the fix for the falling-through-terrain bug.
 """
 import pytest
 import numpy as np
-from game_runner import GameRunner, RunnerConfig, HeadlessBackend
-from physics import Vec3
+from procengine.game.game_runner import GameRunner, RunnerConfig, HeadlessBackend
+from procengine.physics import Vec3
 
 
 # Test constants

@@ -1,7 +1,7 @@
 """Test biome color rendering pipeline."""
 import pytest
 import numpy as np
-from graphics_bridge import GraphicsBridge
+from procengine.graphics.graphics_bridge import GraphicsBridge
 
 
 def test_biome_color_mesh_generation():

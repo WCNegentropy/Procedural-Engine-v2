@@ -4,7 +4,7 @@ import math
 import numpy as np
 import pytest
 
-from physics import (
+from procengine.physics import (
     Vec3,
     RigidBody3D,
     HeightField2D,

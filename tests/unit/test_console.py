@@ -12,8 +12,8 @@ import pytest
 import tempfile
 import os
 
-from console import Console, ConsoleConfig, ConsoleLine
-from commands import registry, command, AccessLevel
+from procengine.commands.console import Console, ConsoleConfig, ConsoleLine
+from procengine.commands.commands import registry, command, AccessLevel
 
 
 # =============================================================================

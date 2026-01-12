@@ -10,7 +10,7 @@ Tests cover:
 import pytest
 import math
 
-from player_controller import (
+from procengine.game.player_controller import (
     InputAction,
     InputState,
     InputBinding,
@@ -20,8 +20,8 @@ from player_controller import (
     PlayerController,
     create_default_controller,
 )
-from physics import Vec3, HeightField2D
-from game_api import Player, NPC, Prop, GameWorld
+from procengine.physics import Vec3, HeightField2D
+from procengine.game.game_api import Player, NPC, Prop, GameWorld
 import numpy as np
 
 

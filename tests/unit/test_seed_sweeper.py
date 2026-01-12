@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from seed_sweeper import generate_seed_batch
+from procengine.utils.seed_sweeper import generate_seed_batch
 
 
 def test_generate_seed_batch_deterministic():

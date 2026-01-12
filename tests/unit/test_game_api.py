@@ -14,7 +14,7 @@ import json
 import tempfile
 from pathlib import Path
 
-from game_api import (
+from procengine.game.game_api import (
     # Core types
     EntityId,
     EventType,
@@ -45,7 +45,7 @@ from game_api import (
     GameWorld,
     GameConfig,
 )
-from physics import Vec3, HeightField2D
+from procengine.physics import Vec3, HeightField2D
 import numpy as np
 
 
@@ -1063,7 +1063,7 @@ class TestBehaviorTreeIntegration:
 
     def test_manual_behavior_tree_set(self):
         """Manual behavior tree assignment should work."""
-        from behavior_tree import create_idle_behavior
+        from procengine.game.behavior_tree import create_idle_behavior
 
         npc = NPC(
             entity_id="test_npc",
@@ -1077,7 +1077,7 @@ class TestBehaviorTreeIntegration:
 
     def test_behavior_tree_tick(self):
         """Ticking behavior tree should not error."""
-        from behavior_tree import NodeStatus
+        from procengine.game.behavior_tree import NodeStatus
 
         world = GameWorld()
 

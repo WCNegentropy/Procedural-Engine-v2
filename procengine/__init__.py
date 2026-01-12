@@ -56,6 +56,7 @@ from procengine.game.behavior_tree import (
     NodeStatus,
     Blackboard,
 )
+from procengine.game.game_runner import GameRunner, RunnerConfig
 
 # Utility
 from procengine.utils.seed_sweeper import generate_seed_batch
@@ -107,6 +108,9 @@ __all__ = [
     "Condition",
     "NodeStatus",
     "Blackboard",
+    # Game Runner
+    "GameRunner",
+    "RunnerConfig",
     # Utils
     "generate_seed_batch",
 ]

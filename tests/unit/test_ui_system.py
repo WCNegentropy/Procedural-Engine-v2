@@ -1,7 +1,7 @@
 """Tests for ui_system module."""
 import pytest
 
-from ui_system import (
+from procengine.game.ui_system import (
     UIManager,
     HeadlessUIBackend,
     HUD,
@@ -11,7 +11,7 @@ from ui_system import (
     PauseMenu,
     DebugOverlay,
 )
-from physics import Vec3
+from procengine.physics import Vec3
 
 
 # =============================================================================

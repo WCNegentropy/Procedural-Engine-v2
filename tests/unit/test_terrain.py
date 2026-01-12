@@ -2,8 +2,8 @@
 
 import numpy as np
 
-from seed_registry import SeedRegistry
-from terrain import generate_terrain_maps
+from procengine.core.seed_registry import SeedRegistry
+from procengine.world.terrain import generate_terrain_maps
 
 
 def test_generate_terrain_maps_deterministic():
