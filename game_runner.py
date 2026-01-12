@@ -6,6 +6,7 @@ This module provides the main game loop that orchestrates:
 - Game state updates
 - Rendering (when graphics backend available)
 - UI rendering via Dear ImGui (when available)
+- Console for command input
 
 The runner supports multiple backends:
 - SDL2: Full windowed mode with input and rendering
@@ -42,6 +43,8 @@ from player_controller import (
     Camera,
 )
 from graphics_bridge import GraphicsBridge
+from commands import registry as command_registry, CommandResult
+from console import Console
 
 if TYPE_CHECKING:
     from ui_system import UIManager
@@ -636,6 +639,17 @@ class GameRunner:
         self._input_manager: Optional[InputManager] = None
         self._graphics_bridge: Optional[GraphicsBridge] = None
 
+        # Console system
+        self._console: Console = Console()
+        self._console.on_open = self._on_console_open
+        self._console.on_close = self._on_console_close
+
+        # Keybinds (key -> command string)
+        self.keybinds: Dict[str, str] = {}
+
+        # Flags for runtime state
+        self.flags: Dict[str, bool] = {}
+
         # UI system (lazily loaded)
         self._ui_manager: Optional["UIManager"] = None
 
@@ -697,6 +711,7 @@ class GameRunner:
         self._player_controller.on_inventory_toggle = self._on_inventory_pressed
         self._player_controller.on_dialogue_advance = self._on_dialogue_advance
         self._player_controller.on_dialogue_option = self._on_dialogue_option
+        self._player_controller.on_console_toggle = self._on_console_toggle
 
         # Create game world
         world_config = GameConfig(
@@ -750,6 +765,9 @@ class GameRunner:
         # Load game content
         self._load_game_content()
 
+        # Initialize command system
+        self._init_commands()
+
         self._state = GameState.PLAYING
         self._last_time = self._backend.get_time()
         self._fps_update_time = self._last_time
@@ -769,6 +787,33 @@ class GameRunner:
         except ImportError:
             # UI system not available
             pass
+
+    def _init_commands(self) -> None:
+        """Initialize the command system."""
+        # Import game commands to register them
+        import game_commands  # noqa: F401 - imported for side effects
+
+        # Set the command registry context to this runner
+        command_registry.set_context(self)
+
+        # Print a welcome message
+        self._console.print(f"Procedural Engine v2 Console")
+        self._console.print(f"Type 'help' for available commands.")
+        self._console.print("")
+
+    def _on_console_open(self) -> None:
+        """Called when console opens."""
+        # Pause player input while console is open
+        if self._player_controller:
+            self._player_controller.movement_enabled = False
+            self._player_controller.interaction_enabled = False
+
+    def _on_console_close(self) -> None:
+        """Called when console closes."""
+        # Resume player input
+        if self._player_controller:
+            self._player_controller.movement_enabled = True
+            self._player_controller.interaction_enabled = True
 
     def _init_graphics_resources(self) -> None:
         """Initialize graphics resources (pipelines, default meshes)."""
@@ -1296,6 +1341,10 @@ class GameRunner:
         if self._ui_manager and self._state == GameState.DIALOGUE:
             self._ui_manager.select_dialogue_option(option_index)
 
+    def _on_console_toggle(self) -> None:
+        """Handle console toggle (tilde key)."""
+        self._console.toggle()
+
     # -------------------------------------------------------------------------
     # Public API
     # -------------------------------------------------------------------------
@@ -1372,6 +1421,26 @@ class GameRunner:
     def graphics_bridge(self) -> Optional[GraphicsBridge]:
         """Get the graphics bridge for direct rendering control."""
         return self._graphics_bridge
+
+    @property
+    def console(self) -> Console:
+        """Get the console."""
+        return self._console
+
+    def execute_command(self, command_str: str) -> CommandResult:
+        """Execute a command string.
+
+        Parameters
+        ----------
+        command_str:
+            Command string to execute.
+
+        Returns
+        -------
+        CommandResult:
+            Result of command execution.
+        """
+        return command_registry.execute(command_str)
 
     def set_update_callback(self, callback: Callable[[float], None]) -> None:
         """Set custom update callback."""
