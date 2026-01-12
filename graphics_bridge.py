@@ -550,11 +550,11 @@ class GraphicsBridge:
             entity_color = cpp.Vec3(color_tuple[0], color_tuple[1], color_tuple[2])
             mesh.set_uniform_color(entity_color)
 
-            # Validate mesh (warn but don't fail for complex meshes)
+            # Validate mesh
             if not mesh.validate():
-                # Log warning but continue - some complex meshes may have issues
-                import warnings
-                warnings.warn(f"Mesh validation failed for entity type '{entity_type}', continuing anyway")
+                logger.warning(f"Mesh validation failed for entity type '{entity_type}': "
+                              f"vertices={len(mesh.vertices)}, indices={len(mesh.indices)}")
+                # Don't return False - try to upload anyway, GPU might accept it
 
             # Upload to GPU if graphics available
             if not self._headless and self._graphics_system:
@@ -562,9 +562,12 @@ class GraphicsBridge:
                     gpu_mesh = self._graphics_system.upload_mesh(mesh)
                     if gpu_mesh.is_valid():
                         self._meshes[name] = gpu_mesh
+                        logger.debug(f"Entity mesh '{name}' uploaded: {gpu_mesh.vertex_count} vertices")
                         return True
+                    logger.warning(f"GPU mesh invalid after upload for '{name}'")
                     return False
-                except Exception:
+                except Exception as e:
+                    logger.error(f"Exception uploading mesh '{name}': {e}")
                     return False
             else:
                 # Headless mode - store mesh reference

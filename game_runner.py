@@ -1038,7 +1038,13 @@ class GameRunner:
 
         # Create and upload mesh using graphics bridge
         if self._graphics_bridge:
-            self._graphics_bridge.upload_entity_mesh(mesh_name, entity_type)
+            success = self._graphics_bridge.upload_entity_mesh(mesh_name, entity_type)
+            if not success:
+                print(f"Warning: Failed to upload {entity_type} mesh for {entity_id}")
+                # Try a simpler fallback mesh (small box via "default" entity type)
+                fallback_success = self._graphics_bridge.upload_entity_mesh(mesh_name, "default")
+                if not fallback_success:
+                    print(f"Warning: Fallback mesh also failed for {entity_id}")
 
         self._entity_meshes[entity_id] = mesh_name
         return mesh_name

@@ -786,8 +786,10 @@ Mesh generate_capsule_mesh(float radius, float height, uint32_t segments, uint32
         }
     }
 
-    // Generate bottom hemisphere (ring 0 is south pole, ring=rings is equator at -half_height)
-    // Note: We reverse the direction compared to top hemisphere - go from equator to pole
+    // Generate bottom hemisphere
+    // phi goes from 0 (equator at y=-half_height) to pi/2 (south pole at y=-half_height-radius)
+    // Using sin(phi) for Y offset: at phi=0, y=-half_height (equator); at phi=pi/2, y=-half_height-radius (pole)
+    // Using cos(phi) for radius: at phi=0, full radius (equator); at phi=pi/2, zero radius (pole point)
     for (uint32_t ring = 0; ring <= rings; ++ring) {
         // phi goes from 0 (equator, y=-half_height) to pi/2 (pole, y=-half_height-radius)
         float phi = (PI * 0.5f) * static_cast<float>(ring) / static_cast<float>(rings);
