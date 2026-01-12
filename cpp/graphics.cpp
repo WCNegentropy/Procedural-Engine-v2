@@ -1813,11 +1813,13 @@ bool RenderContext::create_render_passes() {
         VkAttachmentDescription depth_attachment{};
         depth_attachment.format = VK_FORMAT_D32_SFLOAT;
         depth_attachment.samples = VK_SAMPLE_COUNT_1_BIT;
-        depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;  // Keep depth from prepass
+        // FIX: Clear depth since we aren't running the depth pre-pass yet
+        depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
         depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
         depth_attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
         depth_attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        depth_attachment.initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+        // FIX: Start from undefined layout since we clear it
+        depth_attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         depth_attachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
         VkAttachmentReference color_ref{};
@@ -2288,7 +2290,9 @@ void RenderContext::compute_projection_matrix(float* out, float fov, float aspec
     std::memset(out, 0, 16 * sizeof(float));
     out[0] = 1.0f / (aspect * tan_half_fov);
     out[5] = -1.0f / tan_half_fov;  // Flip Y for Vulkan
-    out[10] = far / (far - near);   // FIXED: was (near - far), should be (far - near)
+    // FIX: Standard Vulkan depth [0,1] mapping requires P[2][2] to be negative for standard RH view
+    // P[2][2] = f / (n - f) = -f / (f - n)
+    out[10] = -far / (far - near);
     out[11] = -1.0f;
     out[14] = -(near * far) / (far - near);  // FIXED: was positive, needs negative
 }
