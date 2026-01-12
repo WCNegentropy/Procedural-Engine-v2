@@ -1,4 +1,3 @@
-import numpy as np
 """Tests covering deterministic terrain map generation."""
 
 import numpy as np
