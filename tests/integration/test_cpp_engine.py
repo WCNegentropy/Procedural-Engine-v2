@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from seed_registry import SeedRegistry
-from terrain import generate_terrain_maps
+from procengine.core.seed_registry import SeedRegistry
+from procengine.world.terrain import generate_terrain_maps
 
 
 procengine_cpp = pytest.importorskip("procengine_cpp")

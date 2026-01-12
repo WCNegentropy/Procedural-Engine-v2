@@ -9,8 +9,8 @@ Tests cover:
 """
 import pytest
 
-from game_runner import GameRunner, RunnerConfig, HeadlessBackend
-from commands import registry, CommandResult
+from procengine.game.game_runner import GameRunner, RunnerConfig, HeadlessBackend
+from procengine.commands.commands import registry, CommandResult
 
 
 # =============================================================================

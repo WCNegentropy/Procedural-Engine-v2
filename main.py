@@ -34,19 +34,22 @@ from typing import Any
 
 import numpy as np
 
-# Import local modules
-from seed_registry import SeedRegistry
-from terrain import generate_terrain_maps
-from props import (
+# Import from procengine package
+from procengine import (
+    SeedRegistry,
+    generate_terrain_maps,
     generate_rock_descriptors,
     generate_tree_descriptors,
     generate_building_descriptors,
     generate_creature_descriptors,
+    generate_material_graph,
+    RigidBody,
+    step_physics,
+    generate_world,
+    GameRunner,
+    RunnerConfig,
+    Engine,
 )
-from materials import generate_material_graph
-from physics import RigidBody, step_physics
-from world import generate_world
-from game_runner import GameRunner, RunnerConfig
 
 # Try to import C++ module
 try:
@@ -295,8 +298,6 @@ class ProceduralEngine:
         if HAS_CPP and self._cpp_engine:
             return self._cpp_engine.snapshot_state(0)
         else:
-            from engine import Engine
-
             py_engine = Engine()
             return py_engine.snapshot_state(0)
 

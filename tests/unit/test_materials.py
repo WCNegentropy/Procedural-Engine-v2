@@ -1,7 +1,7 @@
 """Unit tests for deterministic material graph generation."""
 
-from materials import generate_material_graph
-from seed_registry import SeedRegistry
+from procengine.world.materials import generate_material_graph
+from procengine.core.seed_registry import SeedRegistry
 
 
 def test_generate_material_graph_deterministic():

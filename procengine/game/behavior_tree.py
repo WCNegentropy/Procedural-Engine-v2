@@ -580,7 +580,7 @@ def create_idle_behavior(
         NumPy random Generator for deterministic behavior. If None, a
         default seeded generator is created.
     """
-    from seed_registry import SeedRegistry
+    from procengine.core.seed_registry import SeedRegistry
 
     # Create deterministic RNG if not provided
     _rng = rng if rng is not None else SeedRegistry(0).get_rng("idle_behavior")

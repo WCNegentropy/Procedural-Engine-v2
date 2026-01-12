@@ -39,7 +39,7 @@ jobs:
         continue-on-error: true
 
       - name: Run mypy type checker
-        run: mypy --ignore-missing-imports *.py procengine/
+        run: mypy --ignore-missing-imports procengine/ main.py setup.py
         continue-on-error: true
 
   # ===========================================================================
@@ -134,19 +134,15 @@ jobs:
             build/procengine_cpp*.so
             cpp/
             procengine/
-            *.py
-            !test_*.py
-            !conftest.py
+            main.py
+            setup.py
             data/
             tests/
             pyproject.toml
-            setup.py
             MANIFEST.in
             requirements.txt
             README.md
             AGENTS.md
-            CLAUDE.md
-            plan.md
           retention-days: 7
 
   # ===========================================================================
@@ -283,19 +279,15 @@ jobs:
             shaderc_shared.dll
             cpp/
             procengine/
-            *.py
-            !test_*.py
-            !conftest.py
+            main.py
+            setup.py
             data/
             tests/
             pyproject.toml
-            setup.py
             MANIFEST.in
             requirements.txt
             README.md
             AGENTS.md
-            CLAUDE.md
-            plan.md
           retention-days: 7
           if-no-files-found: warn
 
@@ -416,19 +408,15 @@ jobs:
             build/procengine_cpp*.dylib
             cpp/
             procengine/
-            *.py
-            !test_*.py
-            !conftest.py
+            main.py
+            setup.py
             data/
             tests/
             pyproject.toml
-            setup.py
             MANIFEST.in
             requirements.txt
             README.md
             AGENTS.md
-            CLAUDE.md
-            plan.md
           retention-days: 7
           if-no-files-found: warn
 

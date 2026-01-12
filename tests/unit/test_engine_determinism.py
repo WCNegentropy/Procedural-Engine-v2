@@ -1,6 +1,6 @@
 """Determinism tests for the high-level :class:`Engine` API."""
 
-from engine import Engine
+from procengine.core.engine import Engine
 
 
 def _setup_engine() -> Engine:

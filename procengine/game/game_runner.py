@@ -791,7 +791,7 @@ class GameRunner:
     def _init_commands(self) -> None:
         """Initialize the command system."""
         # Import game commands to register them
-        import game_commands  # noqa: F401 - imported for side effects
+        from procengine.commands.handlers import game_commands  # noqa: F401 - imported for side effects
 
         # Set the command registry context to this runner
         command_registry.set_context(self)

@@ -738,7 +738,7 @@ class PlayerController:
                 continue
 
             # Check if entity is interactable
-            from game_api import NPC, Prop
+            from procengine.game.game_api import NPC, Prop
 
             if isinstance(entity, NPC):
                 if entity.can_talk(player.position):
@@ -756,7 +756,7 @@ class PlayerController:
 
         # Interact with best target
         if best_target:
-            from game_api import NPC, Prop
+            from procengine.game.game_api import NPC, Prop
 
             if isinstance(best_target, NPC):
                 world.initiate_dialogue(best_target.entity_id)
@@ -774,7 +774,7 @@ class PlayerController:
         world: "GameWorld",
     ) -> None:
         """Handle interaction with a prop."""
-        from game_api import Prop, Item
+        from procengine.game.game_api import Prop, Item
 
         action = prop.interaction_action
 

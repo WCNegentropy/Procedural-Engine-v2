@@ -2,8 +2,8 @@
 
 import numpy as np
 
-from seed_registry import SeedRegistry
-from world import generate_chunk, generate_world
+from procengine.core.seed_registry import SeedRegistry
+from procengine.world.world import generate_chunk, generate_world
 
 
 def test_generate_chunk_deterministic():

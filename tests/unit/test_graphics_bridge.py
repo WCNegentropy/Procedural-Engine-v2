@@ -2,7 +2,7 @@
 import pytest
 import math
 
-from graphics_bridge import (
+from procengine.graphics.graphics_bridge import (
     GraphicsBridge,
     RenderState,
     create_identity_matrix,
@@ -12,7 +12,7 @@ from graphics_bridge import (
     create_transform_matrix,
     multiply_matrices,
 )
-from physics import Vec3
+from procengine.physics import Vec3
 
 
 # =============================================================================
@@ -159,7 +159,7 @@ class TestGraphicsBridge:
 
     def test_camera_from_controller(self):
         """Test setting camera from controller."""
-        from player_controller import CameraController, Camera
+        from procengine.game.player_controller import CameraController, Camera
 
         bridge = GraphicsBridge()
         bridge.initialize()
@@ -387,7 +387,7 @@ class TestGraphicsBridgeIntegration:
 
     def test_camera_follows_player(self):
         """Test camera updates to follow player position."""
-        from player_controller import CameraController
+        from procengine.game.player_controller import CameraController
 
         bridge = GraphicsBridge()
         bridge.initialize()

@@ -1,12 +1,12 @@
 """Tests for deterministic prop descriptor generators."""
 
-from props import (
+from procengine.world.props import (
     generate_building_descriptors,
     generate_creature_descriptors,
     generate_rock_descriptors,
     generate_tree_descriptors,
 )
-from seed_registry import SeedRegistry
+from procengine.core.seed_registry import SeedRegistry
 
 
 def test_generate_rock_descriptors_deterministic():

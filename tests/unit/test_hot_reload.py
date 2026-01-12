@@ -8,7 +8,7 @@ This test module validates that the hot-reload system properly:
 - Integrates with the shader cache for materials
 """
 
-from engine import Engine as PyEngine
+from procengine.core.engine import Engine as PyEngine
 
 
 def test_hot_reload_marks_resource_dirty():

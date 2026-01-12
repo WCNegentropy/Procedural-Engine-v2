@@ -4,15 +4,15 @@ import json
 import tempfile
 from pathlib import Path
 
-from data_loader import (
+from procengine.game.data_loader import (
     load_npcs_from_file,
     load_quests_from_file,
     load_items_from_file,
     load_all_game_data,
     DataLoader,
 )
-from game_api import GameWorld, QuestState, ObjectiveType
-from physics import Vec3
+from procengine.game.game_api import GameWorld, QuestState, ObjectiveType
+from procengine.physics import Vec3
 
 
 # =============================================================================

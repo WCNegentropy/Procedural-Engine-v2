@@ -11,7 +11,7 @@ Tests cover:
 import pytest
 from unittest.mock import MagicMock
 
-from behavior_tree import (
+from procengine.game.behavior_tree import (
     NodeStatus,
     Blackboard,
     BehaviorNode,
@@ -32,8 +32,8 @@ from behavior_tree import (
     create_patrol_behavior,
     create_guard_behavior,
 )
-from physics import Vec3
-from game_api import NPC, GameWorld, Player
+from procengine.physics import Vec3
+from procengine.game.game_api import NPC, GameWorld, Player
 
 
 # =============================================================================

@@ -1,13 +1,13 @@
 """Tests for game_runner module."""
 import pytest
 
-from game_runner import (
+from procengine.game.game_runner import (
     GameRunner,
     RunnerConfig,
     HeadlessBackend,
     GameState,
 )
-from physics import Vec3
+from procengine.physics import Vec3
 
 
 # =============================================================================
@@ -55,7 +55,7 @@ class TestHeadlessBackend:
 
     def test_simulated_key_input(self):
         """Test simulated key input."""
-        from player_controller import InputManager, InputAction
+        from procengine.game.player_controller import InputManager, InputAction
 
         backend = HeadlessBackend()
         backend.initialize(RunnerConfig())
@@ -76,7 +76,7 @@ class TestHeadlessBackend:
 
     def test_simulated_mouse_input(self):
         """Test simulated mouse movement."""
-        from player_controller import InputManager
+        from procengine.game.player_controller import InputManager
 
         backend = HeadlessBackend()
         backend.initialize(RunnerConfig())
@@ -93,7 +93,7 @@ class TestHeadlessBackend:
 
     def test_quit_simulation(self):
         """Test quit event simulation."""
-        from player_controller import InputManager
+        from procengine.game.player_controller import InputManager
 
         backend = HeadlessBackend()
         backend.initialize(RunnerConfig())
@@ -109,7 +109,7 @@ class TestHeadlessBackend:
 
     def test_max_frames_limit(self):
         """Test frame limit functionality."""
-        from player_controller import InputManager
+        from procengine.game.player_controller import InputManager
 
         backend = HeadlessBackend()
         backend.initialize(RunnerConfig())
@@ -413,7 +413,7 @@ class TestGameRunnerIntegration:
 
     def test_interaction_with_npc(self):
         """Test player can interact with NPC."""
-        from game_api import NPC
+        from procengine.game.game_api import NPC
 
         config = RunnerConfig(headless=True)
         runner = GameRunner(config)
@@ -443,7 +443,7 @@ class TestGameRunnerIntegration:
 
     def test_event_system_integration(self):
         """Test event system fires during gameplay."""
-        from game_api import EventType
+        from procengine.game.game_api import EventType
 
         config = RunnerConfig(headless=True)
         runner = GameRunner(config)

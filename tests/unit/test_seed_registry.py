@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from seed_registry import SeedRegistry
+from procengine.core.seed_registry import SeedRegistry
 
 
 def test_same_seed_same_rng_output():
