@@ -2,6 +2,40 @@
 
 This document explains how to build and distribute Procedural Engine as a standalone executable for Steam and other platforms.
 
+## Package Structure
+
+The engine uses the `procengine/` package structure:
+
+```
+procengine/                 # Core Python package
+├── __init__.py             # Version, public API exports
+├── core/                   # Engine fundamentals
+│   ├── engine.py           # Main engine class
+│   └── seed_registry.py    # Deterministic sub-seeding
+├── world/                  # World generation
+│   ├── terrain.py          # Heightmap, biomes, erosion
+│   ├── props.py            # Rock, tree, building generators
+│   ├── materials.py        # Material graph DSL
+│   └── world.py            # Multi-chunk assembly
+├── physics/                # Physics system
+│   ├── bodies.py           # RigidBody, RigidBody3D, Vec3
+│   ├── collision.py        # Sequential impulse solver
+│   └── heightfield.py      # HeightField, HeightField2D
+├── game/                   # Game layer
+│   ├── game_api.py         # GameWorld, Entity, Events
+│   ├── behavior_tree.py    # NPC behavior trees
+│   ├── player_controller.py # Input & camera system
+│   ├── data_loader.py      # JSON data loading
+│   ├── game_runner.py      # Main game loop
+│   └── ui_system.py        # UI with headless support
+├── commands/               # Command system
+│   ├── commands.py         # Command registry
+│   ├── console.py          # In-game console
+│   └── handlers/           # Command implementations
+└── graphics/               # Rendering bridge
+    └── graphics_bridge.py  # Vulkan/headless abstraction
+```
+
 ## Overview
 
 The engine supports two distribution methods:
@@ -54,6 +88,13 @@ ProceduralEngine/
 ├── ProceduralEngine(.exe)     # Main executable
 ├── procengine_cpp.*.so/.pyd   # C++ extension module
 ├── python312.dll/.so          # Python runtime (if bundled)
+├── procengine/                # Core Python package (included for moddability)
+│   ├── core/
+│   ├── world/
+│   ├── physics/
+│   ├── game/
+│   ├── commands/
+│   └── graphics/
 ├── data/                      # Game data files
 │   ├── items/
 │   ├── npcs/
@@ -220,7 +261,7 @@ jobs:
           python-version: '3.12'
       - name: Build
         run: |
-          pip install pyinstaller numpy
+          pip install pyinstaller numpy pybind11
           pip install -e .
           pyinstaller ProceduralEngine.spec --noconfirm
       - uses: actions/upload-artifact@v4
@@ -228,6 +269,10 @@ jobs:
           name: build-${{ matrix.os }}
           path: dist/ProceduralEngine/
 ```
+
+The full CI/CD workflows are in `.github/workflows/`:
+- `ci.yml` - Continuous integration (lint, test, build)
+- `release.yml` - Release builds with standalone executables
 
 ## Version Information
 

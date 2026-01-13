@@ -98,18 +98,19 @@ Hot-reload control       --->     Resource rebuild queue
 Game systems             --->     (Future: native game loop)
 ```
 
-### Key Modules
+### Key Modules (procengine package)
 
 | Module | Purpose |
 |--------|---------|
-| `engine.py` | Core engine with state snapshots, hot-reload |
-| `game_api.py` | GameWorld, entities, quests, dialogue, inventory |
-| `behavior_tree.py` | NPC AI with behavior trees |
-| `physics.py` | 2D and 3D physics simulation |
-| `terrain.py` | FBM noise, erosion, biome generation |
-| `props.py` | Rock, tree, building, creature descriptors |
-| `materials.py` | Material graph DSL and node system |
-| `world.py` | Multi-chunk world assembly |
+| `procengine.core.engine` | Core engine with state snapshots, hot-reload |
+| `procengine.game.game_api` | GameWorld, entities, quests, dialogue, inventory |
+| `procengine.game.behavior_tree` | NPC AI with behavior trees |
+| `procengine.physics.bodies` | RigidBody, RigidBody3D, Vec3 |
+| `procengine.physics.collision` | 2D and 3D physics simulation |
+| `procengine.world.terrain` | FBM noise, erosion, biome generation |
+| `procengine.world.props` | Rock, tree, building, creature descriptors |
+| `procengine.world.materials` | Material graph DSL and node system |
+| `procengine.world.world` | Multi-chunk world assembly |
 
 ---
 
@@ -120,8 +121,8 @@ The game layer provides RPG functionality on top of the engine.
 ### GameWorld Example
 
 ```python
-from game_api import GameWorld, GameConfig, NPC, Quest, QuestObjective, ObjectiveType, QuestState
-from physics import Vec3
+from procengine.game.game_api import GameWorld, GameConfig, NPC, Quest, QuestObjective, ObjectiveType, QuestState
+from procengine.physics.bodies import Vec3
 
 # Create world
 world = GameWorld(GameConfig(seed=42))
@@ -180,7 +181,7 @@ for action in response.actions:
 ### Behavior Trees
 
 ```python
-from behavior_tree import (
+from procengine.game.behavior_tree import (
     BehaviorTree, Selector, Sequence,
     Condition, Action, Wait, NodeStatus,
     create_patrol_behavior, create_guard_behavior
@@ -231,7 +232,9 @@ Y (up)
 ### API Example
 
 ```python
-from physics import Vec3, RigidBody3D, HeightField2D, step_physics_3d
+from procengine.physics.bodies import Vec3, RigidBody3D
+from procengine.physics.heightfield import HeightField2D
+from procengine.physics.collision import step_physics_3d
 import numpy as np
 
 # Create terrain heightfield
@@ -281,12 +284,15 @@ cmake ..
 python -m pytest -q
 
 # Run specific categories
-python -m pytest test_game_api.py -v       # Game systems (61 tests)
-python -m pytest test_behavior_tree.py -v  # Behavior trees (42 tests)
-python -m pytest test_physics_3d.py -v     # 3D physics (49 tests)
-python -m pytest test_physics.py -v        # 2D physics (18 tests)
-python -m pytest test_terrain.py -v        # Terrain generation
-python -m pytest test_hot_reload.py -v     # Hot-reload system
+python -m pytest tests/unit/test_game_api.py -v       # Game systems (61 tests)
+python -m pytest tests/unit/test_behavior_tree.py -v  # Behavior trees (42 tests)
+python -m pytest tests/unit/test_physics_3d.py -v     # 3D physics (49 tests)
+python -m pytest tests/unit/test_physics.py -v        # 2D physics (18 tests)
+python -m pytest tests/unit/test_terrain.py -v        # Terrain generation
+python -m pytest tests/unit/test_hot_reload.py -v     # Hot-reload system
+
+# Run C++ integration tests
+python -m pytest tests/integration/ -v
 ```
 
 **Current Coverage:** 275+ tests passing
@@ -348,7 +354,7 @@ See [plan.md](plan.md) for the complete development plan.
 ### Engine
 
 ```python
-from engine import Engine
+from procengine import Engine
 
 engine = Engine()
 engine.enqueue_heightmap(height16, biome8, river1)
@@ -362,14 +368,16 @@ engine.reset()
 ### Terrain
 
 ```python
-from terrain import terrain_chunk
+from procengine import SeedRegistry, generate_terrain_maps
 
-chunk = terrain_chunk(
-    seed=42,
+registry = SeedRegistry(seed=42)
+height, biome, river, slope = generate_terrain_maps(
+    registry,
     size=65,
     octaves=6,
-    macro_plates=True,
-    erosion_iters=100
+    macro_points=8,
+    erosion_iters=100,
+    return_slope=True
 )
 # Returns: height, biome, river, slope arrays
 ```
@@ -377,14 +385,16 @@ chunk = terrain_chunk(
 ### World
 
 ```python
-from world import world_chunk
+from procengine import SeedRegistry, generate_world
 
-chunk = world_chunk(
-    seed=42,
-    cx=0, cy=0,
-    size=65,
-    erosion=True,
-    macro_plates=True
+registry = SeedRegistry(seed=42)
+world = generate_world(
+    registry,
+    width=2,
+    height=2,
+    terrain_size=65,
+    terrain_octaves=6,
+    terrain_erosion_iters=100
 )
 ```
 

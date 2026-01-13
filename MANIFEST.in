@@ -6,12 +6,33 @@ include pyproject.toml
 include setup.py
 include requirements.txt
 
-# Include C++ sources
+# Include main entry point
+include main.py
+
+# Include C++ sources for building extension module
 recursive-include cpp *.cpp *.h *.hpp
 include cpp/CMakeLists.txt
 
-# Include Python modules
-include *.py
+# Include procengine package (core Python modules)
+recursive-include procengine *.py
+
+# Include game data files
+recursive-include data *.json
+
+# Include documentation
+recursive-include docs *.md
+
+# Include examples
+recursive-include examples *.py
+
+# Include tools
+recursive-include tools *.py
+
+# Include PyInstaller spec for standalone builds
+include ProceduralEngine.spec
+
+# Include build scripts
+recursive-include scripts *.sh *.bat
 
 # Exclude build artifacts and caches
 global-exclude __pycache__
@@ -22,10 +43,9 @@ global-exclude *.dylib
 global-exclude .git*
 global-exclude .DS_Store
 
-# Exclude test files from distribution
-exclude test_*.py
-exclude conftest.py
-exclude run_e2e_headless.py
+# Exclude test files from sdist (tests are in tests/ directory)
+prune tests
+prune Legacy
 
 # Exclude build directories
 prune build
