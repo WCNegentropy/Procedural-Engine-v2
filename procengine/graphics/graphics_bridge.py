@@ -548,7 +548,20 @@ class GraphicsBridge:
             # Set entity-specific uniform color for the mesh
             color_tuple = ENTITY_COLORS.get(entity_type, DEFAULT_ENTITY_COLOR)
             entity_color = cpp.Vec3(color_tuple[0], color_tuple[1], color_tuple[2])
+
+            # Debug: log mesh state before and after setting color
+            vertex_count_before = len(mesh.vertices)
+            color_count_before = len(mesh.colors)
+
             mesh.set_uniform_color(entity_color)
+
+            # Ensure colors array is properly sized (safety measure)
+            mesh.ensure_colors()
+
+            color_count_after = len(mesh.colors)
+            print(f"Entity mesh '{entity_type}': vertices={vertex_count_before}, "
+                  f"colors before={color_count_before}, colors after={color_count_after}, "
+                  f"target color=({color_tuple[0]:.2f}, {color_tuple[1]:.2f}, {color_tuple[2]:.2f})")
 
             # Validate mesh
             if not mesh.validate():

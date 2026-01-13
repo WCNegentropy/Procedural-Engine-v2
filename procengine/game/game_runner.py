@@ -33,7 +33,7 @@ from enum import Enum, auto
 from typing import Callable, Dict, List, Optional, TYPE_CHECKING
 
 from procengine.physics import Vec3, HeightField2D
-from procengine.game.game_api import GameWorld, GameConfig, Player, NPC, Event, EventType
+from procengine.game.game_api import GameWorld, GameConfig, Player, NPC, Prop, Event, EventType
 from procengine.game.player_controller import (
     InputManager,
     InputAction,
@@ -777,7 +777,7 @@ class GameRunner:
     def _init_ui(self) -> None:
         """Initialize UI system."""
         try:
-            from ui_system import UIManager
+            from procengine.game.ui_system import UIManager
 
             self._ui_manager = UIManager(
                 self._backend.width,
@@ -851,7 +851,7 @@ class GameRunner:
     def _load_game_content(self) -> None:
         """Load game content from data files."""
         try:
-            from data_loader import DataLoader
+            from procengine.game.data_loader import DataLoader
 
             loader = DataLoader()
 
@@ -1015,7 +1015,7 @@ class GameRunner:
 
             # Render terrain if available
             if self._terrain_mesh_name in self._graphics_bridge._meshes:
-                from graphics_bridge import create_identity_matrix
+                from procengine.graphics.graphics_bridge import create_identity_matrix
                 self._graphics_bridge.draw_mesh(
                     self._terrain_mesh_name,
                     "default",
@@ -1058,6 +1058,28 @@ class GameRunner:
                 entity.position,
                 rotation=0.0,
                 scale=1.0,
+            )
+
+        # Render Props (rocks, trees, etc.)
+        for entity in self._world.get_entities_by_type(Prop):
+            prop_type = entity.prop_type
+            mesh_name = self._get_or_create_entity_mesh(entity.entity_id, prop_type)
+
+            # Scale based on prop type and state
+            scale = 1.0
+            if prop_type == "rock":
+                # Use radius from state for rock scale
+                radius = entity.state.get("radius", 1.0)
+                scale = radius * 2.0  # Scale based on radius
+            elif prop_type == "tree":
+                scale = 2.0  # Trees are taller
+
+            self._graphics_bridge.draw_entity(
+                mesh_name,
+                "default",
+                entity.position,
+                rotation=entity.rotation,
+                scale=scale,
             )
 
     def _get_or_create_entity_mesh(self, entity_id: str, entity_type: str) -> str:
@@ -1170,6 +1192,9 @@ class GameRunner:
             # Update physics height field
             self._update_physics_terrain(heightmap, size)
 
+            # Generate and spawn props on the terrain
+            self._setup_props(heightmap, size)
+
         except ImportError as e:
             print(f"Warning: C++ module not available: {e}")
             self._setup_terrain_fallback()
@@ -1216,7 +1241,7 @@ class GameRunner:
     def _update_physics_terrain(self, heightmap: "np.ndarray", size: int) -> None:
         """Update physics system with terrain height field."""
         try:
-            from physics import HeightField2D
+            from procengine.physics import HeightField2D
             
             height_field = HeightField2D(
                 heightmap,  # Pass numpy array directly
@@ -1232,6 +1257,86 @@ class GameRunner:
                 print("Warning: GameWorld does not have set_heightfield method")
         except Exception as e:
             print(f"Warning: Could not update physics terrain: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def _setup_props(self, heightmap: "np.ndarray", size: int) -> None:
+        """Generate and spawn props (rocks, trees) on the terrain."""
+        if not self._world or not self._graphics_bridge:
+            return
+
+        try:
+            import numpy as np
+            from procengine.core.seed_registry import SeedRegistry
+            from procengine.world.props import (
+                generate_rock_descriptors,
+                generate_tree_descriptors,
+            )
+
+            # Create a seed registry from world seed for deterministic prop generation
+            registry = SeedRegistry(self.config.world_seed)
+
+            # Generate rock descriptors
+            rock_count = 15  # Number of rocks to generate
+            rock_descriptors = generate_rock_descriptors(
+                registry,
+                rock_count,
+                size=float(size),
+            )
+
+            # Generate tree descriptors
+            tree_count = 10  # Number of trees to generate
+            tree_descriptors = generate_tree_descriptors(
+                registry,
+                tree_count,
+            )
+
+            # Spawn rocks as Prop entities
+            for i, rock_desc in enumerate(rock_descriptors):
+                pos = rock_desc["position"]
+                # Get terrain height at rock position
+                px = int(pos[0]) % size
+                pz = int(pos[2]) % size
+                terrain_y = float(heightmap[pz, px])
+
+                rock_prop = Prop(
+                    entity_id=f"rock_{i}",
+                    position=Vec3(pos[0], terrain_y + 0.1, pos[2]),  # Slightly above terrain
+                    prop_type="rock",
+                    state={"radius": rock_desc["radius"]},
+                )
+                self._world.spawn_entity(rock_prop)
+
+            # Spawn trees as Prop entities
+            # Trees need position - use random positions based on seed
+            tree_rng = registry.get_rng("tree_positions")
+            for i, tree_desc in enumerate(tree_descriptors):
+                # Generate position within terrain bounds
+                pos_x = float(tree_rng.random() * size)
+                pos_z = float(tree_rng.random() * size)
+
+                # Get terrain height at tree position
+                px = int(pos_x) % size
+                pz = int(pos_z) % size
+                terrain_y = float(heightmap[pz, px])
+
+                tree_prop = Prop(
+                    entity_id=f"tree_{i}",
+                    position=Vec3(pos_x, terrain_y, pos_z),
+                    prop_type="tree",
+                    state={
+                        "axiom": tree_desc["axiom"],
+                        "rules": tree_desc["rules"],
+                        "angle": tree_desc["angle"],
+                        "iterations": tree_desc["iterations"],
+                    },
+                )
+                self._world.spawn_entity(tree_prop)
+
+            print(f"Props spawned: {rock_count} rocks, {tree_count} trees")
+
+        except Exception as e:
+            print(f"Warning: Could not setup props: {e}")
             import traceback
             traceback.print_exc()
 
