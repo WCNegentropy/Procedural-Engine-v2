@@ -63,28 +63,7 @@ Issues = "https://github.com/WCNegentropy/Procedural-Engine-v2/issues"
 
 [tool.setuptools]
 packages = ["procengine", "procengine.core", "procengine.world", "procengine.physics", "procengine.game", "procengine.agents", "procengine.commands", "procengine.commands.handlers", "procengine.graphics", "procengine.utils"]
-py-modules = [
-    # Legacy root modules (for backward compatibility during transition)
-    "engine",
-    "seed_registry",
-    "terrain",
-    "physics",
-    "props",
-    "materials",
-    "world",
-    "seed_sweeper",
-    "main",
-    "game_api",
-    "behavior_tree",
-    "player_controller",
-    "data_loader",
-    "game_runner",
-    "ui_system",
-    "graphics_bridge",
-    "commands",
-    "console",
-    "game_commands",
-]
+py-modules = ["main"]
 
 [tool.setuptools.package-data]
 "*" = ["*.so", "*.pyd", "*.dylib"]
@@ -111,7 +90,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["procengine", "engine", "seed_registry", "terrain", "physics", "props", "materials", "world", "game_api", "behavior_tree", "player_controller", "data_loader", "game_runner", "ui_system", "graphics_bridge", "commands", "console", "game_commands"]
+known-first-party = ["procengine", "procengine_cpp"]
 
 [tool.ruff.format]
 quote-style = "double"
