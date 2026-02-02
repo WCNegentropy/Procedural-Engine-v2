@@ -52,7 +52,7 @@ jobs:
           sudo apt-get install -y \
             build-essential cmake libssl-dev libvulkan-dev \
             vulkan-validationlayers libshaderc-dev glslang-tools \
-            patchelf
+            libsdl2-dev patchelf
 
       # Windows dependencies
       - name: Install Vulkan SDK (Windows)
@@ -70,7 +70,7 @@ jobs:
       - name: Install macOS base dependencies
         if: matrix.platform == 'macos'
         run: |
-          brew install openssl shaderc glslang
+          brew install openssl shaderc glslang sdl2
 
       - name: Install Vulkan SDK (macOS)
         if: matrix.platform == 'macos'
@@ -147,7 +147,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             build-essential cmake libssl-dev libvulkan-dev \
-            vulkan-validationlayers libshaderc-dev glslang-tools
+            vulkan-validationlayers libshaderc-dev glslang-tools libsdl2-dev
 
       - name: Install Vulkan SDK (Windows)
         if: matrix.platform == 'windows'
@@ -163,7 +163,7 @@ jobs:
       - name: Install macOS base dependencies
         if: matrix.platform == 'macos'
         run: |
-          brew install openssl shaderc glslang
+          brew install openssl shaderc glslang sdl2
 
       - name: Install Vulkan SDK (macOS)
         if: matrix.platform == 'macos'
@@ -196,6 +196,16 @@ jobs:
           cmake --build . --parallel $(nproc)
           cp procengine_cpp*.so ../
 
+      - name: Download SDL2 development package (Windows)
+        if: matrix.platform == 'windows'
+        shell: powershell
+        run: |
+          $SDL2_VERSION = "2.30.0"
+          $SDL2_DEV_URL = "https://github.com/libsdl-org/SDL/releases/download/release-$SDL2_VERSION/SDL2-devel-$SDL2_VERSION-VC.zip"
+          Invoke-WebRequest -Uri $SDL2_DEV_URL -OutFile SDL2-devel.zip
+          Expand-Archive SDL2-devel.zip -DestinationPath SDL2_dev
+          echo "SDL2_DIR=SDL2_dev/SDL2-$SDL2_VERSION" >> $env:GITHUB_ENV
+
       - name: Build C++ module (Windows)
         if: matrix.platform == 'windows'
         shell: cmd
@@ -206,7 +216,8 @@ jobs:
             -DOPENSSL_ROOT_DIR="C:/Program Files/OpenSSL" ^
             -DVULKAN_SDK="%VULKAN_SDK%" ^
             -DVulkan_INCLUDE_DIR="%VULKAN_SDK%/Include" ^
-            -DVulkan_LIBRARY="%VULKAN_SDK%/Lib/vulkan-1.lib"
+            -DVulkan_LIBRARY="%VULKAN_SDK%/Lib/vulkan-1.lib" ^
+            -DSDL2_DIR="%SDL2_DIR%/cmake"
           cmake --build . --config Release --parallel
 
       - name: Copy Windows module
@@ -217,11 +228,11 @@ jobs:
           Copy-Item build/procengine_cpp*.pyd . -ErrorAction SilentlyContinue
           Get-ChildItem procengine_cpp* -ErrorAction SilentlyContinue
 
-      - name: Download SDL2 DLLs (Windows)
+      - name: Download SDL2 runtime DLL (Windows)
         if: matrix.platform == 'windows'
         shell: powershell
         run: |
-          # Download SDL2 runtime DLLs for Windows
+          # Download SDL2 runtime DLL for Windows (dev package was downloaded earlier for build)
           $SDL2_VERSION = "2.30.0"
           $SDL2_URL = "https://github.com/libsdl-org/SDL/releases/download/release-$SDL2_VERSION/SDL2-$SDL2_VERSION-win32-x64.zip"
           Invoke-WebRequest -Uri $SDL2_URL -OutFile SDL2.zip
