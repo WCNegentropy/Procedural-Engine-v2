@@ -152,7 +152,7 @@ struct RockDescriptor {
     Vec3 position;
     float radius = 0.5f;
     uint32_t noise_seed = 0;     // Seed for deterministic noise displacement
-    float noise_scale = 0.3f;    // Displacement magnitude relative to radius
+    float noise_scale = 0.15f;   // Displacement magnitude relative to radius
 };
 
 /**

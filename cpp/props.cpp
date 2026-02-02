@@ -13,9 +13,9 @@ static constexpr float DEG_TO_RAD = PI / 180.0f;
 // Rock Mesh Generation (Noise-displaced Sphere)
 // ============================================================================
 
-// Simple deterministic hash for vertex displacement (returns 0..1)
-static float vertex_hash(uint32_t seed, uint32_t index) {
-    uint32_t h = seed ^ (index * 2654435761u);
+// Simple deterministic hash for noise grid (returns 0..1)
+static float noise_hash(uint32_t seed, uint32_t x, uint32_t y) {
+    uint32_t h = seed ^ (x * 2654435761u) ^ (y * 2246822519u);
     h ^= h >> 16;
     h *= 0x45d9f3bu;
     h ^= h >> 16;
@@ -24,12 +24,51 @@ static float vertex_hash(uint32_t seed, uint32_t index) {
     return static_cast<float>(h & 0xFFFFu) / 65535.0f;
 }
 
+// Smooth interpolation (Hermite/smoothstep)
+static float smoothstep(float t) {
+    return t * t * (3.0f - 2.0f * t);
+}
+
+// Sample spatially coherent noise on the sphere using bilinear interpolation
+// over a coarse grid, producing smooth boulder-like deformation.
+static float sphere_noise(uint32_t seed, float phi, float theta,
+                          uint32_t grid_rings, uint32_t grid_segments) {
+    // Map spherical coords to grid coordinates
+    float gv = phi / PI * static_cast<float>(grid_rings);
+    float gu = theta / (2.0f * PI) * static_cast<float>(grid_segments);
+
+    // Grid cell corners
+    uint32_t gv0 = static_cast<uint32_t>(gv) % grid_rings;
+    uint32_t gv1 = (gv0 + 1) % (grid_rings + 1);
+    uint32_t gu0 = static_cast<uint32_t>(gu) % grid_segments;
+    uint32_t gu1 = (gu0 + 1) % grid_segments;
+
+    // Fractional position within cell
+    float fv = smoothstep(gv - std::floor(gv));
+    float fu = smoothstep(gu - std::floor(gu));
+
+    // Hash at four corners
+    float h00 = noise_hash(seed, gu0, gv0);
+    float h10 = noise_hash(seed, gu1, gv0);
+    float h01 = noise_hash(seed, gu0, gv1);
+    float h11 = noise_hash(seed, gu1, gv1);
+
+    // Bilinear interpolation
+    float top = h00 + (h10 - h00) * fu;
+    float bot = h01 + (h11 - h01) * fu;
+    return top + (bot - top) * fv;
+}
+
 Mesh generate_rock_mesh(const RockDescriptor& desc, uint32_t segments, uint32_t rings) {
     Mesh mesh;
 
     float noise_magnitude = desc.noise_scale * desc.radius;
 
-    // Generate UV sphere vertices with noise displacement
+    // Coarse noise grid resolution (controls bumpiness frequency)
+    uint32_t grid_rings = 5;
+    uint32_t grid_segments = 7;
+
+    // Generate UV sphere vertices with smooth noise displacement
     for (uint32_t ring = 0; ring <= rings; ++ring) {
         float phi = PI * static_cast<float>(ring) / static_cast<float>(rings);
         float sin_phi = std::sin(phi);
@@ -43,9 +82,13 @@ Mesh generate_rock_mesh(const RockDescriptor& desc, uint32_t segments, uint32_t 
             // Normal (unit sphere)
             Vec3 normal(sin_phi * cos_theta, cos_phi, sin_phi * sin_theta);
 
-            // Deterministic noise displacement along normal
-            uint32_t vertex_idx = ring * (segments + 1) + seg;
-            float noise = vertex_hash(desc.noise_seed, vertex_idx) * 2.0f - 1.0f;  // -1..+1
+            // Spatially coherent noise: two octaves for natural variation
+            float n1 = sphere_noise(desc.noise_seed, phi, theta,
+                                    grid_rings, grid_segments);
+            float n2 = sphere_noise(desc.noise_seed + 7919u, phi, theta,
+                                    grid_rings * 2, grid_segments * 2);
+            float noise = (n1 * 0.7f + n2 * 0.3f) * 2.0f - 1.0f;  // -1..+1
+
             float displaced_radius = desc.radius + noise * noise_magnitude;
 
             // Position (displaced and translated)
