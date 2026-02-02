@@ -198,7 +198,7 @@ class TestRigidBody3D:
         assert body_2d.radius == 0.5
 
     def test_apply_2d_result(self):
-        from physics import RigidBody
+        from procengine.physics import RigidBody
 
         body_3d = RigidBody3D(
             position=Vec3(1.0, 5.0, 3.0),
