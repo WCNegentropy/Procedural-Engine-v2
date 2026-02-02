@@ -534,7 +534,7 @@ class CameraController:
 
     def _resolve_terrain_collision(self, heightfield: "HeightField2D") -> None:
         """Prevent camera from going below terrain."""
-        from physics import HeightField2D
+        from procengine.physics import HeightField2D
 
         ground_height = heightfield.sample(
             self.camera.position.x,

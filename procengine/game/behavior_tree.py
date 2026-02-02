@@ -617,7 +617,7 @@ def create_patrol_behavior(waypoints: List["Vec3"], speed: float = 3.0) -> Behav
     speed:
         Movement speed in meters per second.
     """
-    from physics import Vec3
+    from procengine.physics import Vec3
 
     def move_to_waypoint(
         npc: "NPC",
@@ -689,7 +689,7 @@ def create_guard_behavior(
     chase_range:
         Maximum distance guard will pursue.
     """
-    from physics import Vec3
+    from procengine.physics import Vec3
 
     def is_player_in_range(
         npc: "NPC",
