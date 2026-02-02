@@ -1387,12 +1387,17 @@ class GameRunner:
         """Render UI elements."""
         if self._ui_manager and self.config.enable_ui:
             player = self._world.get_player() if self._world else None
+            
+            # Get interaction target from player controller for UI prompts
+            interaction_target = None
+            if self._player_controller:
+                interaction_target = self._player_controller.get_interaction_target()
 
             self._ui_manager.begin_frame()
 
             # Render appropriate UI based on state
             if self._state == GameState.PLAYING:
-                self._ui_manager.render_hud(player)
+                self._ui_manager.render_hud(player, interaction_target)
 
             elif self._state == GameState.PAUSED:
                 self._ui_manager.render_hud(player)
@@ -1565,8 +1570,38 @@ class GameRunner:
         self._on_render = callback
 
     def set_ui_callback(self, callback: Callable[[], None]) -> None:
-        """Set custom UI render callback."""
+        """Set custom UI render callback.
+        
+        The callback is invoked after standard UI rendering is complete,
+        allowing custom UI overlays (debug windows, ImGui panels, etc.)
+        to be rendered. The callback is called once per frame.
+        
+        Example usage:
+            def my_custom_ui():
+                # Draw custom ImGui windows or overlays
+                pass
+            
+            runner.set_ui_callback(my_custom_ui)
+        """
         self._on_ui = callback
+
+    @property
+    def player_controller(self) -> Optional[PlayerController]:
+        """Get the player controller.
+        
+        Provides access to camera, input state, and interaction context
+        for custom UI rendering or external systems.
+        """
+        return self._player_controller
+
+    @property
+    def ui_manager(self) -> Optional["UIManager"]:
+        """Get the UI manager.
+        
+        Provides access to UI components for custom rendering or
+        direct component manipulation.
+        """
+        return self._ui_manager
 
     def quit(self) -> None:
         """Request game exit."""

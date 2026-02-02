@@ -11,6 +11,7 @@ from procengine.game.ui_system import (
     PauseMenu,
     DebugOverlay,
 )
+from procengine.game.player_controller import InteractionTarget
 from procengine.physics import Vec3
 
 
@@ -210,9 +211,18 @@ class TestHUD:
         hud = HUD(backend, 1920, 1080)
 
         player = MockPlayer()
+        
+        # Create an InteractionTarget for the prompt
+        target = InteractionTarget(
+            entity_id="npc_elder",
+            entity_name="Village Elder",
+            entity_type="npc",
+            action_text="Talk to",
+            distance=2.5,
+        )
 
         backend.begin_frame()
-        hud.render(player=player, interaction_target="Village Elder")
+        hud.render(player=player, interaction_target=target)
         backend.end_frame()
 
         assert backend.has_text("Talk to Village Elder")

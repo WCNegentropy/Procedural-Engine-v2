@@ -18,6 +18,7 @@ from procengine.game.player_controller import (
     Camera,
     CameraController,
     PlayerController,
+    InteractionTarget,
     create_default_controller,
 )
 from procengine.physics import Vec3, HeightField2D
@@ -615,3 +616,230 @@ class TestPlayerControllerIntegration:
         # Camera target should be near player
         dist_to_player = (controller.camera.camera.target - player.position).length()
         assert dist_to_player < 5  # Within reasonable distance (accounting for head offset)
+
+
+# =============================================================================
+# InteractionTarget Tests
+# =============================================================================
+
+class TestInteractionTarget:
+    """Test InteractionTarget dataclass."""
+
+    def test_creation(self):
+        """Test InteractionTarget can be created with all fields."""
+        target = InteractionTarget(
+            entity_id="npc_elder",
+            entity_name="Village Elder",
+            entity_type="npc",
+            action_text="Talk",
+            distance=2.5,
+        )
+
+        assert target.entity_id == "npc_elder"
+        assert target.entity_name == "Village Elder"
+        assert target.entity_type == "npc"
+        assert target.action_text == "Talk"
+        assert target.distance == 2.5
+
+    def test_npc_interaction_target(self):
+        """Test NPC-type interaction target."""
+        target = InteractionTarget(
+            entity_id="blacksmith",
+            entity_name="Grom the Smith",
+            entity_type="npc",
+            action_text="Talk",
+            distance=1.8,
+        )
+
+        assert target.entity_type == "npc"
+        assert target.action_text == "Talk"
+
+    def test_prop_interaction_target(self):
+        """Test prop-type interaction target."""
+        target = InteractionTarget(
+            entity_id="chest_01",
+            entity_name="Treasure Chest",
+            entity_type="prop",
+            action_text="Open",
+            distance=1.2,
+        )
+
+        assert target.entity_type == "prop"
+        assert target.action_text == "Open"
+
+
+class TestInteractionContextSystem:
+    """Test the interaction context tracking in PlayerController."""
+
+    def test_get_interaction_target_when_empty(self):
+        """Test get_interaction_target returns None when no target."""
+        controller = PlayerController()
+
+        assert controller.get_interaction_target() is None
+
+    def test_focused_entity_cleared_in_dialogue(self):
+        """Test focused entity is cleared during dialogue."""
+        controller = PlayerController()
+        player = Player(position=Vec3(0, 0, 0))
+        world = GameWorld()
+        world._player = player
+        world._entities["player"] = player
+
+        # Set dialogue mode
+        controller.in_dialogue = True
+
+        # Update should clear focused entity
+        controller.input.begin_frame()
+        controller.update(player, world, dt=0.016)
+
+        assert controller.get_interaction_target() is None
+
+    def test_focused_entity_cleared_in_menu(self):
+        """Test focused entity is cleared during menu."""
+        controller = PlayerController()
+        player = Player(position=Vec3(0, 0, 0))
+        world = GameWorld()
+        world._player = player
+        world._entities["player"] = player
+
+        # Set menu mode
+        controller.in_menu = True
+
+        # Update should clear focused entity
+        controller.input.begin_frame()
+        controller.update(player, world, dt=0.016)
+
+        assert controller.get_interaction_target() is None
+
+    def test_detects_nearby_npc(self):
+        """Test that nearby NPCs are detected as interaction targets."""
+        controller = PlayerController()
+        player = Player(position=Vec3(5, 0, 5), interaction_range=5.0)
+        world = GameWorld()
+        world._player = player
+        world._entities["player"] = player
+
+        # Create terrain
+        heights = np.zeros((20, 20), dtype=np.float32)
+        heightfield = HeightField2D(heights=heights, cell_size=1.0)
+        world.set_heightfield(heightfield)
+
+        # Spawn NPC very close to player
+        npc = NPC(
+            entity_id="test_npc",
+            name="Test NPC",
+            position=Vec3(6, 0, 5),  # 1 unit away
+        )
+        world.spawn_entity(npc)
+
+        # Update controller
+        controller.input.begin_frame()
+        controller.update(player, world, dt=0.016)
+
+        # Should detect the NPC
+        target = controller.get_interaction_target()
+        assert target is not None
+        assert target.entity_id == "test_npc"
+        assert target.entity_name == "Test NPC"
+        assert target.entity_type == "npc"
+        assert target.action_text == "Talk"
+
+    def test_detects_nearby_interactable_prop(self):
+        """Test that nearby interactable props are detected."""
+        controller = PlayerController()
+        player = Player(position=Vec3(5, 0, 5), interaction_range=5.0)
+        world = GameWorld()
+        world._player = player
+        world._entities["player"] = player
+
+        # Create terrain
+        heights = np.zeros((20, 20), dtype=np.float32)
+        heightfield = HeightField2D(heights=heights, cell_size=1.0)
+        world.set_heightfield(heightfield)
+
+        # Spawn interactable prop
+        prop = Prop(
+            entity_id="chest_01",
+            position=Vec3(6, 0, 5),  # 1 unit away
+            prop_type="chest",
+            interactable=True,
+            interaction_action="open",
+        )
+        world.spawn_entity(prop)
+
+        # Update controller
+        controller.input.begin_frame()
+        controller.update(player, world, dt=0.016)
+
+        # Should detect the prop
+        target = controller.get_interaction_target()
+        assert target is not None
+        assert target.entity_id == "chest_01"
+        assert target.entity_type == "prop"
+        assert target.action_text == "Open"
+
+    def test_no_detection_when_out_of_range(self):
+        """Test no target detected when entities are out of range."""
+        controller = PlayerController()
+        player = Player(position=Vec3(0, 0, 0), interaction_range=3.0)
+        world = GameWorld()
+        world._player = player
+        world._entities["player"] = player
+
+        # Create terrain
+        heights = np.zeros((20, 20), dtype=np.float32)
+        heightfield = HeightField2D(heights=heights, cell_size=1.0)
+        world.set_heightfield(heightfield)
+
+        # Spawn NPC far away
+        npc = NPC(
+            entity_id="distant_npc",
+            name="Distant NPC",
+            position=Vec3(10, 0, 10),  # ~14 units away
+        )
+        world.spawn_entity(npc)
+
+        # Update controller
+        controller.input.begin_frame()
+        controller.update(player, world, dt=0.016)
+
+        # Should not detect the NPC (out of range)
+        target = controller.get_interaction_target()
+        assert target is None
+
+    def test_selects_closest_target(self):
+        """Test that the closest interactable entity is selected."""
+        controller = PlayerController()
+        player = Player(position=Vec3(5, 0, 5), interaction_range=10.0)
+        world = GameWorld()
+        world._player = player
+        world._entities["player"] = player
+
+        # Create terrain
+        heights = np.zeros((20, 20), dtype=np.float32)
+        heightfield = HeightField2D(heights=heights, cell_size=1.0)
+        world.set_heightfield(heightfield)
+
+        # Spawn two NPCs at different distances
+        npc_far = NPC(
+            entity_id="npc_far",
+            name="Far NPC",
+            position=Vec3(8, 0, 5),  # 3 units away
+        )
+        npc_close = NPC(
+            entity_id="npc_close",
+            name="Close NPC",
+            position=Vec3(6, 0, 5),  # 1 unit away
+        )
+        world.spawn_entity(npc_far)
+        world.spawn_entity(npc_close)
+
+        # Update controller
+        controller.input.begin_frame()
+        controller.update(player, world, dt=0.016)
+
+        # Should select the closer NPC
+        target = controller.get_interaction_target()
+        assert target is not None
+        assert target.entity_id == "npc_close"
+        assert target.entity_name == "Close NPC"

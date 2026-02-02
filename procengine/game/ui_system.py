@@ -33,6 +33,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from procengine.game.game_api import GameWorld, Player, NPC, Quest, Inventory, DialogueResponse
+    from procengine.game.player_controller import InteractionTarget
 
 __all__ = [
     "UIManager",
@@ -394,18 +395,38 @@ class HUD(UIComponent):
 
         self._backend.end_window()
 
-    def _render_interaction_prompt(self, target_name: str) -> None:
-        """Render interaction prompt."""
-        prompt_width = 200
+    def _render_interaction_prompt(self, target: "InteractionTarget") -> None:
+        """Render interaction prompt.
+        
+        Parameters
+        ----------
+        target:
+            The interaction target containing entity info and action text.
+            Expected to have: entity_name, action_text, entity_type, distance
+        """
+        # Calculate prompt width based on content
+        # Format: "[E] Action Entity Name"
+        prompt_text = f"[E] {target.action_text} {target.entity_name}"
+        prompt_width = max(200, len(prompt_text) * 8 + 40)  # Estimate based on text length
+        
         self._backend.begin_window(
             "##InteractionPrompt",
             (self._screen_width - prompt_width) / 2,
             self._screen_height - 100,
-            prompt_width, 40,
+            prompt_width, 50,
             flags=_NO_DECORATION_FLAGS,
         )
 
-        self._backend.text(f"[E] Talk to {target_name}")
+        # Color based on entity type
+        if target.entity_type == "npc":
+            # Gold/yellow for NPCs
+            self._backend.text_colored(prompt_text, 1.0, 0.85, 0.4)
+        elif target.entity_type == "prop":
+            # Light blue for interactable props
+            self._backend.text_colored(prompt_text, 0.6, 0.8, 1.0)
+        else:
+            # White default
+            self._backend.text(prompt_text)
 
         self._backend.end_window()
 
@@ -858,8 +879,21 @@ class UIManager:
     # Component Rendering
     # -------------------------------------------------------------------------
 
-    def render_hud(self, player: Optional["Player"] = None) -> None:
-        """Render HUD elements."""
+    def render_hud(
+        self, 
+        player: Optional["Player"] = None,
+        interaction_target: Optional["InteractionTarget"] = None,
+    ) -> None:
+        """Render HUD elements.
+        
+        Parameters
+        ----------
+        player:
+            The player entity for health, quest tracking.
+        interaction_target:
+            Optional InteractionTarget from PlayerController for showing
+            "Press E to interact" prompts.
+        """
         if not player:
             return
 
@@ -870,15 +904,6 @@ class UIManager:
                 quest = self._world.get_quest(quest_id)
                 if quest:
                     active_quests.append(quest)
-
-        # Get interaction target
-        interaction_target = None
-        if player.current_interaction_target and self._world:
-            entity = self._world.get_entity(player.current_interaction_target)
-            if entity:
-                from game_api import NPC
-                if isinstance(entity, NPC):
-                    interaction_target = entity.name
 
         self._hud.render(
             player=player,
