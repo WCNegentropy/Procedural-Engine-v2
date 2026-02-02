@@ -843,3 +843,99 @@ class TestInteractionContextSystem:
         assert target is not None
         assert target.entity_id == "npc_close"
         assert target.entity_name == "Close NPC"
+
+
+class TestQuestIndicatorSystem:
+    """Tests for quest-giver indicators in interaction prompts."""
+
+    def test_quest_giver_shows_quest_indicator(self):
+        """Test that NPCs with quest_giver behavior show quest indicator."""
+        controller = PlayerController()
+        player = Player(position=Vec3(5, 0, 5), interaction_range=5.0)
+        world = GameWorld()
+        world._player = player
+        world._entities["player"] = player
+
+        # Create terrain
+        heights = np.zeros((20, 20), dtype=np.float32)
+        heightfield = HeightField2D(heights=heights, cell_size=1.0)
+        world.set_heightfield(heightfield)
+
+        # Spawn quest giver NPC
+        quest_giver = NPC(
+            entity_id="quest_npc",
+            name="Quest Giver",
+            position=Vec3(6, 0, 5),
+            behavior="quest_giver",
+        )
+        world.spawn_entity(quest_giver)
+
+        # Update controller
+        controller.input.begin_frame()
+        controller.update(player, world, dt=0.016)
+
+        # Should show quest indicator
+        target = controller.get_interaction_target()
+        assert target is not None
+        assert "Quest!" in target.action_text
+
+    def test_merchant_npc_shows_trade_indicator(self):
+        """Test that merchant NPCs show trade indicator."""
+        controller = PlayerController()
+        player = Player(position=Vec3(5, 0, 5), interaction_range=5.0)
+        world = GameWorld()
+        world._player = player
+        world._entities["player"] = player
+
+        # Create terrain
+        heights = np.zeros((20, 20), dtype=np.float32)
+        heightfield = HeightField2D(heights=heights, cell_size=1.0)
+        world.set_heightfield(heightfield)
+
+        # Spawn merchant NPC
+        merchant = NPC(
+            entity_id="merchant_npc",
+            name="Trader",
+            position=Vec3(6, 0, 5),
+            is_merchant=True,
+        )
+        world.spawn_entity(merchant)
+
+        # Update controller
+        controller.input.begin_frame()
+        controller.update(player, world, dt=0.016)
+
+        # Should show trade indicator
+        target = controller.get_interaction_target()
+        assert target is not None
+        assert "Trade" in target.action_text
+
+    def test_regular_npc_shows_talk(self):
+        """Test that regular NPCs show basic Talk action."""
+        controller = PlayerController()
+        player = Player(position=Vec3(5, 0, 5), interaction_range=5.0)
+        world = GameWorld()
+        world._player = player
+        world._entities["player"] = player
+
+        # Create terrain
+        heights = np.zeros((20, 20), dtype=np.float32)
+        heightfield = HeightField2D(heights=heights, cell_size=1.0)
+        world.set_heightfield(heightfield)
+
+        # Spawn regular NPC
+        npc = NPC(
+            entity_id="regular_npc",
+            name="Villager",
+            position=Vec3(6, 0, 5),
+        )
+        world.spawn_entity(npc)
+
+        # Update controller
+        controller.input.begin_frame()
+        controller.update(player, world, dt=0.016)
+
+        # Should show basic talk
+        target = controller.get_interaction_target()
+        assert target is not None
+        assert target.action_text == "Talk"

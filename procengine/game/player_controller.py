@@ -752,6 +752,8 @@ class PlayerController:
         
         Scans nearby entities and selects the best interaction target,
         storing it in `_focused_entity` for the UI to display prompts.
+        
+        Quest-giver NPCs show "Talk (Quest!)" to indicate available quests.
         """
         if not self.interaction_enabled:
             self._focused_entity = None
@@ -778,8 +780,26 @@ class PlayerController:
                     if distance < best_distance:
                         best_target = entity
                         best_distance = distance
-                        best_action_text = "Talk"
                         best_entity_type = "npc"
+                        
+                        # Check if NPC has an available quest for player
+                        has_available_quest = False
+                        if entity.current_quest:
+                            quest = world.get_quest(entity.current_quest)
+                            if quest and entity.current_quest not in player.active_quests:
+                                if entity.current_quest not in player.completed_quests:
+                                    has_available_quest = True
+                        
+                        # Also check if NPC is a quest giver by behavior
+                        if entity.behavior == "quest_giver":
+                            has_available_quest = True
+                        
+                        if has_available_quest:
+                            best_action_text = "Talk (Quest!)"
+                        elif entity.is_merchant:
+                            best_action_text = "Talk (Trade)"
+                        else:
+                            best_action_text = "Talk"
 
             elif isinstance(entity, Prop):
                 if entity.interactable:
