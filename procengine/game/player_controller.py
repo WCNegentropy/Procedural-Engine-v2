@@ -19,7 +19,8 @@ from typing import Callable, Dict, List, Optional, Set, Tuple, TYPE_CHECKING
 from procengine.physics import Vec3
 
 if TYPE_CHECKING:
-    from procengine.game.game_api import Player, GameWorld, NPC, Entity
+    from procengine.game.game_api import Player, GameWorld, NPC, Entity, Prop
+    from procengine.physics import HeightField2D
 
 __all__ = [
     "InputAction",
