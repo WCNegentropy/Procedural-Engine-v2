@@ -407,7 +407,10 @@ class HUD(UIComponent):
         # Calculate prompt width based on content
         # Format: "[E] Action Entity Name"
         prompt_text = f"[E] {target.action_text} {target.entity_name}"
-        prompt_width = max(200, len(prompt_text) * 8 + 40)  # Estimate based on text length
+        prompt_width = max(
+            _PROMPT_MIN_WIDTH, 
+            len(prompt_text) * _CHAR_WIDTH_ESTIMATE + _PROMPT_PADDING
+        )
         
         self._backend.begin_window(
             "##InteractionPrompt",
@@ -419,11 +422,9 @@ class HUD(UIComponent):
 
         # Color based on entity type
         if target.entity_type == "npc":
-            # Gold/yellow for NPCs
-            self._backend.text_colored(prompt_text, 1.0, 0.85, 0.4)
+            self._backend.text_colored(prompt_text, *_COLOR_NPC_PROMPT)
         elif target.entity_type == "prop":
-            # Light blue for interactable props
-            self._backend.text_colored(prompt_text, 0.6, 0.8, 1.0)
+            self._backend.text_colored(prompt_text, *_COLOR_PROP_PROMPT)
         else:
             # White default
             self._backend.text(prompt_text)
@@ -848,40 +849,40 @@ class DebugOverlay(UIComponent):
         )
 
         # Performance section
-        self._backend.text_colored("=== Performance ===", 0.8, 0.8, 0.3)
+        self._backend.text_colored("=== Performance ===", *_COLOR_SECTION_HEADER)
         
         # Color FPS based on performance
-        if fps >= 55:
-            self._backend.text_colored(f"FPS: {fps:.1f}", 0.3, 0.9, 0.3)  # Green
-        elif fps >= 30:
-            self._backend.text_colored(f"FPS: {fps:.1f}", 0.9, 0.9, 0.3)  # Yellow
+        if fps >= _FPS_GOOD_THRESHOLD:
+            self._backend.text_colored(f"FPS: {fps:.1f}", *_COLOR_FPS_GOOD)
+        elif fps >= _FPS_WARNING_THRESHOLD:
+            self._backend.text_colored(f"FPS: {fps:.1f}", *_COLOR_FPS_WARNING)
         else:
-            self._backend.text_colored(f"FPS: {fps:.1f}", 0.9, 0.3, 0.3)  # Red
+            self._backend.text_colored(f"FPS: {fps:.1f}", *_COLOR_FPS_BAD)
             
         self._backend.text(f"Frame: {frame_count}")
 
         # Player section
         self._backend.separator()
-        self._backend.text_colored("=== Player ===", 0.8, 0.8, 0.3)
+        self._backend.text_colored("=== Player ===", *_COLOR_SECTION_HEADER)
         
         if player_pos:
             self._backend.text(f"Pos: ({player_pos[0]:.1f}, {player_pos[1]:.1f}, {player_pos[2]:.1f})")
         
         # Ground state
         ground_text = "Grounded" if grounded else "Airborne"
-        ground_color = (0.3, 0.9, 0.3) if grounded else (0.6, 0.6, 0.9)
+        ground_color = _COLOR_GROUNDED if grounded else _COLOR_AIRBORNE
         self._backend.text_colored(ground_text, *ground_color)
 
         # World section
         self._backend.separator()
-        self._backend.text_colored("=== World ===", 0.8, 0.8, 0.3)
+        self._backend.text_colored("=== World ===", *_COLOR_SECTION_HEADER)
         self._backend.text(f"Entities: {entity_count}")
         
         if biome_name:
             self._backend.text(f"Biome: {biome_name}")
             
         if interaction_target:
-            self._backend.text_colored(f"Target: {interaction_target}", 0.9, 0.7, 0.3)
+            self._backend.text_colored(f"Target: {interaction_target}", *_COLOR_TARGET)
 
         # Action buttons
         self._backend.separator()
@@ -901,6 +902,26 @@ class DebugOverlay(UIComponent):
 # Window flags (would be ImGuiWindowFlags in real ImGui)
 _NO_DECORATION_FLAGS = 1  # No title bar, resize, etc.
 _NO_RESIZE_FLAGS = 2  # No resize
+
+# UI Layout Constants
+_CHAR_WIDTH_ESTIMATE = 8  # Estimated pixel width per character
+_PROMPT_PADDING = 40  # Extra padding for interaction prompts
+_PROMPT_MIN_WIDTH = 200  # Minimum prompt window width
+
+# FPS Performance Thresholds
+_FPS_GOOD_THRESHOLD = 55  # Above this = green (good)
+_FPS_WARNING_THRESHOLD = 30  # Above this = yellow (warning), below = red (bad)
+
+# UI Colors (R, G, B tuples, 0.0-1.0 range)
+_COLOR_FPS_GOOD = (0.3, 0.9, 0.3)  # Green
+_COLOR_FPS_WARNING = (0.9, 0.9, 0.3)  # Yellow
+_COLOR_FPS_BAD = (0.9, 0.3, 0.3)  # Red
+_COLOR_GROUNDED = (0.3, 0.9, 0.3)  # Green
+_COLOR_AIRBORNE = (0.6, 0.6, 0.9)  # Light blue
+_COLOR_NPC_PROMPT = (1.0, 0.85, 0.4)  # Gold/yellow
+_COLOR_PROP_PROMPT = (0.6, 0.8, 1.0)  # Light blue
+_COLOR_SECTION_HEADER = (0.8, 0.8, 0.3)  # Yellow
+_COLOR_TARGET = (0.9, 0.7, 0.3)  # Orange
 
 
 class UIManager:

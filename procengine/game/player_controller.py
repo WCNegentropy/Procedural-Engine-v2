@@ -821,9 +821,19 @@ class PlayerController:
 
         # Update focused entity
         if best_target:
+            # Get display name - NPCs have 'name', Props use 'prop_type' or entity_id
+            from procengine.game.game_api import NPC, Prop
+            if isinstance(best_target, NPC):
+                display_name = best_target.name
+            elif isinstance(best_target, Prop):
+                # Use prop_type as display name, capitalized
+                display_name = best_target.prop_type.replace("_", " ").title()
+            else:
+                display_name = best_target.entity_id
+            
             self._focused_entity = InteractionTarget(
                 entity_id=best_target.entity_id,
-                entity_name=best_target.name if hasattr(best_target, 'name') else best_target.entity_id,
+                entity_name=display_name,
                 entity_type=best_entity_type,
                 action_text=best_action_text,
                 distance=best_distance,
