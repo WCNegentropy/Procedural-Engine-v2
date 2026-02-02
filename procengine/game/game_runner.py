@@ -485,6 +485,14 @@ def create_sdl2_backend() -> Optional[WindowBackend]:
                 """Get the Vulkan surface handle (or None if not created)."""
                 return self._vk_surface
 
+            @property
+            def sdl_window_handle(self) -> Optional[int]:
+                """Get the SDL_Window pointer as an integer for C++ interop."""
+                import ctypes
+                if self._window:
+                    return ctypes.cast(self._window, ctypes.c_void_p).value
+                return None
+
             def shutdown(self) -> None:
                 # Note: The Vulkan surface is destroyed by the C++ GraphicsSystem
                 # when it shuts down, not here. SDL2 cleanup should happen after.
@@ -775,16 +783,31 @@ class GameRunner:
         return True
 
     def _init_ui(self) -> None:
-        """Initialize UI system."""
+        """Initialize UI system.
+
+        When running in windowed mode (not headless), attempts to create an
+        ImGuiBackend backed by the C++ Dear ImGui renderer.  Falls back to the
+        HeadlessUIBackend if the C++ module is unavailable.
+        """
         try:
             from procengine.game.ui_system import UIManager
+
+            backend = None
+            if not self.config.headless:
+                try:
+                    from procengine.game.ui_system import ImGuiBackend
+                    backend = ImGuiBackend()
+                    print("UI: Using ImGuiBackend (C++ Dear ImGui renderer)")
+                except (ImportError, Exception) as exc:
+                    print(f"UI: ImGui backend not available ({exc}), using headless")
 
             self._ui_manager = UIManager(
                 self._backend.width,
                 self._backend.height,
+                backend=backend,
             )
             self._ui_manager.set_world(self._world)
-            
+
             # Set up debug overlay callbacks
             self._ui_manager.set_debug_callbacks(
                 on_reset_world=self._on_reset_world,

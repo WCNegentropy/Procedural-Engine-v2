@@ -717,3 +717,225 @@ class TestUIIntegration:
 
         ui.end_dialogue()
         assert ui._in_dialogue is False
+
+
+# =============================================================================
+# ImGuiBackend Tests
+# =============================================================================
+
+
+class MockCppModule:
+    """Mock procengine_cpp module that records ImGui calls."""
+
+    def __init__(self):
+        self.calls = []
+
+    def _record(self, name, *args, **kwargs):
+        self.calls.append({"name": name, "args": args, "kwargs": kwargs})
+
+    def imgui_new_frame(self):
+        self._record("imgui_new_frame")
+
+    def imgui_render(self):
+        self._record("imgui_render")
+
+    def imgui_begin(self, title, flags=0):
+        self._record("imgui_begin", title, flags)
+        return True
+
+    def imgui_end(self):
+        self._record("imgui_end")
+
+    def imgui_text(self, text):
+        self._record("imgui_text", text)
+
+    def imgui_text_colored(self, text, r, g, b, a=1.0):
+        self._record("imgui_text_colored", text, r, g, b, a)
+
+    def imgui_button(self, label, width=0, height=0):
+        self._record("imgui_button", label, width, height)
+        return False
+
+    def imgui_progress_bar(self, fraction, width=-1, height=0):
+        self._record("imgui_progress_bar", fraction, width, height)
+
+    def imgui_separator(self):
+        self._record("imgui_separator")
+
+    def imgui_same_line(self):
+        self._record("imgui_same_line")
+
+    def imgui_spacing(self):
+        self._record("imgui_spacing")
+
+    def imgui_image(self, texture_id, width, height):
+        self._record("imgui_image", texture_id, width, height)
+
+    def imgui_begin_child(self, id_str, width=0, height=0, border=False):
+        self._record("imgui_begin_child", id_str, width, height, border)
+        return True
+
+    def imgui_end_child(self):
+        self._record("imgui_end_child")
+
+    def imgui_columns(self, count, border=True):
+        self._record("imgui_columns", count, border)
+
+    def imgui_next_column(self):
+        self._record("imgui_next_column")
+
+    def imgui_set_cursor_pos(self, x, y):
+        self._record("imgui_set_cursor_pos", x, y)
+
+    def imgui_set_next_window_pos(self, x, y):
+        self._record("imgui_set_next_window_pos", x, y)
+
+    def imgui_set_next_window_size(self, w, h):
+        self._record("imgui_set_next_window_size", w, h)
+
+
+class TestImGuiBackend:
+    """Tests for ImGuiBackend with mocked C++ module."""
+
+    def _make_backend(self):
+        """Create an ImGuiBackend with a mocked C++ module."""
+        from procengine.game.ui_system import ImGuiBackend
+
+        mock_cpp = MockCppModule()
+        backend = object.__new__(ImGuiBackend)
+        backend._cpp = mock_cpp
+        return backend, mock_cpp
+
+    def test_begin_end_frame(self):
+        """Test frame calls delegate to C++."""
+        backend, mock = self._make_backend()
+
+        backend.begin_frame()
+        backend.end_frame()
+
+        names = [c["name"] for c in mock.calls]
+        assert "imgui_new_frame" in names
+        assert "imgui_render" in names
+
+    def test_window_calls(self):
+        """Test window begin/end delegates to C++."""
+        backend, mock = self._make_backend()
+
+        result = backend.begin_window("Test", 10, 20, 300, 400, flags=0)
+        backend.end_window()
+
+        assert result is True
+        names = [c["name"] for c in mock.calls]
+        assert "imgui_set_next_window_pos" in names
+        assert "imgui_set_next_window_size" in names
+        assert "imgui_begin" in names
+        assert "imgui_end" in names
+
+    def test_text_calls(self):
+        """Test text delegates to C++."""
+        backend, mock = self._make_backend()
+
+        backend.text("Hello")
+        backend.text_colored("World", 1.0, 0.0, 0.0, 0.5)
+
+        names = [c["name"] for c in mock.calls]
+        assert "imgui_text" in names
+        assert "imgui_text_colored" in names
+
+        text_call = [c for c in mock.calls if c["name"] == "imgui_text"][0]
+        assert text_call["args"] == ("Hello",)
+
+        color_call = [c for c in mock.calls if c["name"] == "imgui_text_colored"][0]
+        assert color_call["args"] == ("World", 1.0, 0.0, 0.0, 0.5)
+
+    def test_button_call(self):
+        """Test button delegates to C++."""
+        backend, mock = self._make_backend()
+
+        result = backend.button("Click Me", 100, 30)
+
+        assert result is False
+        btn_call = [c for c in mock.calls if c["name"] == "imgui_button"][0]
+        assert btn_call["args"] == ("Click Me", 100, 30)
+
+    def test_progress_bar(self):
+        """Test progress bar delegates to C++."""
+        backend, mock = self._make_backend()
+
+        backend.progress_bar(0.75, 200, 20)
+
+        bar_call = [c for c in mock.calls if c["name"] == "imgui_progress_bar"][0]
+        assert bar_call["args"] == (0.75, 200, 20)
+
+    def test_layout_calls(self):
+        """Test layout utility calls."""
+        backend, mock = self._make_backend()
+
+        backend.separator()
+        backend.same_line()
+        backend.spacing()
+
+        names = [c["name"] for c in mock.calls]
+        assert "imgui_separator" in names
+        assert "imgui_same_line" in names
+        assert "imgui_spacing" in names
+
+    def test_child_region(self):
+        """Test child region calls."""
+        backend, mock = self._make_backend()
+
+        result = backend.begin_child("scroll_area", 200, 300, border=True)
+        backend.end_child()
+
+        assert result is True
+        names = [c["name"] for c in mock.calls]
+        assert "imgui_begin_child" in names
+        assert "imgui_end_child" in names
+
+    def test_columns(self):
+        """Test column layout calls."""
+        backend, mock = self._make_backend()
+
+        backend.columns(3, border=False)
+        backend.next_column()
+
+        col_call = [c for c in mock.calls if c["name"] == "imgui_columns"][0]
+        assert col_call["args"] == (3, False)
+        names = [c["name"] for c in mock.calls]
+        assert "imgui_next_column" in names
+
+    def test_cursor_pos(self):
+        """Test cursor position call."""
+        backend, mock = self._make_backend()
+
+        backend.set_cursor_pos(50, 100)
+
+        pos_call = [c for c in mock.calls if c["name"] == "imgui_set_cursor_pos"][0]
+        assert pos_call["args"] == (50, 100)
+
+    def test_image(self):
+        """Test image call."""
+        backend, mock = self._make_backend()
+
+        backend.image(42, 128, 64)
+
+        img_call = [c for c in mock.calls if c["name"] == "imgui_image"][0]
+        assert img_call["args"] == (42, 128, 64)
+
+    def test_implements_uibackend(self):
+        """Test that ImGuiBackend is a valid UIBackend subclass."""
+        from procengine.game.ui_system import ImGuiBackend, UIBackend
+
+        assert issubclass(ImGuiBackend, UIBackend)
+
+    def test_works_with_ui_manager(self):
+        """Test that UIManager can use ImGuiBackend."""
+        backend, mock = self._make_backend()
+        ui = UIManager(1920, 1080, backend=backend)
+
+        ui.begin_frame()
+        ui.end_frame()
+
+        names = [c["name"] for c in mock.calls]
+        assert "imgui_new_frame" in names
+        assert "imgui_render" in names
