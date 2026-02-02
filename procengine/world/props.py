@@ -40,14 +40,16 @@ def generate_rock_descriptors(
 
     rng = registry.get_rng("props_rock")
     descriptors: List[Dict[str, object]] = []
-    for _ in range(count):
+    for i in range(count):
         position = rng.random(3) * size
         radius = float(rng.uniform(0.3, 1.2))
+        noise_seed = int(rng.integers(0, 2**31))
         descriptors.append(
             {
                 "type": "rock",
                 "position": position.tolist(),
                 "radius": radius,
+                "noise_seed": noise_seed,
             }
         )
     return descriptors

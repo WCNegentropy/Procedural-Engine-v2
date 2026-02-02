@@ -10,13 +10,26 @@ static constexpr float PI = 3.14159265358979323846f;
 static constexpr float DEG_TO_RAD = PI / 180.0f;
 
 // ============================================================================
-// Rock Mesh Generation (UV Sphere)
+// Rock Mesh Generation (Noise-displaced Sphere)
 // ============================================================================
+
+// Simple deterministic hash for vertex displacement (returns 0..1)
+static float vertex_hash(uint32_t seed, uint32_t index) {
+    uint32_t h = seed ^ (index * 2654435761u);
+    h ^= h >> 16;
+    h *= 0x45d9f3bu;
+    h ^= h >> 16;
+    h *= 0x45d9f3bu;
+    h ^= h >> 16;
+    return static_cast<float>(h & 0xFFFFu) / 65535.0f;
+}
 
 Mesh generate_rock_mesh(const RockDescriptor& desc, uint32_t segments, uint32_t rings) {
     Mesh mesh;
 
-    // Generate UV sphere vertices
+    float noise_magnitude = desc.noise_scale * desc.radius;
+
+    // Generate UV sphere vertices with noise displacement
     for (uint32_t ring = 0; ring <= rings; ++ring) {
         float phi = PI * static_cast<float>(ring) / static_cast<float>(rings);
         float sin_phi = std::sin(phi);
@@ -30,8 +43,13 @@ Mesh generate_rock_mesh(const RockDescriptor& desc, uint32_t segments, uint32_t 
             // Normal (unit sphere)
             Vec3 normal(sin_phi * cos_theta, cos_phi, sin_phi * sin_theta);
 
-            // Position (scaled and translated)
-            Vec3 vertex = desc.position + normal * desc.radius;
+            // Deterministic noise displacement along normal
+            uint32_t vertex_idx = ring * (segments + 1) + seg;
+            float noise = vertex_hash(desc.noise_seed, vertex_idx) * 2.0f - 1.0f;  // -1..+1
+            float displaced_radius = desc.radius + noise * noise_magnitude;
+
+            // Position (displaced and translated)
+            Vec3 vertex = desc.position + normal * displaced_radius;
 
             mesh.vertices.push_back(vertex);
             mesh.normals.push_back(normal);
@@ -52,6 +70,31 @@ Mesh generate_rock_mesh(const RockDescriptor& desc, uint32_t segments, uint32_t 
             mesh.indices.push_back(current + 1);
             mesh.indices.push_back(next);
             mesh.indices.push_back(next + 1);
+        }
+    }
+
+    // Recompute normals from displaced geometry for correct lighting
+    // Reset normals to zero
+    for (auto& n : mesh.normals) {
+        n = Vec3(0, 0, 0);
+    }
+    // Accumulate face normals
+    for (size_t i = 0; i < mesh.indices.size(); i += 3) {
+        uint32_t i0 = mesh.indices[i];
+        uint32_t i1 = mesh.indices[i + 1];
+        uint32_t i2 = mesh.indices[i + 2];
+        Vec3 edge1 = mesh.vertices[i1] - mesh.vertices[i0];
+        Vec3 edge2 = mesh.vertices[i2] - mesh.vertices[i0];
+        Vec3 face_normal = edge1.cross(edge2);
+        mesh.normals[i0] += face_normal;
+        mesh.normals[i1] += face_normal;
+        mesh.normals[i2] += face_normal;
+    }
+    // Normalize
+    for (auto& n : mesh.normals) {
+        float len = n.length();
+        if (len > 1e-6f) {
+            n = n / len;
         }
     }
 

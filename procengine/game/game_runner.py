@@ -1309,7 +1309,10 @@ class GameRunner:
                     entity_id=f"rock_{i}",
                     position=Vec3(pos[0], terrain_y + 0.1, pos[2]),  # Slightly above terrain
                     prop_type="rock",
-                    state={"radius": rock_desc["radius"]},
+                    state={
+                        "radius": rock_desc["radius"],
+                        "noise_seed": rock_desc.get("noise_seed", 0),
+                    },
                 )
                 self._world.spawn_entity(rock_prop)
 
