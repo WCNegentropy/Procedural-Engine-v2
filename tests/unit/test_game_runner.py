@@ -461,3 +461,42 @@ class TestGameRunnerIntegration:
         # Should have received some events (at least time updates)
         # Note: specific events depend on game state
         runner.shutdown()
+
+    def test_pause_unpause_via_keyboard(self):
+        """Test that pressing ESC key pauses and unpauses the game.
+        
+        This is a regression test for the issue where pressing ESC to pause
+        would hang the game because UI inputs weren't processed in PAUSED state.
+        """
+        config = RunnerConfig(headless=True)
+        backend = HeadlessBackend()
+        runner = GameRunner(config, backend=backend)
+        runner.initialize()
+
+        # Verify game starts in PLAYING state
+        assert runner.state == GameState.PLAYING
+
+        # Run one frame to initialize timing (first frame has frame_time=0)
+        runner._frame()
+        
+        # Simulate pressing ESC to pause and run frames for it to take effect
+        backend.simulate_key_press("ESCAPE")
+        runner._frame()  # This frame processes the input
+        
+        # Game should now be PAUSED
+        assert runner.state == GameState.PAUSED
+        assert runner.world.paused is True
+
+        # Clear the edge-triggered input state by running another frame
+        backend.simulate_key_release("ESCAPE")
+        runner._frame()
+
+        # Simulate pressing ESC again to unpause
+        backend.simulate_key_press("ESCAPE")
+        runner._frame()  # This frame processes the input
+        
+        # Game should now be PLAYING again
+        assert runner.state == GameState.PLAYING
+        assert runner.world.paused is False
+
+        runner.shutdown()

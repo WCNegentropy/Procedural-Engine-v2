@@ -578,8 +578,12 @@ jobs:
               --hidden-import numpy.core \
               --hidden-import pybind11 \
               --hidden-import procengine \
+              --hidden-import sdl2 \
+              --hidden-import sdl2.ext \
+              --hidden-import sdl2.sdlttf \
               --collect-submodules numpy \
               --collect-submodules procengine \
+              --collect-submodules sdl2 \
               main.py
           else
             echo "ERROR: No C++ module found - cannot build standalone"
@@ -608,8 +612,12 @@ jobs:
               "--hidden-import", "numpy.core",
               "--hidden-import", "pybind11",
               "--hidden-import", "procengine",
+              "--hidden-import", "sdl2",
+              "--hidden-import", "sdl2.ext",
+              "--hidden-import", "sdl2.sdlttf",
               "--collect-submodules", "numpy",
-              "--collect-submodules", "procengine"
+              "--collect-submodules", "procengine",
+              "--collect-submodules", "sdl2"
             )
 
             # Add DLLs if they exist
