@@ -539,7 +539,7 @@ class GraphicsBridge:
                 desc.radius = 0.5
                 if entity_state:
                     desc.noise_seed = int(entity_state.get("noise_seed", 0))
-                    desc.noise_scale = float(entity_state.get("noise_scale", 0.3))
+                    desc.noise_scale = float(entity_state.get("noise_scale", 0.15))
                 mesh = cpp.generate_rock_mesh(desc)
             elif entity_type == "tree":
                 if entity_state and "axiom" in entity_state:
