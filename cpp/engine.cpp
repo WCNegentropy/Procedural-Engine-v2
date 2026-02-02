@@ -15,7 +15,9 @@
 #include "graphics.h"
 #include "imgui.h"
 #include "imgui_impl_vulkan.h"
+#if HAS_SDL2
 #include "imgui_impl_sdl2.h"
+#endif
 #endif
 
 namespace py = pybind11;
@@ -1166,7 +1168,9 @@ PYBIND11_MODULE(procengine_cpp, m) {
 
     m.def("imgui_new_frame", []() {
         ImGui_ImplVulkan_NewFrame();
+#if HAS_SDL2
         ImGui_ImplSDL2_NewFrame();
+#endif
         ImGui::NewFrame();
     }, "Begin a new ImGui frame (Vulkan + SDL2 + ImGui::NewFrame)");
 

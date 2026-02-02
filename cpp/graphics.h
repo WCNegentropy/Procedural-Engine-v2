@@ -10,8 +10,10 @@
 #include <optional>
 #include "props.h"
 
-// Forward-declare SDL_Window so we can accept it for ImGui init
+// Forward-declare SDL_Window so we can accept it for ImGui init (SDL2 only)
+#if HAS_SDL2
 struct SDL_Window;
+#endif
 
 /**
  * Graphics system with Vulkan backend.

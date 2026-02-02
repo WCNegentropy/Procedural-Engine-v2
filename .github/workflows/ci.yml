@@ -87,7 +87,7 @@ jobs:
       - name: Cache apt packages
         uses: awalsh128/cache-apt-pkgs-action@latest
         with:
-          packages: build-essential cmake libssl-dev libvulkan-dev vulkan-validationlayers libshaderc-dev glslang-tools
+          packages: build-essential cmake libssl-dev libvulkan-dev vulkan-validationlayers libshaderc-dev glslang-tools libsdl2-dev
           version: 1.0
 
       - name: Install Python dependencies
@@ -176,17 +176,25 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Download SDL2 DLLs
+      - name: Download SDL2 development package
         shell: powershell
         run: |
-          # Download SDL2 runtime DLLs for Windows
+          # Download SDL2 development package (headers + libs + DLL) for Windows
           $SDL2_VERSION = "2.30.0"
-          $SDL2_URL = "https://github.com/libsdl-org/SDL/releases/download/release-$SDL2_VERSION/SDL2-$SDL2_VERSION-win32-x64.zip"
-          Invoke-WebRequest -Uri $SDL2_URL -OutFile SDL2.zip
+          # Development package includes headers, .lib, and .dll
+          $SDL2_DEV_URL = "https://github.com/libsdl-org/SDL/releases/download/release-$SDL2_VERSION/SDL2-devel-$SDL2_VERSION-VC.zip"
+          $SDL2_RT_URL = "https://github.com/libsdl-org/SDL/releases/download/release-$SDL2_VERSION/SDL2-$SDL2_VERSION-win32-x64.zip"
+          # Download and extract development package
+          Invoke-WebRequest -Uri $SDL2_DEV_URL -OutFile SDL2-devel.zip
+          Expand-Archive SDL2-devel.zip -DestinationPath SDL2_dev
+          $SDL2_DIR = "SDL2_dev/SDL2-$SDL2_VERSION"
+          echo "SDL2_DIR=$SDL2_DIR" >> $env:GITHUB_ENV
+          echo "SDL2 development package extracted to $SDL2_DIR"
+          # Also download runtime DLL for artifact
+          Invoke-WebRequest -Uri $SDL2_RT_URL -OutFile SDL2.zip
           Expand-Archive SDL2.zip -DestinationPath SDL2_temp
-          # Copy SDL2.dll to project root (will be included in artifact)
           Copy-Item SDL2_temp/SDL2.dll . -Force
-          echo "SDL2.dll downloaded and placed in project root"
+          echo "SDL2.dll placed in project root"
           Remove-Item SDL2.zip
           Remove-Item SDL2_temp -Recurse
 
@@ -215,7 +223,7 @@ jobs:
         run: |
           mkdir build
           cd build
-          cmake ../cpp -DCMAKE_BUILD_TYPE=Release -DOPENSSL_ROOT_DIR="C:/Program Files/OpenSSL" -DVULKAN_SDK="%VULKAN_SDK%" -DVulkan_INCLUDE_DIR="%VULKAN_SDK%/Include" -DVulkan_LIBRARY="%VULKAN_SDK%/Lib/vulkan-1.lib"
+          cmake ../cpp -DCMAKE_BUILD_TYPE=Release -DOPENSSL_ROOT_DIR="C:/Program Files/OpenSSL" -DVULKAN_SDK="%VULKAN_SDK%" -DVulkan_INCLUDE_DIR="%VULKAN_SDK%/Include" -DVulkan_LIBRARY="%VULKAN_SDK%/Lib/vulkan-1.lib" -DSDL2_DIR="%SDL2_DIR%/cmake"
 
       - name: Build C++ module
         run: |
@@ -313,7 +321,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          brew install molten-vk openssl shaderc glslang vulkan-headers || true
+          brew install molten-vk openssl shaderc glslang vulkan-headers sdl2 || true
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 

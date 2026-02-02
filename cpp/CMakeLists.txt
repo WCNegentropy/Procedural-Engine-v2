@@ -193,7 +193,59 @@ if(NOT NO_GRAPHICS)
     )
     FetchContent_MakeAvailable(imgui)
 
-    # Build Dear ImGui as a static library with Vulkan + SDL2 backends
+    # -------------------------------------------------------------------------
+    # Find SDL2 BEFORE building ImGui (needed for imgui_impl_sdl2.cpp)
+    # -------------------------------------------------------------------------
+    set(HAS_SDL2 FALSE)
+    find_package(SDL2 QUIET)
+    if(SDL2_FOUND)
+        set(HAS_SDL2 TRUE)
+        message(STATUS "Found SDL2 via find_package")
+    else()
+        # Fallback: Try pkg-config (common on Linux)
+        find_package(PkgConfig QUIET)
+        if(PkgConfig_FOUND)
+            pkg_check_modules(SDL2 QUIET sdl2)
+            if(SDL2_FOUND)
+                set(HAS_SDL2 TRUE)
+                message(STATUS "Found SDL2 via pkg-config")
+            endif()
+        endif()
+    endif()
+
+    if(NOT HAS_SDL2)
+        # Last resort: manual search for SDL2 headers
+        find_path(SDL2_MANUAL_INCLUDE_DIR
+            NAMES SDL.h
+            PATHS
+                /usr/include/SDL2
+                /usr/local/include/SDL2
+                /opt/homebrew/include/SDL2
+            PATH_SUFFIXES SDL2
+        )
+        if(SDL2_MANUAL_INCLUDE_DIR)
+            find_library(SDL2_MANUAL_LIB
+                NAMES SDL2
+                PATHS /usr/lib /usr/lib/x86_64-linux-gnu /usr/local/lib /opt/homebrew/lib
+            )
+            if(SDL2_MANUAL_LIB)
+                set(HAS_SDL2 TRUE)
+                set(SDL2_INCLUDE_DIRS "${SDL2_MANUAL_INCLUDE_DIR}/..")
+                set(SDL2_LIBRARIES "${SDL2_MANUAL_LIB}")
+                message(STATUS "Found SDL2 manually: ${SDL2_MANUAL_INCLUDE_DIR}")
+            endif()
+        endif()
+    endif()
+
+    if(NOT HAS_SDL2)
+        message(WARNING "SDL2 not found -- building ImGui without SDL2 backend.\n"
+            "  UI rendering will be limited to Vulkan-only (no SDL2 input).\n"
+            "  Install: apt install libsdl2-dev (Linux) / brew install sdl2 (macOS)")
+    endif()
+
+    # -------------------------------------------------------------------------
+    # Build Dear ImGui as a static library
+    # -------------------------------------------------------------------------
     set(IMGUI_SOURCES
         ${imgui_SOURCE_DIR}/imgui.cpp
         ${imgui_SOURCE_DIR}/imgui_demo.cpp
@@ -201,8 +253,13 @@ if(NOT NO_GRAPHICS)
         ${imgui_SOURCE_DIR}/imgui_tables.cpp
         ${imgui_SOURCE_DIR}/imgui_widgets.cpp
         ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
-        ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl2.cpp
     )
+
+    # Only include SDL2 backend when SDL2 headers are available
+    if(HAS_SDL2)
+        list(APPEND IMGUI_SOURCES ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl2.cpp)
+    endif()
+
     add_library(imgui_lib STATIC ${IMGUI_SOURCES})
     target_include_directories(imgui_lib PUBLIC
         ${imgui_SOURCE_DIR}
@@ -210,26 +267,17 @@ if(NOT NO_GRAPHICS)
     )
     target_link_libraries(imgui_lib PUBLIC Vulkan::Vulkan)
 
-    # Find SDL2 for the ImGui SDL2 backend
-    find_package(SDL2 QUIET)
-    if(SDL2_FOUND)
-        target_link_libraries(imgui_lib PUBLIC SDL2::SDL2)
-    else()
-        # Fallback: Try pkg-config for SDL2 (common on Linux)
-        find_package(PkgConfig QUIET)
-        if(PkgConfig_FOUND)
-            pkg_check_modules(SDL2 QUIET sdl2)
-            if(SDL2_FOUND)
-                target_include_directories(imgui_lib PUBLIC ${SDL2_INCLUDE_DIRS})
-                target_link_libraries(imgui_lib PUBLIC ${SDL2_LIBRARIES})
-            else()
-                message(WARNING "SDL2 not found -- ImGui SDL2 backend will not compile.\n"
-                    "  Install: apt install libsdl2-dev (Linux) / brew install sdl2 (macOS)")
-            endif()
+    if(HAS_SDL2)
+        target_compile_definitions(imgui_lib PUBLIC HAS_SDL2=1)
+        if(TARGET SDL2::SDL2)
+            target_link_libraries(imgui_lib PUBLIC SDL2::SDL2)
+        else()
+            target_include_directories(imgui_lib PUBLIC ${SDL2_INCLUDE_DIRS})
+            target_link_libraries(imgui_lib PUBLIC ${SDL2_LIBRARIES})
         endif()
     endif()
 
-    message(STATUS "Dear ImGui: ${imgui_SOURCE_DIR}")
+    message(STATUS "Dear ImGui: ${imgui_SOURCE_DIR} (SDL2=${HAS_SDL2})")
 endif()
 
 # Build module - conditionally include graphics.cpp

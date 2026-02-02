@@ -10,8 +10,10 @@
 // Dear ImGui integration
 #include "imgui.h"
 #include "imgui_impl_vulkan.h"
+#if HAS_SDL2
 #include "imgui_impl_sdl2.h"
 #include <SDL.h>
+#endif
 
 namespace graphics {
 
@@ -2696,11 +2698,15 @@ bool GraphicsSystem::init_imgui(uint64_t sdl_window_handle) {
         return false;
     }
 
+#if HAS_SDL2
     // Initialize the SDL2 backend (pass the SDL_Window pointer)
     SDL_Window* window = reinterpret_cast<SDL_Window*>(sdl_window_handle);
     if (window) {
         ImGui_ImplSDL2_InitForVulkan(window);
     }
+#else
+    (void)sdl_window_handle;  // unused without SDL2
+#endif
 
     // Initialize the Vulkan backend
     ImGui_ImplVulkan_InitInfo init_info{};
@@ -2724,7 +2730,11 @@ bool GraphicsSystem::init_imgui(uint64_t sdl_window_handle) {
     ImGui_ImplVulkan_CreateFontsTexture();
 
     imgui_initialized_ = true;
+#if HAS_SDL2
     std::cout << "Dear ImGui initialized (Vulkan + SDL2)" << std::endl;
+#else
+    std::cout << "Dear ImGui initialized (Vulkan only, no SDL2)" << std::endl;
+#endif
     return true;
 }
 
@@ -2736,7 +2746,9 @@ void GraphicsSystem::shutdown_imgui() {
     }
 
     ImGui_ImplVulkan_Shutdown();
+#if HAS_SDL2
     ImGui_ImplSDL2_Shutdown();
+#endif
     ImGui::DestroyContext();
 
     if (imgui_descriptor_pool_ != VK_NULL_HANDLE && device_ && device_->is_initialized()) {
@@ -2751,7 +2763,9 @@ void GraphicsSystem::shutdown_imgui() {
 void GraphicsSystem::imgui_new_frame() {
     if (!imgui_initialized_) return;
     ImGui_ImplVulkan_NewFrame();
+#if HAS_SDL2
     ImGui_ImplSDL2_NewFrame();
+#endif
     ImGui::NewFrame();
 }
 
