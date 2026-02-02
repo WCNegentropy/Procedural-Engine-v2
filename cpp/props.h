@@ -142,7 +142,7 @@ struct Mesh {
 };
 
 // ============================================================================
-// Rock Mesh Generation (Sphere approximation)
+// Rock Mesh Generation (Noise-displaced sphere)
 // ============================================================================
 
 /**
@@ -150,13 +150,18 @@ struct Mesh {
  */
 struct RockDescriptor {
     Vec3 position;
-    float radius;
+    float radius = 0.5f;
+    uint32_t noise_seed = 0;     // Seed for deterministic noise displacement
+    float noise_scale = 0.3f;    // Displacement magnitude relative to radius
 };
 
 /**
- * Generate a sphere mesh for a rock.
+ * Generate a noise-displaced sphere mesh for a rock.
  *
- * @param desc Rock descriptor with position and radius
+ * Each vertex is displaced along its normal by a deterministic hash-based
+ * noise value, producing irregular rocky shapes that vary per seed.
+ *
+ * @param desc Rock descriptor with position, radius, and noise parameters
  * @param segments Number of horizontal segments (longitude)
  * @param rings Number of vertical rings (latitude)
  * @return Triangle mesh for the rock

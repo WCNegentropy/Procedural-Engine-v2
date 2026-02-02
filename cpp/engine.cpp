@@ -572,13 +572,15 @@ PYBIND11_MODULE(procengine_cpp, m) {
     py::class_<props::RockDescriptor>(m, "RockDescriptor")
         .def(py::init<>())
         .def_readwrite("position", &props::RockDescriptor::position)
-        .def_readwrite("radius", &props::RockDescriptor::radius);
+        .def_readwrite("radius", &props::RockDescriptor::radius)
+        .def_readwrite("noise_seed", &props::RockDescriptor::noise_seed)
+        .def_readwrite("noise_scale", &props::RockDescriptor::noise_scale);
 
     m.def("generate_rock_mesh", &props::generate_rock_mesh,
           py::arg("desc"),
           py::arg("segments") = 16,
           py::arg("rings") = 12,
-          "Generate a sphere mesh for a rock");
+          "Generate a noise-displaced sphere mesh for a rock");
 
     // Tree mesh generation
     py::class_<props::LSystemRules>(m, "LSystemRules")
@@ -762,6 +764,12 @@ PYBIND11_MODULE(procengine_cpp, m) {
                 pos[2].cast<float>()
             );
             desc.radius = d["radius"].cast<float>();
+            if (d.contains("noise_seed")) {
+                desc.noise_seed = d["noise_seed"].cast<uint32_t>();
+            }
+            if (d.contains("noise_scale")) {
+                desc.noise_scale = d["noise_scale"].cast<float>();
+            }
         } catch (const py::cast_error& e) {
             throw std::runtime_error(std::string("Type conversion error in create_rock_from_dict: ") + e.what());
         }
