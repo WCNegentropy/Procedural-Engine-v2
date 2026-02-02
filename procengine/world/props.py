@@ -30,7 +30,7 @@ def generate_rock_descriptors(
     """Return ``count`` deterministic rock descriptors.
 
     Each descriptor contains a ``type`` string, a three component ``position``
-    within ``[0, size]`` cubed, and a ``radius`` scaled by ``size``.  All
+    within ``[0, size]`` cubed, and a ``radius`` in absolute world units.  All
     randomness flows through ``registry`` to satisfy the determinism
     contract.
     """
@@ -42,7 +42,7 @@ def generate_rock_descriptors(
     descriptors: List[Dict[str, object]] = []
     for _ in range(count):
         position = rng.random(3) * size
-        radius = float(rng.uniform(0.1, 0.5) * size)
+        radius = float(rng.uniform(0.3, 1.2))
         descriptors.append(
             {
                 "type": "rock",
