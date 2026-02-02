@@ -179,6 +179,59 @@ if(NOT NO_GRAPHICS)
     endif()
 endif()
 
+# =============================================================================
+# Dear ImGui (fetched via FetchContent, only when graphics enabled)
+# =============================================================================
+
+if(NOT NO_GRAPHICS)
+    include(FetchContent)
+    FetchContent_Declare(
+        imgui
+        GIT_REPOSITORY https://github.com/ocornut/imgui.git
+        GIT_TAG        v1.91.8
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_MakeAvailable(imgui)
+
+    # Build Dear ImGui as a static library with Vulkan + SDL2 backends
+    set(IMGUI_SOURCES
+        ${imgui_SOURCE_DIR}/imgui.cpp
+        ${imgui_SOURCE_DIR}/imgui_demo.cpp
+        ${imgui_SOURCE_DIR}/imgui_draw.cpp
+        ${imgui_SOURCE_DIR}/imgui_tables.cpp
+        ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+        ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
+        ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl2.cpp
+    )
+    add_library(imgui_lib STATIC ${IMGUI_SOURCES})
+    target_include_directories(imgui_lib PUBLIC
+        ${imgui_SOURCE_DIR}
+        ${imgui_SOURCE_DIR}/backends
+    )
+    target_link_libraries(imgui_lib PUBLIC Vulkan::Vulkan)
+
+    # Find SDL2 for the ImGui SDL2 backend
+    find_package(SDL2 QUIET)
+    if(SDL2_FOUND)
+        target_link_libraries(imgui_lib PUBLIC SDL2::SDL2)
+    else()
+        # Fallback: Try pkg-config for SDL2 (common on Linux)
+        find_package(PkgConfig QUIET)
+        if(PkgConfig_FOUND)
+            pkg_check_modules(SDL2 QUIET sdl2)
+            if(SDL2_FOUND)
+                target_include_directories(imgui_lib PUBLIC ${SDL2_INCLUDE_DIRS})
+                target_link_libraries(imgui_lib PUBLIC ${SDL2_LIBRARIES})
+            else()
+                message(WARNING "SDL2 not found -- ImGui SDL2 backend will not compile.\n"
+                    "  Install: apt install libsdl2-dev (Linux) / brew install sdl2 (macOS)")
+            endif()
+        endif()
+    endif()
+
+    message(STATUS "Dear ImGui: ${imgui_SOURCE_DIR}")
+endif()
+
 # Build module - conditionally include graphics.cpp
 set(MODULE_SOURCES
     engine.cpp
@@ -212,6 +265,7 @@ if(NOT NO_GRAPHICS)
     target_link_libraries(procengine_cpp PRIVATE
         Vulkan::Vulkan
         ${SHADERC_LIB}
+        imgui_lib
     )
 endif()
 
@@ -242,6 +296,7 @@ if(BUILD_STATIC_LIB OR BUILD_LAUNCHER)
         target_link_libraries(procengine_static PRIVATE
             Vulkan::Vulkan
             ${SHADERC_LIB}
+            imgui_lib
         )
     endif()
 

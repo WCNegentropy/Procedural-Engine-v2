@@ -13,6 +13,9 @@
 #include "materials.h"
 #ifndef NO_GRAPHICS
 #include "graphics.h"
+#include "imgui.h"
+#include "imgui_impl_vulkan.h"
+#include "imgui_impl_sdl2.h"
 #endif
 
 namespace py = pybind11;
@@ -1144,6 +1147,111 @@ PYBIND11_MODULE(procengine_cpp, m) {
         .def("get_stats", &graphics::GraphicsSystem::get_stats,
              "Get render statistics")
         .def("is_initialized", &graphics::GraphicsSystem::is_initialized,
-             "Check if graphics system is initialized");
+             "Check if graphics system is initialized")
+        .def("init_imgui", &graphics::GraphicsSystem::init_imgui,
+             py::arg("sdl_window_handle"),
+             "Initialize Dear ImGui with Vulkan + SDL2 backends")
+        .def("shutdown_imgui", &graphics::GraphicsSystem::shutdown_imgui,
+             "Shut down Dear ImGui")
+        .def("imgui_new_frame", &graphics::GraphicsSystem::imgui_new_frame,
+             "Begin a new ImGui frame")
+        .def("imgui_render", &graphics::GraphicsSystem::imgui_render,
+             "Finalize ImGui frame data for rendering")
+        .def("imgui_initialized", &graphics::GraphicsSystem::imgui_initialized,
+             "Check if Dear ImGui has been initialized");
+
+    // ========================================================================
+    // Dear ImGui bindings (free functions for Python ImGuiBackend)
+    // ========================================================================
+
+    m.def("imgui_new_frame", []() {
+        ImGui_ImplVulkan_NewFrame();
+        ImGui_ImplSDL2_NewFrame();
+        ImGui::NewFrame();
+    }, "Begin a new ImGui frame (Vulkan + SDL2 + ImGui::NewFrame)");
+
+    m.def("imgui_render", []() {
+        ImGui::Render();
+    }, "Finalize ImGui rendering (call before end_frame)");
+
+    m.def("imgui_begin", [](const std::string& title, int flags) -> bool {
+        return ImGui::Begin(title.c_str(), nullptr, static_cast<ImGuiWindowFlags>(flags));
+    }, py::arg("title"), py::arg("flags") = 0,
+    "Begin an ImGui window");
+
+    m.def("imgui_end", []() {
+        ImGui::End();
+    }, "End an ImGui window");
+
+    m.def("imgui_text", [](const std::string& text) {
+        ImGui::TextUnformatted(text.c_str());
+    }, py::arg("text"),
+    "Render unformatted text");
+
+    m.def("imgui_text_colored", [](const std::string& text, float r, float g, float b, float a) {
+        ImGui::TextColored(ImVec4(r, g, b, a), "%s", text.c_str());
+    }, py::arg("text"), py::arg("r"), py::arg("g"), py::arg("b"), py::arg("a") = 1.0f,
+    "Render colored text");
+
+    m.def("imgui_button", [](const std::string& label, float w, float h) -> bool {
+        return ImGui::Button(label.c_str(), ImVec2(w, h));
+    }, py::arg("label"), py::arg("width") = 0.0f, py::arg("height") = 0.0f,
+    "Render a button, returns true if clicked");
+
+    m.def("imgui_progress_bar", [](float fraction, float width, float height) {
+        ImGui::ProgressBar(fraction, ImVec2(width, height));
+    }, py::arg("fraction"), py::arg("width") = -1.0f, py::arg("height") = 0.0f,
+    "Render a progress bar");
+
+    m.def("imgui_separator", []() {
+        ImGui::Separator();
+    }, "Render a horizontal separator");
+
+    m.def("imgui_same_line", []() {
+        ImGui::SameLine();
+    }, "Place next widget on the same line");
+
+    m.def("imgui_spacing", []() {
+        ImGui::Spacing();
+    }, "Add vertical spacing");
+
+    m.def("imgui_image", [](uint64_t texture_id, float w, float h) {
+        ImGui::Image(static_cast<ImTextureID>(texture_id), ImVec2(w, h));
+    }, py::arg("texture_id"), py::arg("width"), py::arg("height"),
+    "Render an image by texture ID");
+
+    m.def("imgui_begin_child", [](const std::string& id, float w, float h, bool border) -> bool {
+        return ImGui::BeginChild(id.c_str(), ImVec2(w, h), border ? ImGuiChildFlags_Borders : ImGuiChildFlags_None);
+    }, py::arg("id"), py::arg("width") = 0.0f, py::arg("height") = 0.0f, py::arg("border") = false,
+    "Begin a scrollable child region");
+
+    m.def("imgui_end_child", []() {
+        ImGui::EndChild();
+    }, "End a child region");
+
+    m.def("imgui_columns", [](int count, bool border) {
+        ImGui::Columns(count, nullptr, border);
+    }, py::arg("count"), py::arg("border") = true,
+    "Set up column layout");
+
+    m.def("imgui_next_column", []() {
+        ImGui::NextColumn();
+    }, "Move to next column");
+
+    m.def("imgui_set_cursor_pos", [](float x, float y) {
+        ImGui::SetCursorPos(ImVec2(x, y));
+    }, py::arg("x"), py::arg("y"),
+    "Set cursor position within current window");
+
+    m.def("imgui_set_next_window_pos", [](float x, float y) {
+        ImGui::SetNextWindowPos(ImVec2(x, y), ImGuiCond_FirstUseEver);
+    }, py::arg("x"), py::arg("y"),
+    "Set position for the next window");
+
+    m.def("imgui_set_next_window_size", [](float w, float h) {
+        ImGui::SetNextWindowSize(ImVec2(w, h), ImGuiCond_FirstUseEver);
+    }, py::arg("width"), py::arg("height"),
+    "Set size for the next window");
+
 #endif // NO_GRAPHICS
 }

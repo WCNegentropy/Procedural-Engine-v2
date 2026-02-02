@@ -44,6 +44,7 @@ __all__ = [
     "QuestLog",
     "PauseMenu",
     "DebugOverlay",
+    "ImGuiBackend",
 ]
 
 
@@ -284,6 +285,86 @@ class HeadlessUIBackend(UIBackend):
             if c["type"] == "button" and text in c.get("label", ""):
                 return True
         return False
+
+
+class ImGuiBackend(UIBackend):
+    """Real UI backend that calls C++ Dear ImGui bindings via procengine_cpp.
+
+    This backend bridges the Python UI system to the C++ ImGui renderer.
+    Each method maps to the corresponding ImGui function exposed through pybind11.
+    Falls back gracefully if the C++ module is unavailable.
+    """
+
+    def __init__(self) -> None:
+        import procengine_cpp as cpp
+        self._cpp = cpp
+
+    def begin_frame(self) -> None:
+        self._cpp.imgui_new_frame()
+
+    def end_frame(self) -> None:
+        self._cpp.imgui_render()
+
+    def begin_window(
+        self,
+        title: str,
+        x: float,
+        y: float,
+        width: float,
+        height: float,
+        flags: int = 0,
+    ) -> bool:
+        self._cpp.imgui_set_next_window_pos(x, y)
+        self._cpp.imgui_set_next_window_size(width, height)
+        return self._cpp.imgui_begin(title, flags)
+
+    def end_window(self) -> None:
+        self._cpp.imgui_end()
+
+    def text(self, text: str) -> None:
+        self._cpp.imgui_text(text)
+
+    def text_colored(self, text: str, r: float, g: float, b: float, a: float = 1.0) -> None:
+        self._cpp.imgui_text_colored(text, r, g, b, a)
+
+    def button(self, label: str, width: float = 0, height: float = 0) -> bool:
+        return self._cpp.imgui_button(label, width, height)
+
+    def progress_bar(self, fraction: float, width: float = -1, height: float = 0) -> None:
+        self._cpp.imgui_progress_bar(fraction, width, height)
+
+    def separator(self) -> None:
+        self._cpp.imgui_separator()
+
+    def same_line(self) -> None:
+        self._cpp.imgui_same_line()
+
+    def spacing(self) -> None:
+        self._cpp.imgui_spacing()
+
+    def image(self, texture_id: int, width: float, height: float) -> None:
+        self._cpp.imgui_image(texture_id, width, height)
+
+    def begin_child(
+        self,
+        id_str: str,
+        width: float = 0,
+        height: float = 0,
+        border: bool = False,
+    ) -> bool:
+        return self._cpp.imgui_begin_child(id_str, width, height, border)
+
+    def end_child(self) -> None:
+        self._cpp.imgui_end_child()
+
+    def columns(self, count: int, border: bool = True) -> None:
+        self._cpp.imgui_columns(count, border)
+
+    def next_column(self) -> None:
+        self._cpp.imgui_next_column()
+
+    def set_cursor_pos(self, x: float, y: float) -> None:
+        self._cpp.imgui_set_cursor_pos(x, y)
 
 
 # =============================================================================

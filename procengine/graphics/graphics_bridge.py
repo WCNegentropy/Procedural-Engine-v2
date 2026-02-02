@@ -259,6 +259,16 @@ class GraphicsBridge:
                         self._headless = False
                         self._initialized = True
                         print("Graphics initialized with Vulkan surface (windowed mode)")
+
+                        # Phase 4: Initialize Dear ImGui for UI rendering
+                        if hasattr(window_backend, 'sdl_window_handle'):
+                            sdl_handle = window_backend.sdl_window_handle
+                            if sdl_handle and hasattr(self._graphics_system, 'init_imgui'):
+                                if self._graphics_system.init_imgui(sdl_handle):
+                                    print("Dear ImGui initialized on graphics bridge")
+                                else:
+                                    print("Warning: Dear ImGui initialization failed")
+
                         return True
                     else:
                         print("Warning: Failed to complete graphics init with surface")

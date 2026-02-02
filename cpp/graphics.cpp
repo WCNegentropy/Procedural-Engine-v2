@@ -7,6 +7,12 @@
 #include <set>
 #include <iostream>
 
+// Dear ImGui integration
+#include "imgui.h"
+#include "imgui_impl_vulkan.h"
+#include "imgui_impl_sdl2.h"
+#include <SDL.h>
+
 namespace graphics {
 
 // Debug logging control - set to false for production builds
@@ -2167,9 +2173,13 @@ void RenderContext::record_draw_commands() {
         std::cout << "===================" << std::endl;
     }
 
-    if (draw_queue_.empty()) {
+    // Check if we have anything to render (meshes or ImGui UI)
+    ImDrawData* pending_imgui = ImGui::GetDrawData();
+    bool has_imgui = pending_imgui && pending_imgui->CmdListsCount > 0;
+
+    if (draw_queue_.empty() && !has_imgui) {
         if (frame_number_ <= 5) {
-            std::cout << "WARNING: Draw queue is EMPTY!" << std::endl;
+            std::cout << "WARNING: Draw queue is EMPTY and no ImGui data!" << std::endl;
         }
         return;
     }
@@ -2250,6 +2260,12 @@ void RenderContext::record_draw_commands() {
 
         // Draw!
         vkCmdDrawIndexed(cmd, draw.mesh->index_count, 1, 0, 0, 0);
+    }
+
+    // Render Dear ImGui draw data on top of the scene (if available)
+    ImDrawData* imgui_draw_data = ImGui::GetDrawData();
+    if (imgui_draw_data && imgui_draw_data->CmdListsCount > 0) {
+        ImGui_ImplVulkan_RenderDrawData(imgui_draw_data, cmd);
     }
 
     vkCmdEndRenderPass(cmd);
@@ -2402,6 +2418,8 @@ void GraphicsSystem::shutdown() {
     if (device_ && device_->is_initialized()) {
         vkDeviceWaitIdle(device_->device());
     }
+
+    shutdown_imgui();
 
     if (default_pipeline_created_ && default_pipeline_.is_valid()) {
         device_->destroy_pipeline(default_pipeline_);
@@ -2636,6 +2654,112 @@ void main() {
     outColor = vec4(finalColor, fragColor.a);
 }
 )";
+}
+
+// =============================================================================
+// Dear ImGui integration implementation
+// =============================================================================
+
+static void imgui_check_vk_result(VkResult result) {
+    if (result != VK_SUCCESS) {
+        std::cerr << "[ImGui] Vulkan error: " << result << std::endl;
+    }
+}
+
+bool GraphicsSystem::init_imgui(uint64_t sdl_window_handle) {
+    if (imgui_initialized_) return true;
+    if (!device_ || !device_->is_initialized() || !render_context_) {
+        std::cerr << "Cannot init ImGui: graphics system not initialized" << std::endl;
+        return false;
+    }
+
+    // Create ImGui context
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    ImGui::StyleColorsDark();
+
+    // Create a dedicated descriptor pool for ImGui
+    VkDescriptorPoolSize pool_sizes[] = {
+        { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 100 },
+    };
+    VkDescriptorPoolCreateInfo pool_info{};
+    pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+    pool_info.maxSets = 100;
+    pool_info.poolSizeCount = 1;
+    pool_info.pPoolSizes = pool_sizes;
+    VkResult res = vkCreateDescriptorPool(device_->device(), &pool_info, nullptr, &imgui_descriptor_pool_);
+    if (res != VK_SUCCESS) {
+        std::cerr << "Failed to create ImGui descriptor pool: " << res << std::endl;
+        return false;
+    }
+
+    // Initialize the SDL2 backend (pass the SDL_Window pointer)
+    SDL_Window* window = reinterpret_cast<SDL_Window*>(sdl_window_handle);
+    if (window) {
+        ImGui_ImplSDL2_InitForVulkan(window);
+    }
+
+    // Initialize the Vulkan backend
+    ImGui_ImplVulkan_InitInfo init_info{};
+    init_info.Instance = device_->instance();
+    init_info.PhysicalDevice = device_->physical_device();
+    init_info.Device = device_->device();
+    init_info.QueueFamily = device_->queue_families().graphics_family.value_or(0);
+    init_info.Queue = device_->graphics_queue();
+    init_info.DescriptorPool = imgui_descriptor_pool_;
+    init_info.MinImageCount = 2;
+    init_info.ImageCount = static_cast<uint32_t>(device_->swapchain_image_views().size());
+    if (init_info.ImageCount < 2) init_info.ImageCount = 2;
+    init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+    init_info.RenderPass = render_context_->render_pass();
+    init_info.CheckVkResultFn = imgui_check_vk_result;
+
+    ImGui_ImplVulkan_Init(&init_info);
+
+    // Upload font textures to the GPU.
+    // ImGui 1.91+ simplified this to not require a command buffer parameter.
+    ImGui_ImplVulkan_CreateFontsTexture();
+
+    imgui_initialized_ = true;
+    std::cout << "Dear ImGui initialized (Vulkan + SDL2)" << std::endl;
+    return true;
+}
+
+void GraphicsSystem::shutdown_imgui() {
+    if (!imgui_initialized_) return;
+
+    if (device_ && device_->is_initialized()) {
+        vkDeviceWaitIdle(device_->device());
+    }
+
+    ImGui_ImplVulkan_Shutdown();
+    ImGui_ImplSDL2_Shutdown();
+    ImGui::DestroyContext();
+
+    if (imgui_descriptor_pool_ != VK_NULL_HANDLE && device_ && device_->is_initialized()) {
+        vkDestroyDescriptorPool(device_->device(), imgui_descriptor_pool_, nullptr);
+        imgui_descriptor_pool_ = VK_NULL_HANDLE;
+    }
+
+    imgui_initialized_ = false;
+    std::cout << "Dear ImGui shut down" << std::endl;
+}
+
+void GraphicsSystem::imgui_new_frame() {
+    if (!imgui_initialized_) return;
+    ImGui_ImplVulkan_NewFrame();
+    ImGui_ImplSDL2_NewFrame();
+    ImGui::NewFrame();
+}
+
+void GraphicsSystem::imgui_render() {
+    if (!imgui_initialized_) return;
+    ImGui::Render();
+    // The actual draw data is consumed in RenderContext::record_draw_commands()
+    // via ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd).
 }
 
 } // namespace graphics

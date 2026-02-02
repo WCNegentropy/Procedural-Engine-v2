@@ -10,6 +10,9 @@
 #include <optional>
 #include "props.h"
 
+// Forward-declare SDL_Window so we can accept it for ImGui init
+struct SDL_Window;
+
 /**
  * Graphics system with Vulkan backend.
  *
@@ -828,22 +831,59 @@ public:
      * Get underlying device (for advanced usage).
      */
     GraphicsDevice* device() { return device_.get(); }
-    
+
     /**
      * Get render context (for advanced usage).
      */
     RenderContext* render_context() { return render_context_.get(); }
+
+    // =========================================================================
+    // Dear ImGui integration
+    // =========================================================================
+
+    /**
+     * Initialize Dear ImGui with Vulkan and SDL2 backends.
+     * Must be called after the graphics system is fully initialized.
+     * @param sdl_window_handle Opaque pointer to the SDL_Window (cast from uint64_t).
+     * @return true on success
+     */
+    bool init_imgui(uint64_t sdl_window_handle);
+
+    /**
+     * Shut down Dear ImGui (called automatically from shutdown()).
+     */
+    void shutdown_imgui();
+
+    /**
+     * Begin a new ImGui frame (calls ImGui_Impl*_NewFrame + ImGui::NewFrame).
+     */
+    void imgui_new_frame();
+
+    /**
+     * Finalize ImGui frame data (ImGui::Render).
+     * The actual draw data is consumed in record_draw_commands.
+     */
+    void imgui_render();
+
+    /**
+     * Check whether ImGui has been initialized.
+     */
+    bool imgui_initialized() const { return imgui_initialized_; }
 
 private:
     std::unique_ptr<GraphicsDevice> device_;
     std::unique_ptr<RenderContext> render_context_;
     std::unique_ptr<ShaderCompiler> shader_compiler_;
     std::unique_ptr<VirtualTextureCache> texture_cache_;
-    
+
     // Default resources
     Pipeline default_pipeline_;
     bool default_pipeline_created_ = false;
-    
+
+    // Dear ImGui state
+    bool imgui_initialized_ = false;
+    VkDescriptorPool imgui_descriptor_pool_ = VK_NULL_HANDLE;
+
     // Create default shaders source
     std::string get_default_vertex_shader() const;
     std::string get_default_fragment_shader() const;
