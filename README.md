@@ -4,7 +4,7 @@
 
 Hybrid Python/C++ procedural game engine with deterministic world generation, 3D physics, complete game systems, and **fully working Vulkan graphics**. Building toward v2.0 AI-native RPG platform with MCP integration.
 
-**🎉 The game now renders!** Terrain with biome colors, player and NPC entities, and props are all visible with realistic lighting.
+**The game now renders!** Terrain with biome colors, player and NPC entities, and props are all visible with realistic lighting.
 
 ---
 
