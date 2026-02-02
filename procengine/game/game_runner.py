@@ -1063,7 +1063,9 @@ class GameRunner:
         # Render Props (rocks, trees, etc.)
         for entity in self._world.get_entities_by_type(Prop):
             prop_type = entity.prop_type
-            mesh_name = self._get_or_create_entity_mesh(entity.entity_id, prop_type)
+            mesh_name = self._get_or_create_entity_mesh(
+                entity.entity_id, prop_type, entity.state,
+            )
 
             # Scale based on prop type and state
             scale = 1.0
@@ -1072,7 +1074,7 @@ class GameRunner:
                 radius = entity.state.get("radius", 1.0)
                 scale = radius * 2.0  # Scale based on radius
             elif prop_type == "tree":
-                scale = 2.0  # Trees are taller
+                scale = 1.0  # L-system trees are naturally sized
 
             self._graphics_bridge.draw_entity(
                 mesh_name,
@@ -1082,7 +1084,9 @@ class GameRunner:
                 scale=scale,
             )
 
-    def _get_or_create_entity_mesh(self, entity_id: str, entity_type: str) -> str:
+    def _get_or_create_entity_mesh(
+        self, entity_id: str, entity_type: str, entity_state: dict | None = None,
+    ) -> str:
         """Get or create a mesh for an entity.
 
         Parameters
@@ -1091,6 +1095,8 @@ class GameRunner:
             Unique entity identifier.
         entity_type:
             Type of entity (player, npc, prop, etc.).
+        entity_state:
+            Optional entity state with descriptor parameters.
 
         Returns
         -------
@@ -1105,7 +1111,7 @@ class GameRunner:
 
         # Create and upload mesh using graphics bridge
         if self._graphics_bridge:
-            success = self._graphics_bridge.upload_entity_mesh(mesh_name, entity_type)
+            success = self._graphics_bridge.upload_entity_mesh(mesh_name, entity_type, entity_state)
             if not success:
                 print(f"Warning: Failed to upload {entity_type} mesh for {entity_id}")
                 # Try a simpler fallback mesh (small box via "default" entity type)
