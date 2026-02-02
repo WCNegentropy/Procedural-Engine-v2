@@ -2188,7 +2188,7 @@ void RenderContext::record_draw_commands() {
     render_pass_info.renderArea.extent = {width_, height_};
 
     std::array<VkClearValue, 2> clear_values{};
-    clear_values[0].color = {{0.1f, 0.1f, 0.15f, 1.0f}};  // Dark blue background
+    clear_values[0].color = {{0.4f, 0.5f, 0.7f, 1.0f}};  // Match fog color for smooth fading
     clear_values[1].depthStencil = {1.0f, 0};
 
     render_pass_info.clearValueCount = static_cast<uint32_t>(clear_values.size());
@@ -2607,8 +2607,8 @@ void main() {
     float skyDiffuse = max(dot(normal, skyDir), 0.0) * 0.5 + 0.5; // Hemisphere
     float groundDiffuse = max(dot(normal, -skyDir), 0.0) * 0.3;
     
-    // Combine lighting
-    vec3 lighting = sunColor * sunDiffuse * 0.7 
+    // Combine lighting (boosted sun for deeper contrast)
+    vec3 lighting = sunColor * sunDiffuse * 1.2 
                   + skyColor * skyDiffuse * 0.25 
                   + groundColor * groundDiffuse;
     
@@ -2623,11 +2623,12 @@ void main() {
     float dist = length(fragWorldPos - frame.cameraPos.xyz);
     float fogFactor = 1.0 - exp(-dist * 0.002);
     fogFactor = clamp(fogFactor, 0.0, 0.7);
-    vec3 fogColor = vec3(0.6, 0.7, 0.85);
+    vec3 fogColor = vec3(0.4, 0.5, 0.7);  // Deeper sky blue to avoid washed-out look
     finalColor = mix(finalColor, fogColor, fogFactor);
     
-    // Slight tone mapping
-    finalColor = finalColor / (finalColor + vec3(1.0));
+    // Tone mapping disabled: Reinhard compression makes non-HDR colors look washed out
+    // (A value of 1.0 gets compressed to 0.5, losing saturation)
+    // finalColor = finalColor / (finalColor + vec3(1.0));
     
     // Gamma correction
     finalColor = pow(finalColor, vec3(1.0 / 2.2));
