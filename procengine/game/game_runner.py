@@ -1031,6 +1031,13 @@ class GameRunner:
             # Still allow dialogue input processing
             pass
 
+        else:
+            # For PAUSED, INVENTORY, MENU, and other states:
+            # Process UI inputs (pause toggle, etc.) to allow unpausing
+            # In PLAYING state, this is handled by player_controller.update()
+            if self._player_controller:
+                self._player_controller.process_ui_inputs()
+
         # Call custom update callback
         if self._on_update:
             self._on_update(dt)

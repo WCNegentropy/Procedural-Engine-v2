@@ -852,6 +852,15 @@ class PlayerController:
         """
         return self._focused_entity
 
+    def process_ui_inputs(self) -> None:
+        """Process UI inputs (pause, inventory, etc.) regardless of game state.
+        
+        This method should be called every frame to ensure UI toggle inputs
+        like PAUSE are processed even when the game is paused.
+        This prevents the game from becoming stuck in a paused state.
+        """
+        self._handle_ui_input(self.input.state)
+
     def _handle_interaction(self, player: "Player", world: "GameWorld") -> None:
         """Handle interaction with nearby entities."""
         if not self.interaction_enabled:
