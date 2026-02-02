@@ -22,6 +22,7 @@ import numpy as np
 
 if TYPE_CHECKING:
     from procengine.game.game_api import NPC, GameWorld
+    from procengine.physics import Vec3
 
 __all__ = [
     "NodeStatus",

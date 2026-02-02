@@ -18,7 +18,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TypeVar
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TypeVar, TYPE_CHECKING
 
 from procengine.physics import Vec3, RigidBody3D, HeightField2D, step_physics_3d
 from procengine.core.seed_registry import SeedRegistry
@@ -30,6 +30,9 @@ from procengine.game.behavior_tree import (
     create_patrol_behavior,
     create_guard_behavior,
 )
+
+if TYPE_CHECKING:
+    import numpy as np
 
 __all__ = [
     # Core types

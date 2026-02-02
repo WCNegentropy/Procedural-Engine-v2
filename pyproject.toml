@@ -72,6 +72,8 @@ py-modules = ["main"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+# Exclude Legacy folder per ENGINE_REFERENCE.md - pre-restructure code for historical reference
+exclude = ["Legacy"]
 
 [tool.ruff.lint]
 select = [
