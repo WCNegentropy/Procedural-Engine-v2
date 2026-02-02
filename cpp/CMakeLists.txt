@@ -261,6 +261,7 @@ if(NOT NO_GRAPHICS)
     endif()
 
     add_library(imgui_lib STATIC ${IMGUI_SOURCES})
+    set_target_properties(imgui_lib PROPERTIES POSITION_INDEPENDENT_CODE ON)
     target_include_directories(imgui_lib PUBLIC
         ${imgui_SOURCE_DIR}
         ${imgui_SOURCE_DIR}/backends
