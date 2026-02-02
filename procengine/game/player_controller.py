@@ -30,6 +30,7 @@ __all__ = [
     "PlayerController",
     "CameraController",
     "Camera",
+    "InteractionTarget",
 ]
 
 
@@ -570,6 +571,20 @@ class CameraController:
 # =============================================================================
 
 
+@dataclass
+class InteractionTarget:
+    """Information about a focused interactable entity.
+    
+    Used by the UI to show interaction prompts (e.g., "Press E to Talk").
+    """
+    
+    entity_id: str
+    entity_name: str
+    entity_type: str  # "npc", "prop", "item"
+    action_text: str  # "Talk", "Open", "Pick up"
+    distance: float
+
+
 class PlayerController:
     """Translates input into player actions.
 
@@ -579,6 +594,7 @@ class PlayerController:
     - Sprinting toggle
     - Interaction with nearby entities
     - UI toggles
+    - Interaction context tracking for UI prompts
     """
 
     def __init__(
@@ -594,6 +610,9 @@ class PlayerController:
         self.interaction_enabled: bool = True
         self.in_dialogue: bool = False
         self.in_menu: bool = False
+        
+        # Interaction context - tracks the currently focused entity for UI prompts
+        self._focused_entity: Optional[InteractionTarget] = None
 
         # Callbacks for UI events
         self.on_inventory_toggle: Optional[Callable[[], None]] = None
@@ -629,10 +648,12 @@ class PlayerController:
         # Handle dialogue input if in dialogue
         if self.in_dialogue:
             self._handle_dialogue_input(state)
+            self._focused_entity = None  # Clear focus during dialogue
             return  # Skip movement while in dialogue
 
         # Skip movement if disabled or in menu
         if not self.movement_enabled or self.in_menu:
+            self._focused_entity = None  # Clear focus during menus
             return
 
         # Update camera
@@ -642,6 +663,9 @@ class PlayerController:
             dt,
             world._heightfield,
         )
+        
+        # Update interaction context - find nearest interactable entity
+        self._update_interaction_context(player, world)
 
         # Get movement input
         move_x, move_y = state.get_movement_vector()
@@ -722,6 +746,111 @@ class PlayerController:
         ]):
             if state.was_just_pressed(action) and self.on_dialogue_option:
                 self.on_dialogue_option(i)
+
+    def _update_interaction_context(self, player: "Player", world: "GameWorld") -> None:
+        """Update the focused entity for interaction UI prompts.
+        
+        Scans nearby entities and selects the best interaction target,
+        storing it in `_focused_entity` for the UI to display prompts.
+        
+        Quest-giver NPCs show "Talk (Quest!)" to indicate available quests.
+        """
+        if not self.interaction_enabled:
+            self._focused_entity = None
+            return
+
+        # Find interactable entities in range
+        nearby = world.get_entities_in_range(player.position, player.interaction_range)
+
+        best_target: Optional["Entity"] = None
+        best_distance = float("inf")
+        best_action_text = ""
+        best_entity_type = ""
+
+        for entity in nearby:
+            if entity.entity_id == player.entity_id:
+                continue
+
+            # Check if entity is interactable
+            from procengine.game.game_api import NPC, Prop
+
+            if isinstance(entity, NPC):
+                if entity.can_talk(player.position):
+                    distance = (entity.position - player.position).length()
+                    if distance < best_distance:
+                        best_target = entity
+                        best_distance = distance
+                        best_entity_type = "npc"
+                        
+                        # Check if NPC has an available quest for player
+                        has_available_quest = False
+                        if entity.current_quest:
+                            quest = world.get_quest(entity.current_quest)
+                            if quest and entity.current_quest not in player.active_quests:
+                                if entity.current_quest not in player.completed_quests:
+                                    has_available_quest = True
+                        
+                        # Also check if NPC is a quest giver by behavior
+                        if entity.behavior == "quest_giver":
+                            has_available_quest = True
+                        
+                        if has_available_quest:
+                            best_action_text = "Talk (Quest!)"
+                        elif entity.is_merchant:
+                            best_action_text = "Talk (Trade)"
+                        else:
+                            best_action_text = "Talk"
+
+            elif isinstance(entity, Prop):
+                if entity.interactable:
+                    distance = (entity.position - player.position).length()
+                    if distance < best_distance:
+                        best_target = entity
+                        best_distance = distance
+                        best_entity_type = "prop"
+                        # Determine action based on prop's interaction action
+                        action = entity.interaction_action
+                        if action == "open":
+                            best_action_text = "Open"
+                        elif action == "pickup":
+                            best_action_text = "Pick up"
+                        elif action == "activate":
+                            best_action_text = "Activate"
+                        else:
+                            best_action_text = "Interact"
+
+        # Update focused entity
+        if best_target:
+            # Get display name - NPCs have 'name', Props use 'prop_type' or entity_id
+            from procengine.game.game_api import NPC, Prop
+            if isinstance(best_target, NPC):
+                display_name = best_target.name
+            elif isinstance(best_target, Prop):
+                # Use prop_type as display name, capitalized
+                display_name = best_target.prop_type.replace("_", " ").title()
+            else:
+                display_name = best_target.entity_id
+            
+            self._focused_entity = InteractionTarget(
+                entity_id=best_target.entity_id,
+                entity_name=display_name,
+                entity_type=best_entity_type,
+                action_text=best_action_text,
+                distance=best_distance,
+            )
+        else:
+            self._focused_entity = None
+
+    def get_interaction_target(self) -> Optional[InteractionTarget]:
+        """Get the currently focused interaction target.
+        
+        Returns
+        -------
+        InteractionTarget or None:
+            The interaction target if there is a focused entity within range,
+            otherwise None. Used by UI to show interaction prompts.
+        """
+        return self._focused_entity
 
     def _handle_interaction(self, player: "Player", world: "GameWorld") -> None:
         """Handle interaction with nearby entities."""

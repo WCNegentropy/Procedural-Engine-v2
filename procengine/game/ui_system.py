@@ -33,6 +33,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from procengine.game.game_api import GameWorld, Player, NPC, Quest, Inventory, DialogueResponse
+    from procengine.game.player_controller import InteractionTarget
 
 __all__ = [
     "UIManager",
@@ -394,18 +395,39 @@ class HUD(UIComponent):
 
         self._backend.end_window()
 
-    def _render_interaction_prompt(self, target_name: str) -> None:
-        """Render interaction prompt."""
-        prompt_width = 200
+    def _render_interaction_prompt(self, target: "InteractionTarget") -> None:
+        """Render interaction prompt.
+        
+        Parameters
+        ----------
+        target:
+            The interaction target containing entity info and action text.
+            Expected to have: entity_name, action_text, entity_type, distance
+        """
+        # Calculate prompt width based on content
+        # Format: "[E] Action Entity Name"
+        prompt_text = f"[E] {target.action_text} {target.entity_name}"
+        prompt_width = max(
+            _PROMPT_MIN_WIDTH, 
+            len(prompt_text) * _CHAR_WIDTH_ESTIMATE + _PROMPT_PADDING
+        )
+        
         self._backend.begin_window(
             "##InteractionPrompt",
             (self._screen_width - prompt_width) / 2,
             self._screen_height - 100,
-            prompt_width, 40,
+            prompt_width, 50,
             flags=_NO_DECORATION_FLAGS,
         )
 
-        self._backend.text(f"[E] Talk to {target_name}")
+        # Color based on entity type
+        if target.entity_type == "npc":
+            self._backend.text_colored(prompt_text, *_COLOR_NPC_PROMPT)
+        elif target.entity_type == "prop":
+            self._backend.text_colored(prompt_text, *_COLOR_PROP_PROMPT)
+        else:
+            # White default
+            self._backend.text(prompt_text)
 
         self._backend.end_window()
 
@@ -735,7 +757,18 @@ class PauseMenu(UIComponent):
 
 
 class DebugOverlay(UIComponent):
-    """Debug overlay showing FPS and other stats."""
+    """Debug overlay showing FPS, player stats, and developer tools.
+    
+    This component provides essential development/debugging information:
+    - FPS counter and frame number
+    - Player position (X, Y, Z)
+    - Entity count in world
+    - Biome info at player location
+    - Memory/performance hints
+    - Reset World button for testing
+    
+    Toggle with F3 key (configurable in InputManager).
+    """
 
     def __init__(
         self,
@@ -746,6 +779,26 @@ class DebugOverlay(UIComponent):
         super().__init__(backend)
         self._screen_width = screen_width
         self._screen_height = screen_height
+        self._on_reset_world: Optional[Callable[[], None]] = None
+        self._on_toggle_physics_debug: Optional[Callable[[], None]] = None
+        self._show_advanced: bool = False  # Toggle for advanced stats
+
+    def set_callbacks(
+        self,
+        on_reset_world: Optional[Callable[[], None]] = None,
+        on_toggle_physics_debug: Optional[Callable[[], None]] = None,
+    ) -> None:
+        """Set debug action callbacks.
+        
+        Parameters
+        ----------
+        on_reset_world:
+            Called when "Reset World" button is pressed.
+        on_toggle_physics_debug:
+            Called when physics debug visualization is toggled.
+        """
+        self._on_reset_world = on_reset_world
+        self._on_toggle_physics_debug = on_toggle_physics_debug
 
     def render(
         self,
@@ -753,25 +806,90 @@ class DebugOverlay(UIComponent):
         frame_count: int = 0,
         player_pos: Optional[Tuple[float, float, float]] = None,
         entity_count: int = 0,
+        biome_name: Optional[str] = None,
+        physics_active: bool = True,
+        grounded: bool = False,
+        interaction_target: Optional[str] = None,
         **kwargs: Any,
     ) -> None:
+        """Render debug overlay.
+        
+        Parameters
+        ----------
+        fps:
+            Current frames per second.
+        frame_count:
+            Total frame count since start.
+        player_pos:
+            Player position as (x, y, z) tuple.
+        entity_count:
+            Number of entities in world.
+        biome_name:
+            Name of biome at player's location.
+        physics_active:
+            Whether physics simulation is running.
+        grounded:
+            Whether player is grounded.
+        interaction_target:
+            Name of entity player can interact with (if any).
+        """
         if not self._visible:
             return
 
+        # Calculate window size based on content
+        window_width = 220
+        window_height = 200 if self._show_advanced else 160
+
         self._backend.begin_window(
             "Debug",
-            self._screen_width - 210, self._screen_height - 150,
-            200, 140,
-            flags=_NO_DECORATION_FLAGS,
+            self._screen_width - window_width - 10, 
+            self._screen_height - window_height - 10,
+            window_width, window_height,
+            flags=_NO_RESIZE_FLAGS,
         )
 
-        self._backend.text(f"FPS: {fps:.1f}")
+        # Performance section
+        self._backend.text_colored("=== Performance ===", *_COLOR_SECTION_HEADER)
+        
+        # Color FPS based on performance
+        if fps >= _FPS_GOOD_THRESHOLD:
+            self._backend.text_colored(f"FPS: {fps:.1f}", *_COLOR_FPS_GOOD)
+        elif fps >= _FPS_WARNING_THRESHOLD:
+            self._backend.text_colored(f"FPS: {fps:.1f}", *_COLOR_FPS_WARNING)
+        else:
+            self._backend.text_colored(f"FPS: {fps:.1f}", *_COLOR_FPS_BAD)
+            
         self._backend.text(f"Frame: {frame_count}")
 
+        # Player section
+        self._backend.separator()
+        self._backend.text_colored("=== Player ===", *_COLOR_SECTION_HEADER)
+        
         if player_pos:
             self._backend.text(f"Pos: ({player_pos[0]:.1f}, {player_pos[1]:.1f}, {player_pos[2]:.1f})")
+        
+        # Ground state
+        ground_text = "Grounded" if grounded else "Airborne"
+        ground_color = _COLOR_GROUNDED if grounded else _COLOR_AIRBORNE
+        self._backend.text_colored(ground_text, *ground_color)
 
+        # World section
+        self._backend.separator()
+        self._backend.text_colored("=== World ===", *_COLOR_SECTION_HEADER)
         self._backend.text(f"Entities: {entity_count}")
+        
+        if biome_name:
+            self._backend.text(f"Biome: {biome_name}")
+            
+        if interaction_target:
+            self._backend.text_colored(f"Target: {interaction_target}", *_COLOR_TARGET)
+
+        # Action buttons
+        self._backend.separator()
+        
+        if self._backend.button("Reset World", 100, 25):
+            if self._on_reset_world:
+                self._on_reset_world()
 
         self._backend.end_window()
 
@@ -784,6 +902,26 @@ class DebugOverlay(UIComponent):
 # Window flags (would be ImGuiWindowFlags in real ImGui)
 _NO_DECORATION_FLAGS = 1  # No title bar, resize, etc.
 _NO_RESIZE_FLAGS = 2  # No resize
+
+# UI Layout Constants
+_CHAR_WIDTH_ESTIMATE = 8  # Estimated pixel width per character
+_PROMPT_PADDING = 40  # Extra padding for interaction prompts
+_PROMPT_MIN_WIDTH = 200  # Minimum prompt window width
+
+# FPS Performance Thresholds
+_FPS_GOOD_THRESHOLD = 55  # Above this = green (good)
+_FPS_WARNING_THRESHOLD = 30  # Above this = yellow (warning), below = red (bad)
+
+# UI Colors (R, G, B tuples, 0.0-1.0 range)
+_COLOR_FPS_GOOD = (0.3, 0.9, 0.3)  # Green
+_COLOR_FPS_WARNING = (0.9, 0.9, 0.3)  # Yellow
+_COLOR_FPS_BAD = (0.9, 0.3, 0.3)  # Red
+_COLOR_GROUNDED = (0.3, 0.9, 0.3)  # Green
+_COLOR_AIRBORNE = (0.6, 0.6, 0.9)  # Light blue
+_COLOR_NPC_PROMPT = (1.0, 0.85, 0.4)  # Gold/yellow
+_COLOR_PROP_PROMPT = (0.6, 0.8, 1.0)  # Light blue
+_COLOR_SECTION_HEADER = (0.8, 0.8, 0.3)  # Yellow
+_COLOR_TARGET = (0.9, 0.7, 0.3)  # Orange
 
 
 class UIManager:
@@ -858,8 +996,21 @@ class UIManager:
     # Component Rendering
     # -------------------------------------------------------------------------
 
-    def render_hud(self, player: Optional["Player"] = None) -> None:
-        """Render HUD elements."""
+    def render_hud(
+        self, 
+        player: Optional["Player"] = None,
+        interaction_target: Optional["InteractionTarget"] = None,
+    ) -> None:
+        """Render HUD elements.
+        
+        Parameters
+        ----------
+        player:
+            The player entity for health, quest tracking.
+        interaction_target:
+            Optional InteractionTarget from PlayerController for showing
+            "Press E to interact" prompts.
+        """
         if not player:
             return
 
@@ -870,15 +1021,6 @@ class UIManager:
                 quest = self._world.get_quest(quest_id)
                 if quest:
                     active_quests.append(quest)
-
-        # Get interaction target
-        interaction_target = None
-        if player.current_interaction_target and self._world:
-            entity = self._world.get_entity(player.current_interaction_target)
-            if entity:
-                from game_api import NPC
-                if isinstance(entity, NPC):
-                    interaction_target = entity.name
 
         self._hud.render(
             player=player,
@@ -923,16 +1065,37 @@ class UIManager:
         self._pause_menu.visible = True
         self._pause_menu.render()
 
-    def render_debug(self, fps: float, frame_count: int) -> None:
-        """Render debug overlay."""
+    def render_debug(
+        self, 
+        fps: float, 
+        frame_count: int,
+        interaction_target: Optional["InteractionTarget"] = None,
+    ) -> None:
+        """Render debug overlay.
+        
+        Parameters
+        ----------
+        fps:
+            Current frames per second.
+        frame_count:
+            Total frame count.
+        interaction_target:
+            Optional interaction target to display in debug info.
+        """
         player_pos = None
         entity_count = 0
+        grounded = False
+        target_name = None
 
         if self._world:
             player = self._world.get_player()
             if player:
                 player_pos = (player.position.x, player.position.y, player.position.z)
+                grounded = player.grounded
             entity_count = len(self._world._entities)
+        
+        if interaction_target:
+            target_name = interaction_target.entity_name
 
         self._debug_overlay.visible = True
         self._debug_overlay.render(
@@ -940,6 +1103,8 @@ class UIManager:
             frame_count=frame_count,
             player_pos=player_pos,
             entity_count=entity_count,
+            grounded=grounded,
+            interaction_target=target_name,
         )
 
     # -------------------------------------------------------------------------
@@ -1045,3 +1210,22 @@ class UIManager:
         """Set dialogue callbacks."""
         self._dialogue_box._on_option_selected = on_option
         self._dialogue_box._on_advance = on_advance
+
+    def set_debug_callbacks(
+        self,
+        on_reset_world: Optional[Callable[[], None]] = None,
+        on_toggle_physics_debug: Optional[Callable[[], None]] = None,
+    ) -> None:
+        """Set debug overlay callbacks.
+        
+        Parameters
+        ----------
+        on_reset_world:
+            Called when user clicks "Reset World" button in debug overlay.
+        on_toggle_physics_debug:
+            Called when user toggles physics debug visualization.
+        """
+        self._debug_overlay.set_callbacks(
+            on_reset_world=on_reset_world,
+            on_toggle_physics_debug=on_toggle_physics_debug,
+        )

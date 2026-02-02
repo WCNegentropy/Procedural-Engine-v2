@@ -11,6 +11,7 @@ from procengine.game.ui_system import (
     PauseMenu,
     DebugOverlay,
 )
+from procengine.game.player_controller import InteractionTarget
 from procengine.physics import Vec3
 
 
@@ -210,9 +211,18 @@ class TestHUD:
         hud = HUD(backend, 1920, 1080)
 
         player = MockPlayer()
+        
+        # Create an InteractionTarget for the prompt
+        target = InteractionTarget(
+            entity_id="npc_elder",
+            entity_name="Village Elder",
+            entity_type="npc",
+            action_text="Talk to",
+            distance=2.5,
+        )
 
         backend.begin_frame()
-        hud.render(player=player, interaction_target="Village Elder")
+        hud.render(player=player, interaction_target=target)
         backend.end_frame()
 
         assert backend.has_text("Talk to Village Elder")
@@ -515,6 +525,74 @@ class TestDebugOverlay:
         assert backend.has_text("Frame:")
         assert backend.has_text("Pos:")
         assert backend.has_text("Entities:")
+
+    def test_renders_grounded_state(self):
+        """Test grounded state is rendered."""
+        backend = HeadlessUIBackend()
+        debug = DebugOverlay(backend, 1920, 1080)
+
+        # Test grounded
+        backend.begin_frame()
+        debug.render(fps=60.0, grounded=True)
+        backend.end_frame()
+
+        assert backend.has_text("Grounded")
+
+        # Test airborne
+        backend.clear_calls()
+        backend.begin_frame()
+        debug.render(fps=60.0, grounded=False)
+        backend.end_frame()
+
+        assert backend.has_text("Airborne")
+
+    def test_renders_interaction_target(self):
+        """Test interaction target is shown in debug."""
+        backend = HeadlessUIBackend()
+        debug = DebugOverlay(backend, 1920, 1080)
+
+        backend.begin_frame()
+        debug.render(
+            fps=60.0,
+            interaction_target="Village Elder",
+        )
+        backend.end_frame()
+
+        assert backend.has_text("Target: Village Elder")
+
+    def test_reset_world_button_callback(self):
+        """Test Reset World button triggers callback."""
+        backend = HeadlessUIBackend()
+        debug = DebugOverlay(backend, 1920, 1080)
+
+        reset_called = [False]
+        debug.set_callbacks(on_reset_world=lambda: reset_called.__setitem__(0, True))
+
+        # Simulate button click
+        backend.set_button_response("Reset World", True)
+
+        backend.begin_frame()
+        debug.render(fps=60.0)
+        backend.end_frame()
+
+        assert reset_called[0] is True
+
+    def test_fps_color_coding(self):
+        """Test FPS is color-coded based on performance."""
+        backend = HeadlessUIBackend()
+        debug = DebugOverlay(backend, 1920, 1080)
+
+        # Good FPS (should be green)
+        backend.begin_frame()
+        debug.render(fps=60.0)
+        backend.end_frame()
+
+        # Find the FPS text_colored call
+        fps_calls = [c for c in backend.get_calls() 
+                     if c["type"] == "text_colored" and "FPS:" in str(c.get("text", ""))]
+        assert len(fps_calls) > 0
+        # Green = high g value
+        assert fps_calls[0]["g"] > 0.5
 
 
 # =============================================================================

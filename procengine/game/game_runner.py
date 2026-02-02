@@ -784,9 +784,43 @@ class GameRunner:
                 self._backend.height,
             )
             self._ui_manager.set_world(self._world)
+            
+            # Set up debug overlay callbacks
+            self._ui_manager.set_debug_callbacks(
+                on_reset_world=self._on_reset_world,
+            )
         except ImportError:
             # UI system not available
             pass
+
+    def _on_reset_world(self) -> None:
+        """Handle reset world button press from debug overlay."""
+        if self._world:
+            # Reset player position to spawn point
+            player = self._world.get_player()
+            if player:
+                spawn_x = self.config.chunk_size // 2
+                spawn_z = self.config.chunk_size // 2
+                terrain_y = 0.0
+                
+                # Get terrain height if available
+                if self._terrain_heightmap is not None:
+                    px = int(spawn_x) % self.config.chunk_size
+                    pz = int(spawn_z) % self.config.chunk_size
+                    terrain_y = float(self._terrain_heightmap[pz, px])
+                
+                player.position = Vec3(spawn_x, terrain_y + 2.0, spawn_z)
+                player.velocity = Vec3(0, 0, 0)
+                player.grounded = True
+                player.health = player.max_health
+                
+            # Reset game state to playing
+            self._state = GameState.PLAYING
+            if self._player_controller:
+                self._player_controller.in_dialogue = False
+                self._player_controller.in_menu = False
+                self._player_controller.movement_enabled = True
+                self._player_controller.interaction_enabled = True
 
     def _init_commands(self) -> None:
         """Initialize the command system."""
@@ -1387,12 +1421,17 @@ class GameRunner:
         """Render UI elements."""
         if self._ui_manager and self.config.enable_ui:
             player = self._world.get_player() if self._world else None
+            
+            # Get interaction target from player controller for UI prompts
+            interaction_target = None
+            if self._player_controller:
+                interaction_target = self._player_controller.get_interaction_target()
 
             self._ui_manager.begin_frame()
 
             # Render appropriate UI based on state
             if self._state == GameState.PLAYING:
-                self._ui_manager.render_hud(player)
+                self._ui_manager.render_hud(player, interaction_target)
 
             elif self._state == GameState.PAUSED:
                 self._ui_manager.render_hud(player)
@@ -1408,7 +1447,11 @@ class GameRunner:
 
             # Debug overlay
             if self.config.enable_debug:
-                self._ui_manager.render_debug(self._fps, self._frame_count)
+                self._ui_manager.render_debug(
+                    self._fps, 
+                    self._frame_count,
+                    interaction_target,
+                )
 
             self._ui_manager.end_frame()
 
@@ -1565,8 +1608,38 @@ class GameRunner:
         self._on_render = callback
 
     def set_ui_callback(self, callback: Callable[[], None]) -> None:
-        """Set custom UI render callback."""
+        """Set custom UI render callback.
+        
+        The callback is invoked after standard UI rendering is complete,
+        allowing custom UI overlays (debug windows, ImGui panels, etc.)
+        to be rendered. The callback is called once per frame.
+        
+        Example usage:
+            def my_custom_ui():
+                # Draw custom ImGui windows or overlays
+                pass
+            
+            runner.set_ui_callback(my_custom_ui)
+        """
         self._on_ui = callback
+
+    @property
+    def player_controller(self) -> Optional[PlayerController]:
+        """Get the player controller.
+        
+        Provides access to camera, input state, and interaction context
+        for custom UI rendering or external systems.
+        """
+        return self._player_controller
+
+    @property
+    def ui_manager(self) -> Optional["UIManager"]:
+        """Get the UI manager.
+        
+        Provides access to UI components for custom rendering or
+        direct component manipulation.
+        """
+        return self._ui_manager
 
     def quit(self) -> None:
         """Request game exit."""
