@@ -507,8 +507,9 @@ class GraphicsBridge:
         self,
         name: str,
         entity_type: str,
+        entity_state: Optional[Dict[str, Any]] = None,
     ) -> bool:
-        """Create and upload an entity placeholder mesh.
+        """Create and upload an entity mesh.
 
         Parameters
         ----------
@@ -516,6 +517,9 @@ class GraphicsBridge:
             Unique name for the entity mesh.
         entity_type:
             Type of entity (player, npc, rock, tree, building, etc.).
+        entity_state:
+            Optional entity state dict with descriptor parameters
+            (e.g. L-system params for trees, radius for rocks).
 
         Returns
         -------
@@ -525,19 +529,28 @@ class GraphicsBridge:
         try:
             import procengine_cpp as cpp
 
-            # Select appropriate primitive mesh based on entity type
+            # Select appropriate mesh based on entity type
             if entity_type in ("player", "npc", "character"):
                 # Capsule for humanoid characters (radius, height, segments, rings)
                 mesh = cpp.generate_capsule_mesh(0.5, 1.5, 16, 8)
             elif entity_type == "rock":
-                # Use existing rock mesh generator
                 desc = cpp.RockDescriptor()
                 desc.position = cpp.Vec3(0, 0, 0)
                 desc.radius = 0.5
                 mesh = cpp.generate_rock_mesh(desc)
             elif entity_type == "tree":
-                # Cylinder as placeholder for trees (radius, height, segments)
-                mesh = cpp.generate_cylinder_mesh(0.2, 3.0, 16)
+                if entity_state and "axiom" in entity_state:
+                    # Build proper L-system tree mesh from entity state
+                    desc = cpp.create_tree_from_dict({
+                        "axiom": entity_state["axiom"],
+                        "rules": entity_state.get("rules", {"F": "F[+F]F[-F]F"}),
+                        "angle": entity_state.get("angle", 25.0),
+                        "iterations": min(entity_state.get("iterations", 2), 4),
+                    })
+                    mesh = cpp.generate_tree_mesh(desc)
+                else:
+                    # Fallback cylinder if no L-system state available
+                    mesh = cpp.generate_cylinder_mesh(0.2, 3.0, 16)
             elif entity_type == "building":
                 # Box for buildings
                 mesh = cpp.generate_box_mesh(cpp.Vec3(3, 2, 3))
