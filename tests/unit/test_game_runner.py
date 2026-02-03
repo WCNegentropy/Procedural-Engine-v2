@@ -227,16 +227,20 @@ class TestGameRunner:
         config = RunnerConfig(headless=True)
         runner = GameRunner(config)
         runner.initialize()
+        captured = []
+        runner.backend.set_mouse_capture = captured.append
 
         # Trigger pause
         runner._on_pause_pressed()
         assert runner.state == GameState.PAUSED
         assert runner.world.paused is True
+        assert captured == [False]
 
         # Trigger unpause
         runner._on_pause_pressed()
         assert runner.state == GameState.PLAYING
         assert runner.world.paused is False
+        assert captured == [False, True]
 
         runner.shutdown()
 
@@ -245,14 +249,18 @@ class TestGameRunner:
         config = RunnerConfig(headless=True)
         runner = GameRunner(config)
         runner.initialize()
+        captured = []
+        runner.backend.set_mouse_capture = captured.append
 
         # Open inventory
         runner._on_inventory_pressed()
         assert runner.state == GameState.INVENTORY
+        assert captured == [False]
 
         # Close inventory
         runner._on_inventory_pressed()
         assert runner.state == GameState.PLAYING
+        assert captured == [False, True]
 
         runner.shutdown()
 
@@ -418,6 +426,8 @@ class TestGameRunnerIntegration:
         config = RunnerConfig(headless=True)
         runner = GameRunner(config)
         runner.initialize()
+        captured = []
+        runner.backend.set_mouse_capture = captured.append
 
         # Spawn an NPC near the player
         npc = NPC(
@@ -434,10 +444,12 @@ class TestGameRunnerIntegration:
         success = runner.start_dialogue("test_npc")
         assert success
         assert runner.state == GameState.DIALOGUE
+        assert captured == [False]
 
         # End dialogue
         runner.end_dialogue()
         assert runner.state == GameState.PLAYING
+        assert captured == [False, True]
 
         runner.shutdown()
 

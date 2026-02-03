@@ -1,5 +1,10 @@
 # Test Results
 
+## 2026-02-03 (Mouse Capture State)
+- **Python Test Suite**: `pytest tests/unit/test_game_runner.py -q` → 26 passed in 0.37s
+- **Notes**:
+  - Verified pause, inventory, and dialogue mouse capture toggles via headless backend
+
 ## 2026-01-11 (Terrain Collision Fix)
 - **Python Test Suite**: `pytest -q` → 351 passed in 3.72s (1 skipped, excluding C++ module tests)
   - Game API: 48 tests (entities, inventory, quests, dialogue, save/load, GameWorld)
