@@ -797,6 +797,18 @@ class GameRunner:
                 try:
                     from procengine.game.ui_system import ImGuiBackend
                     backend = ImGuiBackend()
+
+                    # Initialize C++ ImGui context with the SDL window handle
+                    # This bridges the gap between the Python UI system and C++ renderer
+                    if self._backend and hasattr(self._backend, 'sdl_window_handle'):
+                        handle = self._backend.sdl_window_handle
+                        if handle and self._graphics_bridge:
+                            success = self._graphics_bridge.init_imgui(handle)
+                            if success:
+                                print("UI: C++ ImGui context initialized successfully")
+                            else:
+                                print("UI: Failed to initialize C++ ImGui context")
+
                     print("UI: Using ImGuiBackend (C++ Dear ImGui renderer)")
                 except (ImportError, Exception) as exc:
                     print(f"UI: ImGui backend not available ({exc}), using headless")

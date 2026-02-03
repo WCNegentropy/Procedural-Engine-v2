@@ -491,3 +491,35 @@ class TestVulkanSurfaceIntegration:
         
         assert bridge.is_initialized
         assert bridge.is_headless  # Should be headless without backend
+
+
+class TestImGuiInitialization:
+    """Tests for ImGui initialization."""
+
+    def test_init_imgui_headless_returns_false(self):
+        """Test init_imgui returns False in headless mode."""
+        bridge = GraphicsBridge()
+        bridge.initialize()
+
+        # In headless mode, init_imgui should return False
+        assert bridge.is_headless
+        result = bridge.init_imgui(12345)
+        assert result is False
+
+    def test_init_imgui_not_initialized_returns_false(self):
+        """Test init_imgui returns False when not initialized."""
+        bridge = GraphicsBridge()
+
+        # Bridge not initialized
+        assert not bridge.is_initialized
+        result = bridge.init_imgui(12345)
+        assert result is False
+
+    def test_init_imgui_with_zero_handle(self):
+        """Test init_imgui with zero handle."""
+        bridge = GraphicsBridge()
+        bridge.initialize()
+
+        # Even a zero handle should be handled gracefully
+        result = bridge.init_imgui(0)
+        assert result is False  # Headless mode
