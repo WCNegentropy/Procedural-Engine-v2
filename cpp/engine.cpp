@@ -1176,6 +1176,7 @@ PYBIND11_MODULE(procengine_cpp, m) {
               io.DisplaySize = ImVec2(width, height);
               io.DeltaTime = dt > 0.0f ? dt : 1.0f / 60.0f;
 #endif
+              // ImGui mouse button indices: 0=left, 1=middle, 2=right.
               io.MouseDown[0] = left_down;
               io.MouseDown[2] = right_down;
               ImGui::NewFrame();

@@ -1089,10 +1089,10 @@ class UIManager:
     def begin_frame(
         self,
         dt: float = 1.0 / 60.0,
-        left_down: bool = False,
-        right_down: bool = False,
         width: Optional[float] = None,
         height: Optional[float] = None,
+        left_down: bool = False,
+        right_down: bool = False,
     ) -> None:
         """Begin UI frame."""
         frame_width = self._screen_width if width is None else width
