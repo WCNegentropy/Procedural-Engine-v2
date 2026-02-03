@@ -154,6 +154,11 @@ class WindowBackend(ABC):
         """Whether window has focus."""
         pass
 
+    @abstractmethod
+    def set_mouse_capture(self, captured: bool) -> None:
+        """Set mouse capture state (True=Locked/Hidden, False=Free/Visible)."""
+        pass
+
 
 class HeadlessBackend(WindowBackend):
     """Headless backend for testing without a window.
@@ -250,6 +255,9 @@ class HeadlessBackend(WindowBackend):
     @property
     def is_focused(self) -> bool:
         return True
+
+    def set_mouse_capture(self, captured: bool) -> None:
+        pass
 
     # Headless-specific methods for testing
 
@@ -563,6 +571,15 @@ def create_sdl2_backend() -> Optional[WindowBackend]:
             @property
             def is_focused(self) -> bool:
                 return self._focused
+
+            def set_mouse_capture(self, captured: bool) -> None:
+                # True = Locked (Relative Mode), False = Free (Absolute Mode)
+                mode = sdl2.SDL_TRUE if captured else sdl2.SDL_FALSE
+                sdl2.SDL_SetRelativeMouseMode(mode)
+
+                # Ensure cursor is visible when unlocked
+                # SDL_DISABLE (0) hides cursor, SDL_ENABLE (1) shows it
+                sdl2.SDL_ShowCursor(sdl2.SDL_DISABLE if captured else sdl2.SDL_ENABLE)
 
         return SDL2Backend()
 
@@ -1511,15 +1528,18 @@ class GameRunner:
         if self._state == GameState.PLAYING:
             self._state = GameState.PAUSED
             self._world.paused = True
+            self._backend.set_mouse_capture(False)
         elif self._state == GameState.PAUSED:
             self._state = GameState.PLAYING
             self._world.paused = False
+            self._backend.set_mouse_capture(True)
         elif self._state in (GameState.INVENTORY, GameState.DIALOGUE):
             # Close current UI
             self._state = GameState.PLAYING
             if self._player_controller:
                 self._player_controller.in_dialogue = False
                 self._player_controller.in_menu = False
+            self._backend.set_mouse_capture(True)
 
     def _on_inventory_pressed(self) -> None:
         """Handle inventory button press."""
@@ -1527,10 +1547,12 @@ class GameRunner:
             self._state = GameState.INVENTORY
             if self._player_controller:
                 self._player_controller.in_menu = True
+            self._backend.set_mouse_capture(False)
         elif self._state == GameState.INVENTORY:
             self._state = GameState.PLAYING
             if self._player_controller:
                 self._player_controller.in_menu = False
+            self._backend.set_mouse_capture(True)
 
     def _on_dialogue_advance(self) -> None:
         """Handle dialogue advance."""
@@ -1571,6 +1593,7 @@ class GameRunner:
                 npc = self._world.get_entity(npc_id)
                 if isinstance(npc, NPC):
                     self._ui_manager.start_dialogue(npc)
+            self._backend.set_mouse_capture(False)
             return True
         return False
 
@@ -1582,6 +1605,7 @@ class GameRunner:
                 self._world.end_dialogue(player.current_interaction_target)
             self._player_controller.end_dialogue()
         self._state = GameState.PLAYING
+        self._backend.set_mouse_capture(True)
 
     @property
     def world(self) -> Optional[GameWorld]:
