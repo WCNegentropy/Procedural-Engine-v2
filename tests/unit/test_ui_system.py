@@ -733,8 +733,8 @@ class MockCppModule:
     def _record(self, name, *args, **kwargs):
         self.calls.append({"name": name, "args": args, "kwargs": kwargs})
 
-    def imgui_new_frame(self):
-        self._record("imgui_new_frame")
+    def imgui_new_frame(self, dt=1.0 / 60.0, width=0.0, height=0.0, left_down=False, right_down=False):
+        self._record("imgui_new_frame", dt, width, height, left_down, right_down)
 
     def imgui_render(self):
         self._record("imgui_render")
@@ -810,7 +810,7 @@ class TestImGuiBackend:
         """Test frame calls delegate to C++."""
         backend, mock = self._make_backend()
 
-        backend.begin_frame()
+        backend.begin_frame(1.0 / 60.0, 1920, 1080, True, False)
         backend.end_frame()
 
         names = [c["name"] for c in mock.calls]
@@ -939,3 +939,5 @@ class TestImGuiBackend:
         names = [c["name"] for c in mock.calls]
         assert "imgui_new_frame" in names
         assert "imgui_render" in names
+        new_frame_call = [c for c in mock.calls if c["name"] == "imgui_new_frame"][0]
+        assert new_frame_call["args"] == (1.0 / 60.0, 1920, 1080, False, False)

@@ -57,7 +57,14 @@ class UIBackend(ABC):
     """Abstract UI rendering backend."""
 
     @abstractmethod
-    def begin_frame(self) -> None:
+    def begin_frame(
+        self,
+        dt: float = 1.0 / 60.0,
+        width: float = 0.0,
+        height: float = 0.0,
+        left_down: bool = False,
+        right_down: bool = False,
+    ) -> None:
         """Begin UI frame."""
         pass
 
@@ -169,7 +176,14 @@ class HeadlessUIBackend(UIBackend):
         self._window_stack: List[str] = []
         self._button_responses: Dict[str, bool] = {}
 
-    def begin_frame(self) -> None:
+    def begin_frame(
+        self,
+        dt: float = 1.0 / 60.0,
+        width: float = 0.0,
+        height: float = 0.0,
+        left_down: bool = False,
+        right_down: bool = False,
+    ) -> None:
         self._in_frame = True
         self._frame_calls = []
 
@@ -299,8 +313,15 @@ class ImGuiBackend(UIBackend):
         import procengine_cpp as cpp
         self._cpp = cpp
 
-    def begin_frame(self) -> None:
-        self._cpp.imgui_new_frame()
+    def begin_frame(
+        self,
+        dt: float = 1.0 / 60.0,
+        width: float = 0.0,
+        height: float = 0.0,
+        left_down: bool = False,
+        right_down: bool = False,
+    ) -> None:
+        self._cpp.imgui_new_frame(dt, width, height, left_down, right_down)
 
     def end_frame(self) -> None:
         self._cpp.imgui_render()
@@ -1065,9 +1086,20 @@ class UIManager:
         """Cleanup UI resources."""
         pass
 
-    def begin_frame(self) -> None:
+    def begin_frame(
+        self,
+        dt: float = 1.0 / 60.0,
+        left_down: bool = False,
+        right_down: bool = False,
+    ) -> None:
         """Begin UI frame."""
-        self._backend.begin_frame()
+        self._backend.begin_frame(
+            dt,
+            self._screen_width,
+            self._screen_height,
+            left_down,
+            right_down,
+        )
 
     def end_frame(self) -> None:
         """End UI frame."""
