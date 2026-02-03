@@ -1044,8 +1044,7 @@ class GameRunner:
 
         # Render
         self._backend.begin_frame()
-        self._render()
-        self._render_ui()
+        self._render()  # Now includes UI rendering before end_frame
         self._backend.end_frame()
 
         self._frame_count += 1
@@ -1101,6 +1100,9 @@ class GameRunner:
             # Render all entities in the world
             if self._world:
                 self._render_entities()
+
+            # Render UI *before* ending the frame so ImGui draw data is captured
+            self._render_ui()
 
             # End rendering
             self._graphics_bridge.end_frame()
