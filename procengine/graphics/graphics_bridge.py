@@ -311,6 +311,34 @@ class GraphicsBridge:
             self._graphics_system.shutdown()
         self._initialized = False
 
+    def init_imgui(self, window_handle: int) -> bool:
+        """Initialize Dear ImGui with the window handle.
+
+        This allows explicit ImGui initialization after the graphics system
+        has been initialized, useful when the window handle is available
+        later in the initialization sequence.
+
+        Parameters
+        ----------
+        window_handle:
+            Pointer to the SDL window (as an integer).
+
+        Returns
+        -------
+        bool:
+            True if ImGui was successfully initialized, False otherwise.
+        """
+        if self._headless or not self._graphics_system:
+            return False
+
+        try:
+            if hasattr(self._graphics_system, 'init_imgui'):
+                return self._graphics_system.init_imgui(window_handle)
+        except Exception as e:
+            print(f"Failed to init ImGui: {e}")
+
+        return False
+
     @property
     def is_initialized(self) -> bool:
         """Check if initialized."""
