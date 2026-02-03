@@ -1177,7 +1177,7 @@ PYBIND11_MODULE(procengine_cpp, m) {
               io.DeltaTime = dt > 0.0f ? dt : 1.0f / 60.0f;
 #endif
               io.MouseDown[0] = left_down;
-              io.MouseDown[1] = right_down;
+              io.MouseDown[2] = right_down;
               ImGui::NewFrame();
           },
           py::arg("dt") = 1.0f / 60.0f,
