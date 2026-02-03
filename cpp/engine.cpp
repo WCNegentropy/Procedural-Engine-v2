@@ -1168,15 +1168,14 @@ PYBIND11_MODULE(procengine_cpp, m) {
 
     m.def("imgui_new_frame",
           [](float dt, float width, float height, bool left_down, bool right_down) {
+              ImGuiIO& io = ImGui::GetIO();
               ImGui_ImplVulkan_NewFrame();
 #if HAS_SDL2
               ImGui_ImplSDL2_NewFrame();
 #else
-              ImGuiIO& io = ImGui::GetIO();
               io.DisplaySize = ImVec2(width, height);
               io.DeltaTime = dt > 0.0f ? dt : 1.0f / 60.0f;
 #endif
-              ImGuiIO& io = ImGui::GetIO();
               io.MouseDown[0] = left_down;
               io.MouseDown[1] = right_down;
               ImGui::NewFrame();
