@@ -187,7 +187,7 @@ jobs:
           # Download and extract development package
           Invoke-WebRequest -Uri $SDL2_DEV_URL -OutFile SDL2-devel.zip
           Expand-Archive SDL2-devel.zip -DestinationPath SDL2_dev
-          $SDL2_DIR = "SDL2_dev/SDL2-$SDL2_VERSION"
+          $SDL2_DIR = Resolve-Path "SDL2_dev/SDL2-$SDL2_VERSION"
           echo "SDL2_DIR=$SDL2_DIR" >> $env:GITHUB_ENV
           echo "SDL2 development package extracted to $SDL2_DIR"
           # Also download runtime DLL for artifact
