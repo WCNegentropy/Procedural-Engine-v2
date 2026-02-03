@@ -5,6 +5,11 @@
 - **Notes**:
   - Verified pause, inventory, and dialogue mouse capture toggles via headless backend
 
+## 2026-02-03 (ImGui Mouse Button Injection)
+- **Python Test Suite**: `pytest tests/unit/test_ui_system.py::TestImGuiBackend::test_begin_end_frame tests/unit/test_ui_system.py::TestImGuiBackend::test_works_with_ui_manager tests/unit/test_player_controller.py::TestInputManager::test_mouse_button` → 3 passed in 0.13s
+- **Notes**:
+  - Verified ImGui backend receives injected mouse button state and InputManager exposes button hold checks
+
 ## 2026-01-11 (Terrain Collision Fix)
 - **Python Test Suite**: `pytest -q` → 351 passed in 3.72s (1 skipped, excluding C++ module tests)
   - Game API: 48 tests (entities, inventory, quests, dialogue, save/load, GameWorld)

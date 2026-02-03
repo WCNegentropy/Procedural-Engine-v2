@@ -1166,13 +1166,27 @@ PYBIND11_MODULE(procengine_cpp, m) {
     // Dear ImGui bindings (free functions for Python ImGuiBackend)
     // ========================================================================
 
-    m.def("imgui_new_frame", []() {
-        ImGui_ImplVulkan_NewFrame();
+    m.def("imgui_new_frame",
+          [](float dt, float width, float height, bool left_down, bool right_down) {
+              ImGuiIO& io = ImGui::GetIO();
+              ImGui_ImplVulkan_NewFrame();
 #if HAS_SDL2
-        ImGui_ImplSDL2_NewFrame();
+              ImGui_ImplSDL2_NewFrame();
+#else
+              io.DisplaySize = ImVec2(width, height);
+              io.DeltaTime = dt;
 #endif
-        ImGui::NewFrame();
-    }, "Begin a new ImGui frame (Vulkan + SDL2 + ImGui::NewFrame)");
+              // ImGui mouse button indices: 0=left, 1=middle, 2=right.
+              io.MouseDown[0] = left_down;
+              io.MouseDown[2] = right_down;
+              ImGui::NewFrame();
+          },
+          py::arg("dt") = 1.0f / 60.0f,
+          py::arg("width") = 0.0f,
+          py::arg("height") = 0.0f,
+          py::arg("left_down") = false,
+          py::arg("right_down") = false,
+          "Begin a new ImGui frame with explicit time, dimensions, and mouse state");
 
     m.def("imgui_render", []() {
         ImGui::Render();

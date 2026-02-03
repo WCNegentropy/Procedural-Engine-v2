@@ -331,6 +331,15 @@ class InputManager:
         else:
             self.on_key_up(key)
 
+    def is_mouse_button_down(self, button_index: int) -> bool:
+        """Check if a mouse button is currently held down.
+
+        0 = Left, 1 = Middle, 2 = Right
+        """
+        key_map = {0: "MOUSE1", 1: "MOUSE2", 2: "MOUSE3"}
+        key = key_map.get(button_index)
+        return key in self._keys_down if key else False
+
     def on_gamepad_axis(self, axis: str, value: float) -> None:
         """Handle gamepad analog input."""
         if axis == "LEFT_X":

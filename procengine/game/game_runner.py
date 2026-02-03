@@ -1488,7 +1488,17 @@ class GameRunner:
             if self._player_controller:
                 interaction_target = self._player_controller.get_interaction_target()
 
-            self._ui_manager.begin_frame()
+            left_down = False
+            right_down = False
+            if self._input_manager:
+                left_down = self._input_manager.is_mouse_button_down(0)
+                right_down = self._input_manager.is_mouse_button_down(2)
+
+            self._ui_manager.begin_frame(
+                dt=self.config.fixed_timestep,
+                left_down=left_down,
+                right_down=right_down,
+            )
 
             # Render appropriate UI based on state
             if self._state == GameState.PLAYING:

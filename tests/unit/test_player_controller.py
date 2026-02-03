@@ -187,6 +187,8 @@ class TestInputManager:
         manager.on_mouse_button(0, True)  # Left click
 
         assert manager.state.is_pressed(InputAction.ATTACK)
+        assert manager.is_mouse_button_down(0)
+        assert not manager.is_mouse_button_down(2)
 
     def test_gamepad_axis(self):
         manager = InputManager()
