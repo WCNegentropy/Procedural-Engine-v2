@@ -334,7 +334,7 @@ class GraphicsBridge:
         try:
             if hasattr(self._graphics_system, 'init_imgui'):
                 return self._graphics_system.init_imgui(window_handle)
-        except (AttributeError, Exception) as e:
+        except Exception as e:
             print(f"Failed to init ImGui: {e}")
 
         return False
