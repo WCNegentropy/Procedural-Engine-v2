@@ -44,6 +44,7 @@ __all__ = [
     "QuestLog",
     "PauseMenu",
     "DebugOverlay",
+    "ConsoleWindow",
     "ImGuiBackend",
 ]
 
@@ -996,6 +997,105 @@ class DebugOverlay(UIComponent):
         self._backend.end_window()
 
 
+class ConsoleWindow(UIComponent):
+    """Developer console window rendered via ImGui.
+
+    Displays the console output history and current input buffer.
+    The actual input handling (character input, history navigation,
+    autocomplete) is managed by the ``Console`` object; this component
+    only reads the render data and draws it.
+    """
+
+    def __init__(
+        self,
+        backend: UIBackend,
+        screen_width: int,
+        screen_height: int,
+    ) -> None:
+        super().__init__(backend)
+        self._screen_width = screen_width
+        self._screen_height = screen_height
+
+    def render(self, render_data: Optional[Dict[str, Any]] = None, **kwargs: Any) -> None:
+        if not self._visible or render_data is None:
+            return
+
+        if not render_data.get("visible", False):
+            return
+
+        console_width = min(700, self._screen_width - 40)
+        console_height = 300
+        console_x = (self._screen_width - console_width) / 2
+        console_y = 20.0
+
+        config = render_data.get("config", {})
+        bg_color = config.get("background_color", (0.1, 0.1, 0.1, 0.8))
+
+        self._backend.begin_window(
+            "Developer Console",
+            console_x, console_y,
+            console_width, console_height,
+            flags=_NO_RESIZE_FLAGS,
+        )
+
+        # Output history region
+        output_height = console_height - 80
+        self._backend.begin_child(
+            "ConsoleOutput",
+            console_width - 20, output_height,
+            border=True,
+        )
+
+        lines = render_data.get("lines", [])
+        for line_data in lines:
+            text = line_data.get("text", "")
+            color = line_data.get("color", (1.0, 1.0, 1.0, 1.0))
+            r, g, b = color[0], color[1], color[2]
+            a = color[3] if len(color) > 3 else 1.0
+            self._backend.text_colored(text, r, g, b, a)
+
+        self._backend.end_child()
+
+        # Separator between output and input
+        self._backend.separator()
+
+        # Input line
+        input_text = render_data.get("input", "")
+        cursor_pos = render_data.get("cursor_pos", len(input_text))
+        input_color = config.get("input_color", (0.8, 0.8, 1.0, 1.0))
+
+        # Build display string with cursor indicator
+        if cursor_pos < len(input_text):
+            display = f"> {input_text[:cursor_pos]}|{input_text[cursor_pos:]}"
+        else:
+            display = f"> {input_text}|"
+
+        self._backend.text_colored(
+            display,
+            input_color[0], input_color[1], input_color[2],
+            input_color[3] if len(input_color) > 3 else 1.0,
+        )
+
+        # Autocomplete suggestions
+        suggestions = render_data.get("suggestions", [])
+        if suggestions:
+            suggestion_idx = render_data.get("suggestion_index", 0)
+            ac_color = config.get("autocomplete_color", (0.6, 0.6, 0.6, 1.0))
+            parts = []
+            for i, s in enumerate(suggestions):
+                if i == suggestion_idx:
+                    parts.append(f"[{s}]")
+                else:
+                    parts.append(s)
+            self._backend.text_colored(
+                "  " + "  ".join(parts),
+                ac_color[0], ac_color[1], ac_color[2],
+                ac_color[3] if len(ac_color) > 3 else 1.0,
+            )
+
+        self._backend.end_window()
+
+
 # =============================================================================
 # UI Manager
 # =============================================================================
@@ -1061,6 +1161,10 @@ class UIManager:
         self._quest_log = QuestLog(self._backend, screen_width, screen_height)
         self._pause_menu = PauseMenu(self._backend, screen_width, screen_height)
         self._debug_overlay = DebugOverlay(self._backend, screen_width, screen_height)
+        self._console_window = ConsoleWindow(self._backend, screen_width, screen_height)
+
+        # Console reference (set via set_console)
+        self._console: Optional[Any] = None
 
         # Game world reference
         self._world: Optional["GameWorld"] = None
@@ -1224,6 +1328,26 @@ class UIManager:
             interaction_target=target_name,
         )
 
+    def render_console(self) -> None:
+        """Render the developer console if it has data to display."""
+        if self._console is None:
+            return
+        render_data = self._console.get_render_data()
+        if render_data.get("visible", False):
+            self._console_window.visible = True
+            self._console_window.render(render_data=render_data)
+
+    def set_console(self, console: Any) -> None:
+        """Set the Console instance for rendering.
+
+        Parameters
+        ----------
+        console:
+            A ``Console`` object whose ``get_render_data()`` method provides
+            the state to render.
+        """
+        self._console = console
+
     # -------------------------------------------------------------------------
     # Dialogue Management
     # -------------------------------------------------------------------------
@@ -1290,6 +1414,10 @@ class UIManager:
     @property
     def debug_overlay(self) -> DebugOverlay:
         return self._debug_overlay
+
+    @property
+    def console_window(self) -> ConsoleWindow:
+        return self._console_window
 
     @property
     def backend(self) -> UIBackend:
