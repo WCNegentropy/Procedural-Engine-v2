@@ -553,3 +553,75 @@ class TestChunkEdgeCases:
         # Try to set sim distance higher than render
         manager.sim_distance = 10
         assert manager.sim_distance == 2  # Capped at render_distance
+
+
+# =============================================================================
+# Chunk Props Generation Tests
+# =============================================================================
+
+
+class TestChunkPropsGeneration:
+    """Test chunk prop generation integration."""
+
+    def test_chunk_has_pending_props_field(self):
+        """Test that Chunk dataclass has pending_props field."""
+        chunk = Chunk(coords=(0, 0))
+        assert hasattr(chunk, 'pending_props')
+        assert isinstance(chunk.pending_props, list)
+        assert len(chunk.pending_props) == 0
+
+    def test_generated_chunk_has_pending_props(self):
+        """Test that generated chunks include pending props."""
+        registry = SeedRegistry(42)
+        manager = ChunkManager(registry, chunk_size=32, render_distance=0)
+
+        manager.update_player_position(16.0, 16.0)
+        generated = manager.process_load_queue(max_per_frame=1)
+
+        assert len(generated) == 1
+        chunk = generated[0]
+
+        # Chunk should have pending_props (list may be empty due to terrain validation)
+        assert hasattr(chunk, 'pending_props')
+        assert isinstance(chunk.pending_props, list)
+
+    def test_chunk_props_deterministic(self):
+        """Test that chunk props are deterministically generated."""
+        registry1 = SeedRegistry(42)
+        registry2 = SeedRegistry(42)
+
+        manager1 = ChunkManager(registry1, chunk_size=32, render_distance=0)
+        manager2 = ChunkManager(registry2, chunk_size=32, render_distance=0)
+
+        manager1.update_player_position(16.0, 16.0)
+        manager2.update_player_position(16.0, 16.0)
+
+        chunks1 = manager1.process_load_queue(max_per_frame=1)
+        chunks2 = manager2.process_load_queue(max_per_frame=1)
+
+        # Both should have identical pending props
+        assert chunks1[0].pending_props == chunks2[0].pending_props
+
+    def test_different_chunks_different_props(self):
+        """Test that different chunks get different prop layouts."""
+        registry = SeedRegistry(42)
+        manager = ChunkManager(registry, chunk_size=32, render_distance=2)
+
+        manager.update_player_position(48.0, 48.0)  # chunk (1, 1)
+        while manager.get_load_queue_size() > 0:
+            manager.process_load_queue(max_per_frame=20)
+
+        chunk_a = manager.chunks.get((1, 1))
+        chunk_b = manager.chunks.get((1, 2))
+
+        assert chunk_a is not None
+        assert chunk_b is not None
+
+        # Props should be different (with high probability given random positions)
+        # If both have props, they should differ
+        if chunk_a.pending_props and chunk_b.pending_props:
+            # Compare positions - they should differ since they're in different chunks
+            pos_a = [p.get('position', []) for p in chunk_a.pending_props]
+            pos_b = [p.get('position', []) for p in chunk_b.pending_props]
+            # At least positions should be different (they're in different chunk spaces)
+            assert pos_a != pos_b

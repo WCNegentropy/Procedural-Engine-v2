@@ -18,6 +18,7 @@ __all__ = [
     "generate_tree_descriptors",
     "generate_building_descriptors",
     "generate_creature_descriptors",
+    "generate_chunk_props",
 ]
 
 
@@ -172,4 +173,121 @@ def generate_creature_descriptors(
         descriptors.append(
             {"type": "creature", "skeleton": skeleton, "metaballs": metaballs}
         )
+    return descriptors
+
+
+def generate_chunk_props(
+    registry: SeedRegistry,
+    chunk_size: int,
+    heightmap: np.ndarray,
+    slope_map: np.ndarray | None = None,
+    *,
+    rock_count: int = 8,
+    tree_count: int = 6,
+    min_height: float = 0.2,
+    max_height: float = 0.85,
+    max_slope: float = 0.5,
+) -> List[Dict[str, object]]:
+    """Generate prop descriptors for a single chunk with terrain-aware placement.
+
+    This function creates deterministic prop placement within a chunk boundary,
+    using the heightmap and optional slope map to ensure valid positions (not
+    underwater, not on steep slopes).
+
+    Parameters
+    ----------
+    registry:
+        SeedRegistry for this chunk (should be chunk-specific for determinism).
+    chunk_size:
+        Size of the chunk in world units.
+    heightmap:
+        2D array of terrain heights (normalized 0-1).
+    slope_map:
+        Optional 2D array of terrain slopes (normalized 0-1).
+    rock_count:
+        Number of rocks to attempt to place.
+    tree_count:
+        Number of trees to attempt to place.
+    min_height:
+        Minimum terrain height for prop placement (avoid water).
+    max_height:
+        Maximum terrain height for prop placement (avoid mountain peaks).
+    max_slope:
+        Maximum slope for prop placement (avoid cliff faces).
+
+    Returns
+    -------
+    List[Dict[str, object]]
+        List of prop descriptors with local positions (0 to chunk_size).
+        Each descriptor contains 'type', 'position' (local x, y, z), and
+        type-specific parameters.
+    """
+    if chunk_size < 1:
+        raise ValueError("chunk_size must be at least 1")
+    if rock_count < 0 or tree_count < 0:
+        raise ValueError("prop counts must be non-negative")
+
+    rng = registry.get_rng("chunk_props")
+    descriptors: List[Dict[str, object]] = []
+
+    def is_valid_position(x: int, z: int) -> bool:
+        """Check if position is valid for prop placement."""
+        # Clamp to array bounds
+        ix = min(max(x, 0), chunk_size - 1)
+        iz = min(max(z, 0), chunk_size - 1)
+
+        height = float(heightmap[iz, ix])
+        if height < min_height or height > max_height:
+            return False
+
+        if slope_map is not None:
+            slope = float(slope_map[iz, ix])
+            if slope > max_slope:
+                return False
+
+        return True
+
+    def get_terrain_height(x: int, z: int) -> float:
+        """Get terrain height at position."""
+        ix = min(max(x, 0), chunk_size - 1)
+        iz = min(max(z, 0), chunk_size - 1)
+        return float(heightmap[iz, ix])
+
+    # Generate rocks
+    for _ in range(rock_count):
+        # Random position within chunk
+        pos_x = float(rng.random() * chunk_size)
+        pos_z = float(rng.random() * chunk_size)
+
+        if is_valid_position(int(pos_x), int(pos_z)):
+            terrain_y = get_terrain_height(int(pos_x), int(pos_z))
+            radius = float(rng.uniform(0.3, 1.2))
+            noise_seed = int(rng.integers(0, 2**31))
+
+            descriptors.append({
+                "type": "rock",
+                "position": [pos_x, terrain_y, pos_z],
+                "radius": radius,
+                "noise_seed": noise_seed,
+            })
+
+    # Generate trees
+    for _ in range(tree_count):
+        pos_x = float(rng.random() * chunk_size)
+        pos_z = float(rng.random() * chunk_size)
+
+        if is_valid_position(int(pos_x), int(pos_z)):
+            terrain_y = get_terrain_height(int(pos_x), int(pos_z))
+            iterations = int(rng.integers(2, 5))
+            angle = float(rng.uniform(15.0, 45.0))
+
+            descriptors.append({
+                "type": "tree",
+                "position": [pos_x, terrain_y, pos_z],
+                "axiom": "F",
+                "rules": {"F": "F[+F]F[-F]F"},
+                "angle": angle,
+                "iterations": iterations,
+            })
+
     return descriptors

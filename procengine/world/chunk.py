@@ -73,6 +73,8 @@ class Chunk:
         Unique identifier for the GPU mesh resource.
     entity_ids : Set[str]
         IDs of entities located within this chunk.
+    pending_props : List[Dict[str, Any]]
+        Prop descriptors waiting to be spawned as entities.
     is_loaded : bool
         Whether the chunk data has been fully generated.
     is_mesh_uploaded : bool
@@ -88,6 +90,7 @@ class Chunk:
     slope_map: Optional[np.ndarray] = None
     mesh_id: str = ""
     entity_ids: Set[str] = field(default_factory=set)
+    pending_props: List[Dict[str, Any]] = field(default_factory=list)
     is_loaded: bool = False
     is_mesh_uploaded: bool = False
     is_simulating: bool = False
@@ -414,7 +417,7 @@ class ChunkManager:
         """Generate terrain data for a chunk at the given coordinates.
 
         Uses the SeedRegistry to ensure deterministic generation -
-        the same coordinates will always produce the same terrain.
+        the same coordinates will always produce the same terrain and props.
 
         Parameters
         ----------
@@ -424,7 +427,7 @@ class ChunkManager:
         Returns
         -------
         Chunk
-            A new Chunk with generated terrain data.
+            A new Chunk with generated terrain data and pending props.
         """
         # Create a deterministic seed registry for this chunk
         chunk_name = f"chunk_{coord[0]}_{coord[1]}"
@@ -448,12 +451,23 @@ class ChunkManager:
 
         height, biome, river, slope = maps
 
+        # Generate props for this chunk using terrain data for valid placement
+        from procengine.world.props import generate_chunk_props
+
+        prop_descriptors = generate_chunk_props(
+            chunk_registry,
+            self._chunk_size,
+            height,
+            slope,
+        )
+
         chunk = Chunk(
             coords=coord,
             heightmap=height,
             biome_map=biome,
             river_map=river,
             slope_map=slope,
+            pending_props=prop_descriptors,
             is_loaded=True,
         )
 
