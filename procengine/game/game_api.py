@@ -1187,11 +1187,17 @@ class GameConfig:
     """Configuration for the game world."""
 
     seed: int = 42
-    world_size: int = 10  # chunks
+    world_size: int = 10  # chunks (for static world mode)
     chunk_size: int = 64  # vertices per side
     physics_dt: float = 1.0 / 60.0
     gravity: float = -9.8
     auto_save_interval: float = 300.0  # seconds
+
+    # Dynamic chunk loading settings
+    render_distance: int = 8  # chunks radius for rendering
+    sim_distance: int = 4  # chunks radius for physics/AI simulation
+    unload_buffer: int = 2  # extra distance before unloading
+    enable_dynamic_chunks: bool = False  # False = static single chunk mode
 
 
 class GameWorld:
@@ -1199,6 +1205,9 @@ class GameWorld:
 
     Owns all game state including entities, quests, and world data.
     Provides the context for command execution and manages entity lifecycle.
+
+    Supports both static (single chunk) and dynamic (infinite world) modes
+    based on the ``enable_dynamic_chunks`` config flag.
     """
 
     def __init__(self, config: Optional[GameConfig] = None) -> None:
@@ -1209,12 +1218,21 @@ class GameWorld:
         self._entities: Dict[EntityId, Entity] = {}
         self._player: Optional[Player] = None
 
+        # Spatial entity partitioning by chunk (for dynamic mode)
+        # Maps chunk coordinates (x, z) to set of entity IDs in that chunk
+        self._entity_chunks: Dict[Tuple[int, int], Set[EntityId]] = {}
+        # Reverse mapping: entity ID -> chunk coordinate (for O(1) lookup)
+        self._entity_to_chunk: Dict[EntityId, Tuple[int, int]] = {}
+
         # Quest system
         self._quests: Dict[str, Quest] = {}
         self._item_definitions: Dict[str, ItemDefinition] = {}
 
         # Physics
         self._heightfield: Optional[HeightField2D] = None
+
+        # Chunk management (optional, for dynamic mode)
+        self._chunk_manager: Optional[Any] = None  # ChunkManager when enabled
 
         # Agent for NPCs
         self._default_agent: NPCAgent = LocalAgent()
@@ -1254,12 +1272,25 @@ class GameWorld:
                 source_entity=entity.entity_id,
             ))
 
+        # Update spatial partition for chunk-based queries
+        self._update_entity_chunk(entity.entity_id, entity.position)
+
         return entity.entity_id
 
     def destroy_entity(self, entity_id: EntityId) -> bool:
         """Remove an entity from the world."""
         if entity_id in self._entities:
             entity = self._entities.pop(entity_id)
+
+            # Remove from spatial partition and reverse mapping
+            chunk_coord = self._entity_to_chunk.pop(entity_id, None)
+            if chunk_coord is None:
+                chunk_coord = self._position_to_chunk(entity.position)
+            if chunk_coord in self._entity_chunks:
+                self._entity_chunks[chunk_coord].discard(entity_id)
+                if not self._entity_chunks[chunk_coord]:
+                    del self._entity_chunks[chunk_coord]
+
             self.events.emit(Event(
                 EventType.ENTITY_DESTROYED,
                 {"entity_id": entity_id, "type": type(entity).__name__},
@@ -1288,6 +1319,118 @@ class GameWorld:
     def get_npcs(self) -> List[NPC]:
         """Get all NPCs in the world."""
         return [e for e in self._entities.values() if isinstance(e, NPC)]
+
+    # -------------------------------------------------------------------------
+    # Chunk Management (for dynamic infinite world mode)
+    # -------------------------------------------------------------------------
+
+    def set_chunk_manager(self, manager: Any) -> None:
+        """Set the chunk manager for dynamic world mode.
+
+        Parameters
+        ----------
+        manager:
+            A ChunkManager instance (from procengine.world.chunk).
+        """
+        self._chunk_manager = manager
+
+    def get_chunk_manager(self) -> Optional[Any]:
+        """Get the chunk manager if set.
+
+        Returns
+        -------
+        Optional[ChunkManager]
+            The chunk manager, or None if not using dynamic chunks.
+        """
+        return self._chunk_manager
+
+    def _position_to_chunk(self, position: Vec3) -> Tuple[int, int]:
+        """Convert a world position to chunk coordinates.
+
+        Parameters
+        ----------
+        position:
+            World-space position.
+
+        Returns
+        -------
+        Tuple[int, int]
+            Chunk coordinates (x, z).
+        """
+        import math
+        chunk_size = self.config.chunk_size
+        cx = int(math.floor(position.x / chunk_size))
+        cz = int(math.floor(position.z / chunk_size))
+        return (cx, cz)
+
+    def _update_entity_chunk(self, entity_id: EntityId, position: Vec3) -> None:
+        """Update the spatial partition for an entity's position.
+
+        Uses reverse mapping for O(1) lookup of entity's current chunk.
+
+        Parameters
+        ----------
+        entity_id:
+            The entity to update.
+        position:
+            The entity's current world position.
+        """
+        new_chunk = self._position_to_chunk(position)
+
+        # O(1) lookup of old chunk via reverse mapping
+        old_chunk = self._entity_to_chunk.get(entity_id)
+
+        if old_chunk is not None and old_chunk != new_chunk:
+            # Remove from old chunk
+            if old_chunk in self._entity_chunks:
+                self._entity_chunks[old_chunk].discard(entity_id)
+                if not self._entity_chunks[old_chunk]:
+                    del self._entity_chunks[old_chunk]
+
+        # Add to new chunk
+        if new_chunk not in self._entity_chunks:
+            self._entity_chunks[new_chunk] = set()
+        self._entity_chunks[new_chunk].add(entity_id)
+
+        # Update reverse mapping
+        self._entity_to_chunk[entity_id] = new_chunk
+
+    def get_entities_in_chunk(self, chunk_coord: Tuple[int, int]) -> List[Entity]:
+        """Get all entities in a specific chunk.
+
+        Parameters
+        ----------
+        chunk_coord:
+            Chunk coordinates (x, z).
+
+        Returns
+        -------
+        List[Entity]
+            Entities located within that chunk.
+        """
+        entity_ids = self._entity_chunks.get(chunk_coord, set())
+        return [self._entities[eid] for eid in entity_ids if eid in self._entities]
+
+    def get_entities_in_sim_range(self) -> List[Entity]:
+        """Get entities within simulation range of the player.
+
+        Returns all entities in chunks that are within the simulation
+        distance. In static mode, returns all entities.
+
+        Returns
+        -------
+        List[Entity]
+            Entities that should be simulated.
+        """
+        if self._chunk_manager is None:
+            # Static mode - return all entities
+            return list(self._entities.values())
+
+        # Dynamic mode - only return entities in sim-range chunks
+        result: List[Entity] = []
+        for chunk in self._chunk_manager.get_sim_chunks():
+            result.extend(self.get_entities_in_chunk(chunk.coords))
+        return result
 
     # -------------------------------------------------------------------------
     # Player Management

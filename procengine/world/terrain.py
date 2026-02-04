@@ -96,21 +96,60 @@ def _simplex2d(x: float, y: float, perm: np.ndarray) -> float:
     return 70.0 * (n0 + n1 + n2)
 
 
-def _simplex_grid(perm: np.ndarray, size: int, frequency: float) -> np.ndarray:
-    """Return a ``size`` × ``size`` grid of simplex noise."""
+def _simplex_grid(
+    perm: np.ndarray,
+    size: int,
+    frequency: float,
+    offset_x: float = 0.0,
+    offset_z: float = 0.0,
+) -> np.ndarray:
+    """Return a ``size`` × ``size`` grid of simplex noise.
 
+    Parameters
+    ----------
+    perm:
+        Permutation table for noise generation.
+    size:
+        Width and height of the grid.
+    frequency:
+        Base frequency of the noise.
+    offset_x:
+        World-space X offset for seamless tiling across chunks.
+    offset_z:
+        World-space Z offset for seamless tiling across chunks.
+    """
     grid = np.zeros((size, size), dtype=np.float32)
     for y in range(size):
         for x in range(size):
-            nx = (x / size) * frequency
-            ny = (y / size) * frequency
+            # Use global coordinates for seamless tiling
+            nx = ((x + offset_x) / size) * frequency
+            ny = ((y + offset_z) / size) * frequency
             grid[y, x] = _simplex2d(nx, ny, perm)
     return grid
 
 
-def _fbm_noise(rng: np.random.Generator, size: int, octaves: int = 6) -> np.ndarray:
-    """Generate fractal Brownian motion using 2D simplex noise."""
+def _fbm_noise(
+    rng: np.random.Generator,
+    size: int,
+    octaves: int = 6,
+    offset_x: float = 0.0,
+    offset_z: float = 0.0,
+) -> np.ndarray:
+    """Generate fractal Brownian motion using 2D simplex noise.
 
+    Parameters
+    ----------
+    rng:
+        NumPy random generator for deterministic permutation.
+    size:
+        Width and height of the grid.
+    octaves:
+        Number of noise layers to combine.
+    offset_x:
+        World-space X offset for seamless tiling across chunks.
+    offset_z:
+        World-space Z offset for seamless tiling across chunks.
+    """
     perm = rng.permutation(256)
     perm = np.concatenate([perm, perm])
 
@@ -118,7 +157,7 @@ def _fbm_noise(rng: np.random.Generator, size: int, octaves: int = 6) -> np.ndar
     amplitude = 1.0
     frequency = 1.0
     for _ in range(octaves):
-        height += _simplex_grid(perm, size, frequency) * amplitude
+        height += _simplex_grid(perm, size, frequency, offset_x, offset_z) * amplitude
         amplitude *= 0.5
         frequency *= 2.0
 
@@ -194,6 +233,8 @@ def generate_terrain_maps(
     macro_points: int = 8,
     erosion_iters: int = 0,
     return_slope: bool = False,
+    offset_x: float = 0.0,
+    offset_z: float = 0.0,
 ) -> Tuple[np.ndarray, ...]:
     """Return deterministic terrain maps.
 
@@ -214,10 +255,16 @@ def generate_terrain_maps(
     return_slope:
         If ``True`` also compute and return a normalized slope map derived from
         ``height``.
+    offset_x:
+        World-space X offset for seamless tiling across chunks. When generating
+        adjacent chunks, pass ``chunk_x * size`` here.
+    offset_z:
+        World-space Z offset for seamless tiling across chunks. When generating
+        adjacent chunks, pass ``chunk_z * size`` here.
     """
 
     rng_height = registry.get_rng("terrain_height")
-    height = _fbm_noise(rng_height, size=size, octaves=octaves)
+    height = _fbm_noise(rng_height, size=size, octaves=octaves, offset_x=offset_x, offset_z=offset_z)
     if macro_points > 0:
         rng_macro = registry.get_rng("terrain_macro")
         macro = _voronoi_ridged(rng_macro, size=size, points=macro_points)
@@ -229,9 +276,9 @@ def generate_terrain_maps(
 
     # Temperature and humidity maps drive biome selection
     rng_temp = registry.get_rng("terrain_temp")
-    temperature = _fbm_noise(rng_temp, size=size, octaves=2)
+    temperature = _fbm_noise(rng_temp, size=size, octaves=2, offset_x=offset_x, offset_z=offset_z)
     rng_humid = registry.get_rng("terrain_humidity")
-    humidity = _fbm_noise(rng_humid, size=size, octaves=2)
+    humidity = _fbm_noise(rng_humid, size=size, octaves=2, offset_x=offset_x, offset_z=offset_z)
 
     temp_idx = np.digitize(temperature, [0.33, 0.66])
     humid_idx = np.digitize(humidity, [0.33, 0.66])

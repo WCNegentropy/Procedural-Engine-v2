@@ -5,6 +5,7 @@ This module contains all world generation components:
 - props: Rock, tree, building, creature descriptor generators
 - materials: Procedural material graph generation
 - world: Multi-chunk world assembly
+- chunk: Chunk data structures and ChunkManager for infinite world support
 """
 
 from procengine.world.terrain import generate_terrain_maps
@@ -16,6 +17,12 @@ from procengine.world.props import (
 )
 from procengine.world.materials import generate_material_graph
 from procengine.world.world import generate_chunk, generate_world
+from procengine.world.chunk import (
+    Chunk,
+    ChunkCoord,
+    ChunkManager,
+    ChunkedHeightField,
+)
 
 __all__ = [
     "generate_terrain_maps",
@@ -26,4 +33,9 @@ __all__ = [
     "generate_material_graph",
     "generate_chunk",
     "generate_world",
+    # Chunk system
+    "Chunk",
+    "ChunkCoord",
+    "ChunkManager",
+    "ChunkedHeightField",
 ]
