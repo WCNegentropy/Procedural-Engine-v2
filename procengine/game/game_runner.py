@@ -30,7 +30,7 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Callable, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
 from procengine.physics import Vec3, HeightField2D
 from procengine.game.game_api import GameWorld, GameConfig, Player, NPC, Prop, Event, EventType
@@ -88,6 +88,11 @@ class RunnerConfig:
     world_seed: int = 42
     world_size: int = 10
     chunk_size: int = 64
+
+    # Dynamic chunk loading settings
+    enable_dynamic_chunks: bool = False  # False = static single chunk mode
+    render_distance: int = 8  # chunks radius for rendering
+    sim_distance: int = 4  # chunks radius for physics/AI simulation
 
 
 # =============================================================================
@@ -737,6 +742,9 @@ class GameRunner:
         self._terrain_river: Optional["np.ndarray"] = None
         self._terrain_slope: Optional["np.ndarray"] = None
 
+        # Chunk management (for dynamic chunks mode)
+        self._chunk_manager: Optional[Any] = None
+
         # Timing
         self._last_time: float = 0.0
         self._accumulator: float = 0.0
@@ -804,8 +812,11 @@ class GameRunner:
         if self.config.enable_ui:
             self._init_ui()
 
-        # Setup terrain
-        self._setup_terrain()
+        # Setup terrain (dynamic chunks or static)
+        if self.config.enable_dynamic_chunks:
+            self._setup_dynamic_terrain()
+        else:
+            self._setup_terrain()
 
         # Adjust player position to terrain height
         if self._terrain_heightmap is not None:
@@ -1171,6 +1182,26 @@ class GameRunner:
             # Update world (physics, NPCs, etc.)
             self._world.step(dt)
 
+            # Process dynamic chunks if enabled
+            if self.config.enable_dynamic_chunks and self._chunk_manager:
+                if player:
+                    # Update player position for chunk loading
+                    self._chunk_manager.update_player_position(
+                        player.position.x, player.position.z
+                    )
+                    
+                    # Process load queue (generate new chunks)
+                    # Process 1 chunk per frame to avoid stutter
+                    new_chunks = self._chunk_manager.process_load_queue(max_per_frame=1)
+                    for chunk in new_chunks:
+                        self._upload_chunk_mesh(chunk)
+                    
+                    # Process unload queue (free GPU memory)
+                    removed_chunks = self._chunk_manager.process_unload_queue(max_per_frame=2)
+                    for chunk in removed_chunks:
+                        if self._graphics_bridge:
+                            self._graphics_bridge.destroy_mesh(chunk.mesh_id)
+
         elif self._state == GameState.DIALOGUE:
             # Still allow dialogue input processing
             pass
@@ -1198,14 +1229,32 @@ class GameRunner:
             # Begin rendering
             self._graphics_bridge.begin_frame()
 
-            # Render terrain if available
-            if self._terrain_mesh_name in self._graphics_bridge._meshes:
-                from procengine.graphics.graphics_bridge import create_identity_matrix
-                self._graphics_bridge.draw_mesh(
-                    self._terrain_mesh_name,
-                    "default",
-                    create_identity_matrix(),
-                )
+            # Render terrain
+            if self.config.enable_dynamic_chunks and self._chunk_manager:
+                # Draw all active render chunks
+                from procengine.graphics.graphics_bridge import create_translation_matrix
+                
+                for chunk in self._chunk_manager.get_render_chunks():
+                    if chunk.is_mesh_uploaded:
+                        # Calculate transform based on chunk coordinates
+                        # Chunk (1, 0) needs to be drawn at world x=64, z=0 (if chunk_size=64)
+                        world_x, world_z = self._chunk_manager.chunk_to_world(chunk.coords)
+                        transform = create_translation_matrix(world_x, 0, world_z)
+                        
+                        self._graphics_bridge.draw_mesh(
+                            chunk.mesh_id,
+                            "default",
+                            transform,
+                        )
+            else:
+                # Static terrain rendering
+                if self._terrain_mesh_name in self._graphics_bridge._meshes:
+                    from procengine.graphics.graphics_bridge import create_identity_matrix
+                    self._graphics_bridge.draw_mesh(
+                        self._terrain_mesh_name,
+                        "default",
+                        create_identity_matrix(),
+                    )
 
             # Render all entities in the world
             if self._world:
@@ -1435,6 +1484,106 @@ class GameRunner:
             
         except Exception as e:
             print(f"Fallback terrain setup failed: {e}")
+
+    def _setup_dynamic_terrain(self) -> None:
+        """Setup dynamic chunk-based terrain with ChunkManager.
+        
+        This method initializes the ChunkManager for infinite world generation,
+        connecting it to the GameWorld and physics system. Initial chunks around
+        the player spawn are generated immediately.
+        """
+        try:
+            from procengine.world.chunk import ChunkManager, ChunkedHeightField
+            from procengine.core.seed_registry import SeedRegistry
+            
+            print(f"Initializing Infinite World (Chunk Size: {self.config.chunk_size})")
+            
+            # Initialize Chunk Manager
+            self._chunk_manager = ChunkManager(
+                seed_registry=SeedRegistry(self.config.world_seed),
+                chunk_size=self.config.chunk_size,
+                render_distance=self.config.render_distance,
+                sim_distance=self.config.sim_distance,
+            )
+            
+            # Attach to World
+            if self._world:
+                self._world.set_chunk_manager(self._chunk_manager)
+                
+                # Use Chunked Physics HeightField
+                heightfield = ChunkedHeightField(self._chunk_manager)
+                self._world.set_heightfield(heightfield)
+            
+            # Initial load around spawn
+            player = self._world.get_player() if self._world else None
+            if player:
+                spawn_x = player.position.x
+                spawn_z = player.position.z
+            else:
+                spawn_x = self.config.chunk_size // 2
+                spawn_z = self.config.chunk_size // 2
+            
+            self._chunk_manager.update_player_position(spawn_x, spawn_z)
+            
+            # Force immediate generation of starting chunks so player doesn't fall
+            chunks = self._chunk_manager.process_load_queue(max_per_frame=10)
+            for chunk in chunks:
+                self._upload_chunk_mesh(chunk)
+            
+            # Adjust player to terrain height in their current chunk
+            if player and chunks:
+                chunk = self._chunk_manager.get_chunk_at_world(spawn_x, spawn_z)
+                if chunk and chunk.heightmap is not None:
+                    # Get local coordinates within chunk
+                    local_x = int(spawn_x) % self.config.chunk_size
+                    local_z = int(spawn_z) % self.config.chunk_size
+                    local_x = min(max(local_x, 0), self.config.chunk_size - 1)
+                    local_z = min(max(local_z, 0), self.config.chunk_size - 1)
+                    terrain_y = float(chunk.heightmap[local_z, local_x]) * 30.0  # HEIGHT_SCALE
+                    player.position = Vec3(spawn_x, terrain_y + 2.0, spawn_z)
+                    player.velocity = Vec3(0, 0, 0)
+                    player.grounded = True
+                    print(f"Player spawned at terrain height: {terrain_y + 2.0}")
+                    
+                    # Also set terrain heightmap for camera positioning
+                    self._terrain_heightmap = chunk.heightmap * 30.0
+            
+            print(f"Dynamic terrain initialized: {len(chunks)} chunks loaded")
+            
+        except Exception as e:
+            print(f"Warning: Dynamic terrain setup failed: {e}")
+            import traceback
+            traceback.print_exc()
+            # Fall back to static terrain
+            print("Falling back to static terrain...")
+            self._setup_terrain()
+
+    def _upload_chunk_mesh(self, chunk: Any) -> None:
+        """Upload a chunk's terrain mesh to the GPU.
+        
+        Parameters
+        ----------
+        chunk:
+            The Chunk object containing heightmap and biome data.
+        """
+        if not self._graphics_bridge or chunk.heightmap is None:
+            return
+        
+        # Scale heights to world units
+        HEIGHT_SCALE = 30.0
+        scaled_heightmap = chunk.heightmap * HEIGHT_SCALE
+        
+        success = self._graphics_bridge.upload_terrain_mesh(
+            chunk.mesh_id,
+            scaled_heightmap,
+            cell_size=1.0,
+            biome_map=chunk.biome_map,
+        )
+        
+        if success:
+            chunk.is_mesh_uploaded = True
+        else:
+            print(f"Warning: Failed to upload chunk mesh {chunk.mesh_id}")
 
     def _update_physics_terrain(self, heightmap: "np.ndarray", size: int) -> None:
         """Update physics system with terrain height field."""

@@ -59,6 +59,8 @@ struct TerrainConfig {
     uint32_t macro_points = 8;      // Voronoi sites for macro plates (0 disables)
     uint32_t erosion_iters = 0;     // Hydraulic erosion iterations (0 disables)
     bool compute_slope = false;     // Whether to compute slope map
+    float offset_x = 0.0f;          // World-space X offset for seamless chunk tiling
+    float offset_z = 0.0f;          // World-space Z offset for seamless chunk tiling
 };
 
 /**
@@ -78,9 +80,12 @@ public:
      * Generate a size x size grid of simplex noise.
      * @param size Grid dimensions
      * @param frequency Noise frequency multiplier
+     * @param offset_x World-space X offset for seamless chunk tiling
+     * @param offset_z World-space Z offset for seamless chunk tiling
      * @return Flattened row-major grid of noise values
      */
-    std::vector<float> grid(uint32_t size, float frequency) const;
+    std::vector<float> grid(uint32_t size, float frequency,
+                            float offset_x = 0.0f, float offset_z = 0.0f) const;
 
 private:
     std::array<uint8_t, 512> perm_;  // Permutation table (doubled for wrapping)
@@ -97,9 +102,12 @@ private:
  * @param registry SeedRegistry for deterministic RNG
  * @param size Map dimensions
  * @param octaves Number of noise layers (6-8 typical)
+ * @param offset_x World-space X offset for seamless chunk tiling
+ * @param offset_z World-space Z offset for seamless chunk tiling
  * @return Normalized [0,1] heightmap (row-major)
  */
-std::vector<float> generate_fbm(SeedRegistry& registry, uint32_t size, uint32_t octaves = 6);
+std::vector<float> generate_fbm(SeedRegistry& registry, uint32_t size, uint32_t octaves = 6,
+                                 float offset_x = 0.0f, float offset_z = 0.0f);
 
 /**
  * Generate Voronoi ridged noise for macro terrain plates.

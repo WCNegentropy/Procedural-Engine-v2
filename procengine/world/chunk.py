@@ -563,6 +563,27 @@ class ChunkedHeightField:
         """Get the chunk size in world units."""
         return self._manager.chunk_size
 
+    @property
+    def size_x(self) -> int:
+        """Number of samples in X direction (virtual/effective size).
+        
+        For chunked terrain, this returns a large value to indicate
+        effectively infinite terrain in the X direction.
+        """
+        # Return a large value representing loaded chunk coverage
+        # The actual terrain extent depends on loaded chunks
+        return self._manager.chunk_size * self._manager.render_distance * 4
+
+    @property
+    def size_z(self) -> int:
+        """Number of samples in Z direction (virtual/effective size).
+        
+        For chunked terrain, this returns a large value to indicate
+        effectively infinite terrain in the Z direction.
+        """
+        # Return a large value representing loaded chunk coverage
+        return self._manager.chunk_size * self._manager.render_distance * 4
+
     def sample(self, x: float, z: float) -> float:
         """Sample terrain height at a world position.
 

@@ -540,3 +540,136 @@ class TestGameRunnerIntegration:
         assert runner.world.paused is False
 
         runner.shutdown()
+
+
+# =============================================================================
+# Dynamic Chunk Integration Tests
+# =============================================================================
+
+
+class TestDynamicChunks:
+    """Tests for dynamic chunk loading integration."""
+
+    def test_config_enable_dynamic_chunks(self):
+        """Test that enable_dynamic_chunks config option exists."""
+        config = RunnerConfig(enable_dynamic_chunks=True)
+        assert config.enable_dynamic_chunks is True
+        
+        config2 = RunnerConfig()  # Default
+        assert config2.enable_dynamic_chunks is False
+
+    def test_config_render_distance(self):
+        """Test that render_distance config option exists."""
+        config = RunnerConfig(render_distance=12)
+        assert config.render_distance == 12
+        
+        config2 = RunnerConfig()
+        assert config2.render_distance == 8  # Default
+
+    def test_config_sim_distance(self):
+        """Test that sim_distance config option exists."""
+        config = RunnerConfig(sim_distance=6)
+        assert config.sim_distance == 6
+        
+        config2 = RunnerConfig()
+        assert config2.sim_distance == 4  # Default
+
+    def test_runner_has_chunk_manager_attribute(self):
+        """Test that GameRunner has _chunk_manager attribute."""
+        config = RunnerConfig(headless=True)
+        runner = GameRunner(config)
+        assert hasattr(runner, '_chunk_manager')
+        assert runner._chunk_manager is None  # Not initialized yet
+
+    def test_static_mode_no_chunk_manager(self):
+        """Test that static mode doesn't initialize ChunkManager."""
+        config = RunnerConfig(headless=True, enable_dynamic_chunks=False)
+        runner = GameRunner(config)
+        runner.initialize()
+        
+        assert runner._chunk_manager is None
+        runner.shutdown()
+
+    def test_dynamic_mode_initializes_chunk_manager(self):
+        """Test that dynamic mode initializes ChunkManager."""
+        config = RunnerConfig(
+            headless=True,
+            enable_dynamic_chunks=True,
+            chunk_size=32,
+            render_distance=1,
+        )
+        runner = GameRunner(config)
+        runner.initialize()
+        
+        assert runner._chunk_manager is not None
+        assert runner._chunk_manager.chunk_size == 32
+        assert runner._chunk_manager.render_distance == 1
+        
+        runner.shutdown()
+
+    def test_dynamic_mode_loads_initial_chunks(self):
+        """Test that dynamic mode loads chunks around spawn on initialize."""
+        config = RunnerConfig(
+            headless=True,
+            enable_dynamic_chunks=True,
+            chunk_size=32,
+            render_distance=1,
+        )
+        runner = GameRunner(config)
+        runner.initialize()
+        
+        assert runner._chunk_manager is not None
+        # Should have some chunks loaded
+        assert len(runner._chunk_manager.chunks) > 0
+        
+        runner.shutdown()
+
+    def test_dynamic_mode_world_has_chunk_manager(self):
+        """Test that GameWorld receives the ChunkManager."""
+        config = RunnerConfig(
+            headless=True,
+            enable_dynamic_chunks=True,
+            chunk_size=32,
+            render_distance=1,
+        )
+        runner = GameRunner(config)
+        runner.initialize()
+        
+        assert runner._world is not None
+        assert runner._world.get_chunk_manager() is runner._chunk_manager
+        
+        runner.shutdown()
+
+    def test_player_spawns_on_terrain_in_dynamic_mode(self):
+        """Test that player spawns on terrain in dynamic mode."""
+        config = RunnerConfig(
+            headless=True,
+            enable_dynamic_chunks=True,
+            chunk_size=32,
+            render_distance=1,
+            world_seed=42,
+        )
+        runner = GameRunner(config)
+        runner.initialize()
+        
+        player = runner.player
+        assert player is not None
+        # Player should be above ground level (terrain varies by seed)
+        assert player.position.y > 0
+        
+        runner.shutdown()
+
+    def test_run_frames_in_dynamic_mode(self):
+        """Test running frames in dynamic chunk mode."""
+        config = RunnerConfig(
+            headless=True,
+            enable_dynamic_chunks=True,
+            chunk_size=32,
+            render_distance=1,
+        )
+        runner = GameRunner(config)
+        
+        # Should be able to run frames without error
+        runner.run_frames(10)
+        
+        assert runner.frame_count == 10

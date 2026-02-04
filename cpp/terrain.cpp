@@ -93,21 +93,26 @@ float SimplexNoise::noise2d(float x, float y) const {
     return 70.0f * (n0 + n1 + n2);
 }
 
-std::vector<float> SimplexNoise::grid(uint32_t size, float frequency) const {
+std::vector<float> SimplexNoise::grid(uint32_t size, float frequency,
+                                      float offset_x, float offset_z) const {
     std::vector<float> result(size * size);
     float inv_size = 1.0f / static_cast<float>(size);
 
     for (uint32_t y = 0; y < size; ++y) {
         for (uint32_t x = 0; x < size; ++x) {
-            float nx = static_cast<float>(x) * inv_size * frequency;
-            float ny = static_cast<float>(y) * inv_size * frequency;
+            // Use global coordinates for seamless tiling across chunks
+            float world_x = static_cast<float>(x) + offset_x;
+            float world_y = static_cast<float>(y) + offset_z;
+            float nx = world_x * inv_size * frequency;
+            float ny = world_y * inv_size * frequency;
             result[y * size + x] = noise2d(nx, ny);
         }
     }
     return result;
 }
 
-std::vector<float> generate_fbm(SeedRegistry& registry, uint32_t size, uint32_t octaves) {
+std::vector<float> generate_fbm(SeedRegistry& registry, uint32_t size, uint32_t octaves,
+                                float offset_x, float offset_z) {
     SimplexNoise noise(registry);
 
     std::vector<float> height(size * size, 0.0f);
@@ -115,7 +120,7 @@ std::vector<float> generate_fbm(SeedRegistry& registry, uint32_t size, uint32_t 
     float frequency = 1.0f;
 
     for (uint32_t oct = 0; oct < octaves; ++oct) {
-        auto layer = noise.grid(size, frequency);
+        auto layer = noise.grid(size, frequency, offset_x, offset_z);
         for (size_t i = 0; i < height.size(); ++i) {
             height[i] += layer[i] * amplitude;
         }
@@ -349,7 +354,8 @@ TerrainMaps generate_terrain_maps(SeedRegistry& registry, const TerrainConfig& c
     // Create child registry for height generation using named subseed
     uint64_t height_seed = registry.get_subseed("height");
     SeedRegistry height_reg(height_seed);
-    maps.height = generate_fbm(height_reg, config.size, config.octaves);
+    maps.height = generate_fbm(height_reg, config.size, config.octaves,
+                                config.offset_x, config.offset_z);
 
     // Apply macro plates if enabled
     if (config.macro_points > 0) {
@@ -370,15 +376,17 @@ TerrainMaps generate_terrain_maps(SeedRegistry& registry, const TerrainConfig& c
         apply_hydraulic_erosion(maps.height, config.size, erosion_reg, config.erosion_iters);
     }
 
-    // Generate temperature map (2 octaves)
+    // Generate temperature map (2 octaves) with offsets for seamless chunks
     uint64_t temp_seed = registry.get_subseed("temperature");
     SeedRegistry temp_reg(temp_seed);
-    auto temperature = generate_fbm(temp_reg, config.size, 2);
+    auto temperature = generate_fbm(temp_reg, config.size, 2,
+                                     config.offset_x, config.offset_z);
 
-    // Generate humidity map (2 octaves)
+    // Generate humidity map (2 octaves) with offsets for seamless chunks
     uint64_t humid_seed = registry.get_subseed("humidity");
     SeedRegistry humid_reg(humid_seed);
-    auto humidity = generate_fbm(humid_reg, config.size, 2);
+    auto humidity = generate_fbm(humid_reg, config.size, 2,
+                                  config.offset_x, config.offset_z);
 
     // Generate biome map from temperature, humidity, and height
     maps.biome = generate_biome_map(temperature, humidity, maps.height, config.size);
