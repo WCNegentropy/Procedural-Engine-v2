@@ -162,10 +162,14 @@ public:
     /**
      * Generate terrain maps using C++ implementation.
      * Returns a tuple of (height, biome, river) or (height, biome, river, slope) numpy arrays.
+     * 
+     * @param offset_x World-space X offset for seamless chunk tiling.
+     * @param offset_z World-space Z offset for seamless chunk tiling.
      */
     py::tuple generate_terrain(uint32_t size = 64, uint32_t octaves = 6,
                                uint32_t macro_points = 8, uint32_t erosion_iters = 0,
-                               bool return_slope = false) {
+                               bool return_slope = false,
+                               float offset_x = 0.0f, float offset_z = 0.0f) {
         // Create a child registry for terrain generation using named subseed
         uint64_t terrain_seed = registry_.get_subseed("terrain");
         SeedRegistry terrain_reg(terrain_seed);
@@ -176,6 +180,8 @@ public:
         config.macro_points = macro_points;
         config.erosion_iters = erosion_iters;
         config.compute_slope = return_slope;
+        config.offset_x = offset_x;
+        config.offset_z = offset_z;
 
         auto maps = terrain::generate_terrain_maps(terrain_reg, config);
 
@@ -248,12 +254,15 @@ PYBIND11_MODULE(procengine_cpp, m) {
              py::arg("macro_points") = 8,
              py::arg("erosion_iters") = 0,
              py::arg("return_slope") = false,
-             "Generate terrain maps (height, biome, river, [slope])");
+             py::arg("offset_x") = 0.0f,
+             py::arg("offset_z") = 0.0f,
+             "Generate terrain maps (height, biome, river, [slope]) with world-space offsets for seamless chunk tiling");
 
     // Standalone terrain generation function for testing
     m.def("generate_terrain_standalone", [](uint64_t seed, uint32_t size, uint32_t octaves,
                                              uint32_t macro_points, uint32_t erosion_iters,
-                                             bool return_slope) {
+                                             bool return_slope,
+                                             float offset_x, float offset_z) {
         SeedRegistry reg(seed);
         terrain::TerrainConfig config;
         config.size = size;
@@ -261,6 +270,8 @@ PYBIND11_MODULE(procengine_cpp, m) {
         config.macro_points = macro_points;
         config.erosion_iters = erosion_iters;
         config.compute_slope = return_slope;
+        config.offset_x = offset_x;
+        config.offset_z = offset_z;
 
         auto maps = terrain::generate_terrain_maps(reg, config);
 
@@ -286,7 +297,9 @@ PYBIND11_MODULE(procengine_cpp, m) {
     py::arg("macro_points") = 8,
     py::arg("erosion_iters") = 0,
     py::arg("return_slope") = false,
-    "Generate terrain maps from a seed (standalone function for testing)");
+    py::arg("offset_x") = 0.0f,
+    py::arg("offset_z") = 0.0f,
+    "Generate terrain maps from a seed with world-space offsets for seamless chunk tiling");
 
     // Physics bindings
     py::class_<physics::Vec2>(m, "Vec2")
