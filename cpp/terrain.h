@@ -61,6 +61,7 @@ struct TerrainConfig {
     bool compute_slope = false;     // Whether to compute slope map
     float offset_x = 0.0f;          // World-space X offset for seamless chunk tiling
     float offset_z = 0.0f;          // World-space Z offset for seamless chunk tiling
+    float base_frequency = 0.01f;   // Base frequency (0.01 = one cycle per 100 world units)
 };
 
 /**
@@ -97,6 +98,12 @@ private:
 };
 
 /**
+ * Default base frequency for terrain generation.
+ * 0.01 means one full noise cycle per 100 world units.
+ */
+static constexpr float DEFAULT_BASE_FREQUENCY = 0.01f;
+
+/**
  * Generate Fractal Brownian Motion heightmap.
  *
  * @param registry SeedRegistry for deterministic RNG
@@ -104,10 +111,12 @@ private:
  * @param octaves Number of noise layers (6-8 typical)
  * @param offset_x World-space X offset for seamless chunk tiling
  * @param offset_z World-space Z offset for seamless chunk tiling
+ * @param base_frequency Base frequency for noise (0.01 = one cycle per 100 units)
  * @return Normalized [0,1] heightmap (row-major)
  */
 std::vector<float> generate_fbm(SeedRegistry& registry, uint32_t size, uint32_t octaves = 6,
-                                 float offset_x = 0.0f, float offset_z = 0.0f);
+                                 float offset_x = 0.0f, float offset_z = 0.0f,
+                                 float base_frequency = DEFAULT_BASE_FREQUENCY);
 
 /**
  * Generate Voronoi ridged noise for macro terrain plates.
