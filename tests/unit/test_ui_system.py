@@ -9,6 +9,7 @@ from procengine.game.ui_system import (
     InventoryPanel,
     QuestLog,
     PauseMenu,
+    SettingsPanel,
     DebugOverlay,
 )
 from procengine.game.player_controller import InteractionTarget
@@ -497,6 +498,42 @@ class TestPauseMenu:
 
         assert resume_called[0] is True
 
+
+# =============================================================================
+# SettingsPanel Tests
+# =============================================================================
+
+
+class TestSettingsPanel:
+    """Tests for SettingsPanel component."""
+
+    def test_renders_settings_options(self):
+        """Test settings panel options are rendered."""
+        backend = HeadlessUIBackend()
+        panel = SettingsPanel(backend, 1920, 1080)
+
+        backend.begin_frame()
+        panel.render(debug_enabled=True, vsync_enabled=False)
+        backend.end_frame()
+
+        assert backend.has_window("Settings")
+        assert backend.has_text("Debug Overlay: On")
+        assert backend.has_text("VSync: Off")
+
+    def test_back_button_callback(self):
+        """Test back button triggers close callback."""
+        backend = HeadlessUIBackend()
+        panel = SettingsPanel(backend, 1920, 1080)
+
+        closed = [False]
+        panel.set_callbacks(on_close=lambda: closed.__setitem__(0, True))
+        backend.set_button_response("Back", True)
+
+        backend.begin_frame()
+        panel.render()
+        backend.end_frame()
+
+        assert closed[0] is True
 
 # =============================================================================
 # DebugOverlay Tests

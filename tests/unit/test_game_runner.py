@@ -244,6 +244,34 @@ class TestGameRunner:
 
         runner.shutdown()
 
+    def test_console_shift_mapping(self):
+        """Test shift-modified console input mapping."""
+        config = RunnerConfig(headless=True)
+        runner = GameRunner(config)
+        runner.initialize()
+
+        runner.console.open()
+        runner._input_manager.begin_frame()
+        runner._input_manager.on_key_down("LSHIFT")
+        runner._input_manager.on_key_down("COMMA")
+        runner._process_console_input()
+
+        assert runner.console.input_buffer == "<"
+
+        runner._input_manager.on_key_up("COMMA")
+        runner._input_manager.on_key_up("LSHIFT")
+        runner.console.set_input("")
+        runner._input_manager.begin_frame()
+        runner._input_manager.on_key_down("LSHIFT")
+        runner._input_manager.on_key_down("SLASH")
+        runner._process_console_input()
+
+        assert runner.console.input_buffer == "?"
+
+        runner._input_manager.on_key_up("SLASH")
+        runner._input_manager.on_key_up("LSHIFT")
+        runner.shutdown()
+
     def test_inventory_toggle(self):
         """Test inventory toggle works."""
         config = RunnerConfig(headless=True)

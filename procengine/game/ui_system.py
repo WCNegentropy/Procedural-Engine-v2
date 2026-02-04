@@ -43,6 +43,7 @@ __all__ = [
     "InventoryPanel",
     "QuestLog",
     "PauseMenu",
+    "SettingsPanel",
     "DebugOverlay",
     "ConsoleWindow",
     "ImGuiBackend",
@@ -859,6 +860,84 @@ class PauseMenu(UIComponent):
         self._backend.end_window()
 
 
+class SettingsPanel(UIComponent):
+    """Settings panel for game options."""
+
+    def __init__(
+        self,
+        backend: UIBackend,
+        screen_width: int,
+        screen_height: int,
+    ) -> None:
+        super().__init__(backend)
+        self._screen_width = screen_width
+        self._screen_height = screen_height
+        self._on_toggle_debug: Optional[Callable[[], None]] = None
+        self._on_toggle_vsync: Optional[Callable[[], None]] = None
+        self._on_close: Optional[Callable[[], None]] = None
+
+    def set_callbacks(
+        self,
+        on_toggle_debug: Optional[Callable[[], None]] = None,
+        on_toggle_vsync: Optional[Callable[[], None]] = None,
+        on_close: Optional[Callable[[], None]] = None,
+    ) -> None:
+        """Set settings callbacks."""
+        self._on_toggle_debug = on_toggle_debug
+        self._on_toggle_vsync = on_toggle_vsync
+        self._on_close = on_close
+
+    def render(
+        self,
+        debug_enabled: bool = False,
+        vsync_enabled: bool = True,
+        **kwargs: Any,
+    ) -> None:
+        if not self._visible:
+            return
+
+        panel_width = 360
+        panel_height = 320
+        panel_x = (self._screen_width - panel_width) / 2
+        panel_y = (self._screen_height - panel_height) / 2
+
+        self._backend.begin_window(
+            "Settings",
+            panel_x, panel_y,
+            panel_width, panel_height,
+            flags=_NO_RESIZE_FLAGS,
+        )
+
+        self._backend.text_colored("Settings", *_COLOR_SECTION_HEADER)
+        self._backend.separator()
+        self._backend.spacing()
+
+        self._backend.text_colored("Graphics", *_COLOR_SECTION_HEADER)
+        self._backend.spacing()
+
+        button_width = panel_width - 40
+        debug_label = f"Debug Overlay: {'On' if debug_enabled else 'Off'}"
+        if self._backend.button(debug_label, button_width, 30):
+            if self._on_toggle_debug:
+                self._on_toggle_debug()
+
+        self._backend.spacing()
+
+        vsync_label = f"VSync: {'On' if vsync_enabled else 'Off'}"
+        if self._backend.button(vsync_label, button_width, 30):
+            if self._on_toggle_vsync:
+                self._on_toggle_vsync()
+
+        self._backend.spacing()
+        self._backend.separator()
+        if self._backend.button("Back", 120, 30):
+            self._visible = False
+            if self._on_close:
+                self._on_close()
+
+        self._backend.end_window()
+
+
 class DebugOverlay(UIComponent):
     """Debug overlay showing FPS, player stats, and developer tools.
     
@@ -1160,6 +1239,7 @@ class UIManager:
         self._inventory_panel = InventoryPanel(self._backend, screen_width, screen_height)
         self._quest_log = QuestLog(self._backend, screen_width, screen_height)
         self._pause_menu = PauseMenu(self._backend, screen_width, screen_height)
+        self._settings_panel = SettingsPanel(self._backend, screen_width, screen_height)
         self._debug_overlay = DebugOverlay(self._backend, screen_width, screen_height)
         self._console_window = ConsoleWindow(self._backend, screen_width, screen_height)
 
@@ -1285,6 +1365,18 @@ class UIManager:
         """Render pause menu."""
         self._pause_menu.visible = True
         self._pause_menu.render()
+
+    def render_settings(
+        self,
+        debug_enabled: bool = False,
+        vsync_enabled: bool = True,
+    ) -> None:
+        """Render settings panel."""
+        self._settings_panel.visible = True
+        self._settings_panel.render(
+            debug_enabled=debug_enabled,
+            vsync_enabled=vsync_enabled,
+        )
 
     def render_debug(
         self, 
@@ -1412,6 +1504,10 @@ class UIManager:
         return self._pause_menu
 
     @property
+    def settings_panel(self) -> SettingsPanel:
+        return self._settings_panel
+
+    @property
     def debug_overlay(self) -> DebugOverlay:
         return self._debug_overlay
 
@@ -1437,6 +1533,19 @@ class UIManager:
         self._pause_menu._on_load = on_load
         self._pause_menu._on_settings = on_settings
         self._pause_menu._on_quit = on_quit
+
+    def set_settings_callbacks(
+        self,
+        on_toggle_debug: Optional[Callable[[], None]] = None,
+        on_toggle_vsync: Optional[Callable[[], None]] = None,
+        on_close: Optional[Callable[[], None]] = None,
+    ) -> None:
+        """Set settings panel callbacks."""
+        self._settings_panel.set_callbacks(
+            on_toggle_debug=on_toggle_debug,
+            on_toggle_vsync=on_toggle_vsync,
+            on_close=on_close,
+        )
 
     def set_inventory_callbacks(
         self,

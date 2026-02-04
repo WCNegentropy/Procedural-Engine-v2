@@ -721,6 +721,8 @@ class GameRunner:
 
         # Flags for runtime state
         self.flags: Dict[str, bool] = {}
+        self.flags["debug_overlay"] = self.config.enable_debug
+        self.flags["vsync"] = self.config.vsync
 
         # UI system (lazily loaded)
         self._ui_manager: Optional["UIManager"] = None
@@ -891,7 +893,15 @@ class GameRunner:
             self._ui_manager.set_pause_callbacks(
                 on_resume=self._on_pause_pressed,
                 on_save=lambda: self.execute_command("system.save"),
+                on_load=lambda: self.execute_command("system.load"),
+                on_settings=self._on_settings_open,
                 on_quit=lambda: self.execute_command("system.quit"),
+            )
+
+            self._ui_manager.set_settings_callbacks(
+                on_toggle_debug=self._toggle_debug_overlay,
+                on_toggle_vsync=self._toggle_vsync,
+                on_close=self._on_settings_close,
             )
 
             # Wire inventory Use/Drop buttons to command registry
@@ -1603,12 +1613,19 @@ class GameRunner:
                 self._ui_manager.render_hud(player)
                 self._ui_manager.render_dialogue()
 
+            elif self._state == GameState.MENU:
+                self._ui_manager.render_hud(player)
+                self._ui_manager.render_settings(
+                    debug_enabled=self.flags.get("debug_overlay", False),
+                    vsync_enabled=self.flags.get("vsync", True),
+                )
+
             # Developer console (rendered on top of any game state)
             if self._console.is_visible:
                 self._ui_manager.render_console()
 
             # Debug overlay
-            if self.config.enable_debug:
+            if self.flags.get("debug_overlay", False):
                 self._ui_manager.render_debug(
                     self._fps,
                     self._frame_count,
@@ -1655,6 +1672,28 @@ class GameRunner:
                 self._player_controller.in_menu = False
             self._backend.set_mouse_capture(True)
 
+    def _on_settings_open(self) -> None:
+        """Open settings menu."""
+        if self._state == GameState.PAUSED:
+            self._state = GameState.MENU
+            if self._player_controller:
+                self._player_controller.in_menu = True
+
+    def _on_settings_close(self) -> None:
+        """Close settings menu."""
+        if self._state == GameState.MENU:
+            self._state = GameState.PAUSED
+
+    def _toggle_debug_overlay(self) -> None:
+        """Toggle debug overlay setting."""
+        self.flags["debug_overlay"] = not self.flags.get("debug_overlay", False)
+
+    def _toggle_vsync(self) -> None:
+        """Toggle vsync setting."""
+        self.flags["vsync"] = not self.flags.get("vsync", True)
+        if self._console:
+            self._console.print("VSync setting will apply on next start.")
+
     def _on_dialogue_advance(self) -> None:
         """Handle dialogue advance."""
         if self._ui_manager and self._state == GameState.DIALOGUE:
@@ -1697,6 +1736,29 @@ class GameRunner:
             return
 
         just = self._input_manager._keys_just_pressed
+        shift_active = "SHIFT" in self._input_manager._active_modifiers
+        shift_map = {
+            "COMMA": "<",
+            "PERIOD": ">",
+            "SLASH": "?",
+            "MINUS": "_",
+            "EQUALS": "+",
+            "SEMICOLON": ":",
+            "QUOTE": "\"",
+            "LEFTBRACKET": "{",
+            "RIGHTBRACKET": "}",
+            "BACKSLASH": "|",
+            "1": "!",
+            "2": "@",
+            "3": "#",
+            "4": "$",
+            "5": "%",
+            "6": "^",
+            "7": "&",
+            "8": "*",
+            "9": "(",
+            "0": ")",
+        }
 
         # Special keys first
         if "RETURN" in just:
@@ -1726,7 +1788,10 @@ class GameRunner:
 
         # Printable character input
         for key in just:
-            char = self._CONSOLE_CHAR_MAP.get(key)
+            if shift_active and key in shift_map:
+                char = shift_map[key]
+            else:
+                char = self._CONSOLE_CHAR_MAP.get(key)
             if char is not None:
                 self._console.handle_char(char)
 
