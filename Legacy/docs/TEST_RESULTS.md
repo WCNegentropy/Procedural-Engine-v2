@@ -5,6 +5,11 @@
 - **Notes**:
   - Verified pause, inventory, and dialogue mouse capture toggles via headless backend
 
+## 2026-02-04 (Settings UI + Console Shift Mapping)
+- **Python Test Suite**: `pytest tests/unit/test_game_runner.py::TestGameRunner::test_console_shift_mapping tests/unit/test_ui_system.py::TestSettingsPanel::test_renders_settings_options tests/unit/test_ui_system.py::TestSettingsPanel::test_back_button_callback -q` → 3 passed in 0.16s
+- **Notes**:
+  - Verified shift-aware console mapping and settings UI panel callbacks
+
 ## 2026-02-03 (ImGui Mouse Button Injection)
 - **Python Test Suite**: `pytest tests/unit/test_ui_system.py::TestImGuiBackend::test_begin_end_frame tests/unit/test_ui_system.py::TestImGuiBackend::test_works_with_ui_manager tests/unit/test_player_controller.py::TestInputManager::test_mouse_button` → 3 passed in 0.13s
 - **Notes**:
