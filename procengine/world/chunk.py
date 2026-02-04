@@ -310,24 +310,35 @@ class ChunkManager:
     ) -> Set[ChunkCoord]:
         """Get all chunk coordinates within radius of center.
 
-        Uses a square region for simplicity (could be changed to circular).
+        Uses circular distance check to avoid loading corner chunks that
+        are farther away than the specified radius.
         """
         result: Set[ChunkCoord] = set()
+        radius_sq = radius * radius
         for dx in range(-radius, radius + 1):
             for dz in range(-radius, radius + 1):
-                result.add((center[0] + dx, center[1] + dz))
+                # Use circular check instead of square
+                dist_sq = dx * dx + dz * dz
+                if dist_sq <= radius_sq:
+                    result.add((center[0] + dx, center[1] + dz))
         return result
 
     def _get_chunks_outside_radius(
         self, center: ChunkCoord, radius: int, candidates: Set[ChunkCoord]
     ) -> Set[ChunkCoord]:
-        """Get chunks from candidates that are outside the radius."""
+        """Get chunks from candidates that are outside the radius.
+
+        Uses circular distance check consistent with _get_chunks_in_radius.
+        """
         result: Set[ChunkCoord] = set()
+        radius_sq = radius * radius
         for coord in candidates:
-            dx = abs(coord[0] - center[0])
-            dz = abs(coord[1] - center[1])
-            if dx > radius or dz > radius:
+            dx = coord[0] - center[0]
+            dz = coord[1] - center[1]
+            dist_sq = dx * dx + dz * dz
+            if dist_sq > radius_sq:
                 result.add(coord)
+        return result
         return result
 
     def process_load_queue(self, max_per_frame: int = 1) -> List[Chunk]:

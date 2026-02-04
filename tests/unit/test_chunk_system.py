@@ -173,8 +173,8 @@ class TestChunkManager:
         manager.update_player_position(32.0, 32.0)
 
         # Should have queued chunks around (0, 0)
-        # With radius 1, should have 9 chunks: (-1,-1) to (1,1)
-        assert manager.get_load_queue_size() == 9
+        # With radius 1 (circular), should have 5 chunks: center + 4 cardinal
+        assert manager.get_load_queue_size() == 5
         assert manager.player_chunk == (0, 0)
 
     def test_process_load_queue_generates_chunks(self):
@@ -266,7 +266,7 @@ class TestChunkManager:
             manager.process_load_queue(max_per_frame=10)
 
         render_chunks = manager.get_render_chunks()
-        assert len(render_chunks) == 9  # 3x3 grid
+        assert len(render_chunks) == 5  # circular: center + 4 cardinal directions
 
     def test_get_sim_chunks(self):
         """Test getting chunks within simulation distance."""
@@ -283,8 +283,8 @@ class TestChunkManager:
             manager.process_load_queue(max_per_frame=100)
 
         sim_chunks = manager.get_sim_chunks()
-        # Simulation distance 1 = 3x3 grid = 9 chunks
-        assert len(sim_chunks) == 9
+        # Simulation distance 1 (circular) = 5 chunks
+        assert len(sim_chunks) == 5
 
     def test_get_chunk_at_world(self):
         """Test getting a specific chunk by world position."""
@@ -321,7 +321,7 @@ class TestChunkManager:
         assert "unload_queue" in stats
         assert "total_generated" in stats
         assert "player_chunk" in stats
-        assert stats["active_chunks"] == 9
+        assert stats["active_chunks"] == 5  # circular: center + 4 cardinal
 
 
 # =============================================================================
@@ -359,20 +359,22 @@ class TestChunkDeterminism:
     def test_different_coords_different_terrain(self):
         """Test that different coordinates produce different terrain."""
         registry = SeedRegistry(42)
-        manager = ChunkManager(registry, chunk_size=32, render_distance=1)
+        # Use radius 2 to ensure both (0,0) and (1,0) are loaded
+        manager = ChunkManager(registry, chunk_size=32, render_distance=2)
 
-        manager.update_player_position(48.0, 48.0)
+        manager.update_player_position(48.0, 48.0)  # chunk (1, 1)
         while manager.get_load_queue_size() > 0:
-            manager.process_load_queue(max_per_frame=10)
+            manager.process_load_queue(max_per_frame=20)
 
-        chunk_00 = manager.chunks.get((0, 0))
-        chunk_11 = manager.chunks.get((1, 1))
+        # Test adjacent chunks (both within circular radius 2 of (1,1))
+        chunk_center = manager.chunks.get((1, 1))
+        chunk_north = manager.chunks.get((1, 2))
 
-        assert chunk_00 is not None
-        assert chunk_11 is not None
+        assert chunk_center is not None
+        assert chunk_north is not None
         
         # Heights should be different
-        assert not np.array_equal(chunk_00.heightmap, chunk_11.heightmap)
+        assert not np.array_equal(chunk_center.heightmap, chunk_north.heightmap)
 
     def test_revisiting_chunk_same_data(self):
         """Test that revisiting a chunk after unload regenerates identical data."""

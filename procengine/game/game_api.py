@@ -1221,6 +1221,8 @@ class GameWorld:
         # Spatial entity partitioning by chunk (for dynamic mode)
         # Maps chunk coordinates (x, z) to set of entity IDs in that chunk
         self._entity_chunks: Dict[Tuple[int, int], Set[EntityId]] = {}
+        # Reverse mapping: entity ID -> chunk coordinate (for O(1) lookup)
+        self._entity_to_chunk: Dict[EntityId, Tuple[int, int]] = {}
 
         # Quest system
         self._quests: Dict[str, Quest] = {}
@@ -1280,8 +1282,10 @@ class GameWorld:
         if entity_id in self._entities:
             entity = self._entities.pop(entity_id)
 
-            # Remove from spatial partition
-            chunk_coord = self._position_to_chunk(entity.position)
+            # Remove from spatial partition and reverse mapping
+            chunk_coord = self._entity_to_chunk.pop(entity_id, None)
+            if chunk_coord is None:
+                chunk_coord = self._position_to_chunk(entity.position)
             if chunk_coord in self._entity_chunks:
                 self._entity_chunks[chunk_coord].discard(entity_id)
                 if not self._entity_chunks[chunk_coord]:
@@ -1362,6 +1366,8 @@ class GameWorld:
     def _update_entity_chunk(self, entity_id: EntityId, position: Vec3) -> None:
         """Update the spatial partition for an entity's position.
 
+        Uses reverse mapping for O(1) lookup of entity's current chunk.
+
         Parameters
         ----------
         entity_id:
@@ -1371,22 +1377,23 @@ class GameWorld:
         """
         new_chunk = self._position_to_chunk(position)
 
-        # Find and remove from old chunk
-        old_chunk = None
-        for coord, ids in self._entity_chunks.items():
-            if entity_id in ids:
-                old_chunk = coord
-                break
+        # O(1) lookup of old chunk via reverse mapping
+        old_chunk = self._entity_to_chunk.get(entity_id)
 
         if old_chunk is not None and old_chunk != new_chunk:
-            self._entity_chunks[old_chunk].discard(entity_id)
-            if not self._entity_chunks[old_chunk]:
-                del self._entity_chunks[old_chunk]
+            # Remove from old chunk
+            if old_chunk in self._entity_chunks:
+                self._entity_chunks[old_chunk].discard(entity_id)
+                if not self._entity_chunks[old_chunk]:
+                    del self._entity_chunks[old_chunk]
 
         # Add to new chunk
         if new_chunk not in self._entity_chunks:
             self._entity_chunks[new_chunk] = set()
         self._entity_chunks[new_chunk].add(entity_id)
+
+        # Update reverse mapping
+        self._entity_to_chunk[entity_id] = new_chunk
 
     def get_entities_in_chunk(self, chunk_coord: Tuple[int, int]) -> List[Entity]:
         """Get all entities in a specific chunk.

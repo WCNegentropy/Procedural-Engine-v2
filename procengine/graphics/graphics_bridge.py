@@ -658,6 +658,12 @@ class GraphicsBridge:
     def destroy_mesh(self, name: str) -> bool:
         """Destroy a mesh and free GPU resources.
 
+        Handles two mesh resource patterns:
+        - GPU mesh objects with a `destroy()` method (C++ GPU mesh handles)
+        - Graphics system centralized destruction via `destroy_mesh(mesh)`
+
+        In headless mode, simply removes the mesh reference without GPU cleanup.
+
         Parameters
         ----------
         name:
@@ -673,7 +679,10 @@ class GraphicsBridge:
 
         mesh = self._meshes.pop(name)
 
-        # If we have a proper GPU mesh, try to destroy it
+        # GPU mesh cleanup - only needed when not in headless mode
+        # Supports two C++ binding patterns for flexibility:
+        # 1. Mesh object with destroy() method (resource-owning handle)
+        # 2. Graphics system destroy_mesh() method (system-managed resources)
         if not self._headless and self._graphics_system:
             try:
                 if hasattr(mesh, 'destroy'):
