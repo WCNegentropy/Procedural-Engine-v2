@@ -1612,6 +1612,9 @@ class GameRunner:
         if not self._world or not hasattr(chunk, 'pending_props'):
             return
 
+        # Vertical offset to lift rocks slightly above terrain to prevent clipping
+        ROCK_Y_OFFSET = 0.1
+
         prop_count = 0
         for idx, prop_desc in enumerate(chunk.pending_props):
             prop_type = prop_desc.get("type", "unknown")
@@ -1628,7 +1631,7 @@ class GameRunner:
             if prop_type == "rock":
                 prop = Prop(
                     entity_id=entity_id,
-                    position=Vec3(global_x, global_y + 0.1, global_z),
+                    position=Vec3(global_x, global_y + ROCK_Y_OFFSET, global_z),
                     prop_type="rock",
                     state={
                         "radius": prop_desc.get("radius", 1.0),

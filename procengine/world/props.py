@@ -255,9 +255,9 @@ def generate_chunk_props(
 
     # Generate rocks
     for _ in range(rock_count):
-        # Random position within chunk
-        pos_x = float(rng.random() * chunk_size)
-        pos_z = float(rng.random() * chunk_size)
+        # Random position within chunk bounds [0, chunk_size)
+        pos_x = float(rng.uniform(0.0, float(chunk_size) - 0.001))
+        pos_z = float(rng.uniform(0.0, float(chunk_size) - 0.001))
 
         if is_valid_position(int(pos_x), int(pos_z)):
             terrain_y = get_terrain_height(int(pos_x), int(pos_z))
@@ -273,8 +273,9 @@ def generate_chunk_props(
 
     # Generate trees
     for _ in range(tree_count):
-        pos_x = float(rng.random() * chunk_size)
-        pos_z = float(rng.random() * chunk_size)
+        # Random position within chunk bounds [0, chunk_size)
+        pos_x = float(rng.uniform(0.0, float(chunk_size) - 0.001))
+        pos_z = float(rng.uniform(0.0, float(chunk_size) - 0.001))
 
         if is_valid_position(int(pos_x), int(pos_z)):
             terrain_y = get_terrain_height(int(pos_x), int(pos_z))

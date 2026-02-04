@@ -127,9 +127,9 @@ def test_generate_chunk_props_structure():
         assert "position" in prop
         pos = prop["position"]
         assert len(pos) == 3
-        # Position should be within chunk bounds
-        assert 0 <= pos[0] <= chunk_size
-        assert 0 <= pos[2] <= chunk_size
+        # Position should be within chunk bounds [0, chunk_size)
+        assert 0 <= pos[0] < chunk_size
+        assert 0 <= pos[2] < chunk_size
 
 
 def test_generate_chunk_props_respects_height_limits():
