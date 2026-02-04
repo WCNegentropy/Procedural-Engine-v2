@@ -2683,13 +2683,14 @@ bool GraphicsSystem::init_imgui(uint64_t sdl_window_handle) {
     ImGui::StyleColorsDark();
 
     // Create a dedicated descriptor pool for ImGui
+    // FIX: Increased pool size from 100 to 1000 to prevent overflow during long runs
     VkDescriptorPoolSize pool_sizes[] = {
-        { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 100 },
+        { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
     };
     VkDescriptorPoolCreateInfo pool_info{};
     pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-    pool_info.maxSets = 100;
+    pool_info.maxSets = 1000;  // FIX: Match pool size
     pool_info.poolSizeCount = 1;
     pool_info.pPoolSizes = pool_sizes;
     VkResult res = vkCreateDescriptorPool(device_->device(), &pool_info, nullptr, &imgui_descriptor_pool_);
