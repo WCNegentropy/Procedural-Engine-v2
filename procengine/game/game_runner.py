@@ -344,32 +344,79 @@ def create_sdl2_backend() -> Optional[WindowBackend]:
 
                 # Key mapping from SDL2 scancodes to our key names
                 self._key_map: Dict[int, str] = {
-                    sdl2.SDL_SCANCODE_W: "W",
+                    # Letters (A-Z)
                     sdl2.SDL_SCANCODE_A: "A",
-                    sdl2.SDL_SCANCODE_S: "S",
+                    sdl2.SDL_SCANCODE_B: "B",
+                    sdl2.SDL_SCANCODE_C: "C",
                     sdl2.SDL_SCANCODE_D: "D",
+                    sdl2.SDL_SCANCODE_E: "E",
+                    sdl2.SDL_SCANCODE_F: "F",
+                    sdl2.SDL_SCANCODE_G: "G",
+                    sdl2.SDL_SCANCODE_H: "H",
+                    sdl2.SDL_SCANCODE_I: "I",
+                    sdl2.SDL_SCANCODE_J: "J",
+                    sdl2.SDL_SCANCODE_K: "K",
+                    sdl2.SDL_SCANCODE_L: "L",
+                    sdl2.SDL_SCANCODE_M: "M",
+                    sdl2.SDL_SCANCODE_N: "N",
+                    sdl2.SDL_SCANCODE_O: "O",
+                    sdl2.SDL_SCANCODE_P: "P",
+                    sdl2.SDL_SCANCODE_Q: "Q",
+                    sdl2.SDL_SCANCODE_R: "R",
+                    sdl2.SDL_SCANCODE_S: "S",
+                    sdl2.SDL_SCANCODE_T: "T",
+                    sdl2.SDL_SCANCODE_U: "U",
+                    sdl2.SDL_SCANCODE_V: "V",
+                    sdl2.SDL_SCANCODE_W: "W",
+                    sdl2.SDL_SCANCODE_X: "X",
+                    sdl2.SDL_SCANCODE_Y: "Y",
+                    sdl2.SDL_SCANCODE_Z: "Z",
+                    # Numbers
+                    sdl2.SDL_SCANCODE_0: "0",
+                    sdl2.SDL_SCANCODE_1: "1",
+                    sdl2.SDL_SCANCODE_2: "2",
+                    sdl2.SDL_SCANCODE_3: "3",
+                    sdl2.SDL_SCANCODE_4: "4",
+                    sdl2.SDL_SCANCODE_5: "5",
+                    sdl2.SDL_SCANCODE_6: "6",
+                    sdl2.SDL_SCANCODE_7: "7",
+                    sdl2.SDL_SCANCODE_8: "8",
+                    sdl2.SDL_SCANCODE_9: "9",
+                    # Punctuation / symbols
+                    sdl2.SDL_SCANCODE_PERIOD: "PERIOD",
+                    sdl2.SDL_SCANCODE_COMMA: "COMMA",
+                    sdl2.SDL_SCANCODE_MINUS: "MINUS",
+                    sdl2.SDL_SCANCODE_EQUALS: "EQUALS",
+                    sdl2.SDL_SCANCODE_SLASH: "SLASH",
+                    sdl2.SDL_SCANCODE_BACKSLASH: "BACKSLASH",
+                    sdl2.SDL_SCANCODE_SEMICOLON: "SEMICOLON",
+                    sdl2.SDL_SCANCODE_APOSTROPHE: "QUOTE",
+                    sdl2.SDL_SCANCODE_LEFTBRACKET: "LEFTBRACKET",
+                    sdl2.SDL_SCANCODE_RIGHTBRACKET: "RIGHTBRACKET",
+                    # Whitespace / editing
                     sdl2.SDL_SCANCODE_SPACE: "SPACE",
+                    sdl2.SDL_SCANCODE_RETURN: "RETURN",
+                    sdl2.SDL_SCANCODE_BACKSPACE: "BACKSPACE",
+                    sdl2.SDL_SCANCODE_DELETE: "DELETE",
+                    sdl2.SDL_SCANCODE_TAB: "TAB",
+                    sdl2.SDL_SCANCODE_HOME: "HOME",
+                    sdl2.SDL_SCANCODE_END: "END",
+                    # Navigation
+                    sdl2.SDL_SCANCODE_UP: "UP",
+                    sdl2.SDL_SCANCODE_DOWN: "DOWN",
+                    sdl2.SDL_SCANCODE_LEFT: "LEFT",
+                    sdl2.SDL_SCANCODE_RIGHT: "RIGHT",
+                    # Modifiers
                     sdl2.SDL_SCANCODE_LSHIFT: "LSHIFT",
                     sdl2.SDL_SCANCODE_RSHIFT: "RSHIFT",
                     sdl2.SDL_SCANCODE_LCTRL: "LCTRL",
                     sdl2.SDL_SCANCODE_RCTRL: "RCTRL",
                     sdl2.SDL_SCANCODE_LALT: "LALT",
                     sdl2.SDL_SCANCODE_RALT: "RALT",
-                    sdl2.SDL_SCANCODE_E: "E",
-                    sdl2.SDL_SCANCODE_I: "I",
-                    sdl2.SDL_SCANCODE_J: "J",
-                    sdl2.SDL_SCANCODE_M: "M",
+                    # UI / special
                     sdl2.SDL_SCANCODE_ESCAPE: "ESCAPE",
                     sdl2.SDL_SCANCODE_GRAVE: "GRAVE",
-                    sdl2.SDL_SCANCODE_RETURN: "RETURN",
-                    sdl2.SDL_SCANCODE_UP: "UP",
-                    sdl2.SDL_SCANCODE_DOWN: "DOWN",
-                    sdl2.SDL_SCANCODE_LEFT: "LEFT",
-                    sdl2.SDL_SCANCODE_RIGHT: "RIGHT",
-                    sdl2.SDL_SCANCODE_1: "1",
-                    sdl2.SDL_SCANCODE_2: "2",
-                    sdl2.SDL_SCANCODE_3: "3",
-                    sdl2.SDL_SCANCODE_4: "4",
+                    # Function keys
                     sdl2.SDL_SCANCODE_F3: "F3",
                     sdl2.SDL_SCANCODE_F4: "F4",
                 }
@@ -837,6 +884,28 @@ class GameRunner:
             )
             self._ui_manager.set_world(self._world)
 
+            # Wire the developer console to the UI so it can be rendered
+            self._ui_manager.set_console(self._console)
+
+            # Wire pause menu buttons to command registry / game runner methods
+            self._ui_manager.set_pause_callbacks(
+                on_resume=self._on_pause_pressed,
+                on_save=lambda: self.execute_command("system.save"),
+                on_quit=lambda: self.execute_command("system.quit"),
+            )
+
+            # Wire inventory Use/Drop buttons to command registry
+            self._ui_manager.set_inventory_callbacks(
+                on_use=lambda item_id: self.execute_command(f"player.use {item_id}"),
+                on_drop=lambda item_id: self.execute_command(f"player.take {item_id}"),
+            )
+
+            # Wire dialogue callbacks
+            self._ui_manager.set_dialogue_callbacks(
+                on_option=self._on_dialogue_option,
+                on_advance=self._on_dialogue_advance,
+            )
+
             # Set up debug overlay callbacks
             self._ui_manager.set_debug_callbacks(
                 on_reset_world=self._on_reset_world,
@@ -1069,6 +1138,20 @@ class GameRunner:
 
     def _update(self, dt: float) -> None:
         """Update game state."""
+        # When the console is open, route keyboard input to it instead of
+        # the player controller.  The console toggle key (GRAVE) is still
+        # handled by PlayerController._handle_ui_input so the player can
+        # close the console; all other per-frame keys are consumed here.
+        if self._console.is_visible:
+            self._process_console_input()
+            # Still allow UI inputs so the user can close the console with ~
+            if self._player_controller:
+                self._player_controller.process_ui_inputs()
+            # Call custom update callback
+            if self._on_update:
+                self._on_update(dt)
+            return
+
         if self._state == GameState.PLAYING:
             # Update player controller
             player = self._world.get_player()
@@ -1123,6 +1206,10 @@ class GameRunner:
 
             # End rendering
             self._graphics_bridge.end_frame()
+        else:
+            # In headless mode, still process UI rendering so the
+            # HeadlessUIBackend records calls for testing.
+            self._render_ui()
 
         if self._on_render:
             self._on_render()
@@ -1516,10 +1603,14 @@ class GameRunner:
                 self._ui_manager.render_hud(player)
                 self._ui_manager.render_dialogue()
 
+            # Developer console (rendered on top of any game state)
+            if self._console.is_visible:
+                self._ui_manager.render_console()
+
             # Debug overlay
             if self.config.enable_debug:
                 self._ui_manager.render_debug(
-                    self._fps, 
+                    self._fps,
                     self._frame_count,
                     interaction_target,
                 )
@@ -1577,6 +1668,67 @@ class GameRunner:
     def _on_console_toggle(self) -> None:
         """Handle console toggle (tilde key)."""
         self._console.toggle()
+
+    # Key-to-character mapping for console text input.
+    _CONSOLE_CHAR_MAP: Dict[str, str] = {
+        **{c: c.lower() for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"},
+        **{str(d): str(d) for d in range(10)},
+        "SPACE": " ",
+        "PERIOD": ".",
+        "COMMA": ",",
+        "MINUS": "-",
+        "EQUALS": "=",
+        "SLASH": "/",
+        "BACKSLASH": "\\",
+        "SEMICOLON": ";",
+        "QUOTE": "'",
+        "LEFTBRACKET": "[",
+        "RIGHTBRACKET": "]",
+    }
+
+    def _process_console_input(self) -> None:
+        """Route keyboard input to the Console when it is open.
+
+        Reads the raw keys that were just pressed this frame from
+        ``InputManager._keys_just_pressed`` and translates them into the
+        appropriate Console method calls.
+        """
+        if not self._input_manager:
+            return
+
+        just = self._input_manager._keys_just_pressed
+
+        # Special keys first
+        if "RETURN" in just:
+            self._console.submit()
+            return
+
+        if "BACKSPACE" in just:
+            self._console.handle_backspace()
+        if "DELETE" in just:
+            self._console.handle_delete()
+        if "UP" in just:
+            self._console.handle_up()
+        if "DOWN" in just:
+            self._console.handle_down()
+        if "LEFT" in just:
+            self._console.handle_left()
+        if "RIGHT" in just:
+            self._console.handle_right()
+        if "TAB" in just:
+            self._console.handle_tab()
+        if "ESCAPE" in just:
+            self._console.handle_escape()
+        if "HOME" in just:
+            self._console.handle_home()
+        if "END" in just:
+            self._console.handle_end()
+
+        # Printable character input
+        for key in just:
+            char = self._CONSOLE_CHAR_MAP.get(key)
+            if char is not None:
+                self._console.handle_char(char)
 
     # -------------------------------------------------------------------------
     # Public API

@@ -228,6 +228,8 @@ class InputManager:
 
         # Key state tracking for edge detection
         self._keys_down: Set[str] = set()
+        # Raw keys that were newly pressed this frame (cleared each begin_frame)
+        self._keys_just_pressed: Set[str] = set()
 
         # Load default bindings
         self.load_default_bindings()
@@ -260,6 +262,7 @@ class InputManager:
     def begin_frame(self) -> None:
         """Call at the start of each frame to prepare input state."""
         self.state.clear_frame_state()
+        self._keys_just_pressed.clear()
 
     def on_key_down(self, key: str) -> None:
         """Handle a key press event."""
@@ -276,6 +279,8 @@ class InputManager:
         # Check if this is a new press
         is_new = key not in self._keys_down
         self._keys_down.add(key)
+        if is_new:
+            self._keys_just_pressed.add(key)
 
         # Find matching bindings and update action state
         for binding in self.bindings:
