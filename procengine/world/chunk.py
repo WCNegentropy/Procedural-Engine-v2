@@ -81,6 +81,8 @@ class Chunk:
         Whether the chunk mesh is currently on the GPU.
     is_simulating : bool
         Whether entities in this chunk should be physics-stepped.
+    has_props : bool
+        Whether props have been generated for this chunk.
     """
 
     coords: ChunkCoord
@@ -94,6 +96,7 @@ class Chunk:
     is_loaded: bool = False
     is_mesh_uploaded: bool = False
     is_simulating: bool = False
+    has_props: bool = False
 
     def __post_init__(self) -> None:
         """Generate mesh_id from coords if not provided."""
@@ -315,7 +318,7 @@ class ChunkManager:
         # FIX: Check for loaded chunks that entered prop range but lack props
         prop_radius_sq = self._prop_distance ** 2
         for coord, chunk in self._chunks.items():
-            if not getattr(chunk, 'has_props', True):
+            if not chunk.has_props:
                 dx = coord[0] - new_chunk[0]
                 dz = coord[1] - new_chunk[1]
                 if dx * dx + dz * dz <= prop_radius_sq:
@@ -452,7 +455,7 @@ class ChunkManager:
             coord = self._props_queue.pop(0)
             chunk = self._chunks.get(coord)
 
-            if chunk and not getattr(chunk, 'has_props', False):
+            if chunk and not chunk.has_props:
                 # Regenerate props using deterministic seed
                 chunk_name = f"chunk_{coord[0]}_{coord[1]}"
                 chunk_registry = self._registry.spawn(chunk_name)
@@ -465,7 +468,7 @@ class ChunkManager:
                     chunk.heightmap,
                     chunk.slope_map,
                 )
-                chunk.has_props = True  # type: ignore[attr-defined]
+                chunk.has_props = True
                 updated_chunks.append(chunk)
 
         return updated_chunks
@@ -534,10 +537,8 @@ class ChunkManager:
             slope_map=slope,
             pending_props=prop_descriptors,
             is_loaded=True,
+            has_props=has_props,
         )
-
-        # Mark if props were generated so we can load them later if needed
-        chunk.has_props = has_props  # type: ignore[attr-defined]
 
         return chunk
 
