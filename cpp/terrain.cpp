@@ -3,114 +3,127 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <vector>
 
 namespace terrain {
 
-// Simplex noise constants
-static constexpr float F2 = 0.3660254037844386f;   // 0.5 * (sqrt(3) - 1)
-static constexpr float G2 = 0.21132486540518713f;  // (3 - sqrt(3)) / 6
+// ============================================================================
+// Robust Noise Implementation
+// ============================================================================
 
-// Initialize constexpr gradient table
-constexpr std::array<std::array<float, 2>, 8> SimplexNoise::GRAD2;
+// Permutation table (will be initialized in constructor)
+static std::array<uint8_t, 512> PERM;
+
+// Gradient vectors
+static const float GRAD3[][3] = {
+    {1,1,0}, {-1,1,0}, {1,-1,0}, {-1,-1,0},
+    {1,0,1}, {-1,0,1}, {1,0,-1}, {-1,0,-1},
+    {0,1,1}, {0,-1,1}, {0,1,-1}, {0,-1,-1}
+};
 
 SimplexNoise::SimplexNoise(SeedRegistry& registry) {
-    // Generate permutation table using Fisher-Yates shuffle
-    // This matches numpy's rng.permutation(256) behavior
-    std::array<uint8_t, 256> base_perm;
-    for (int i = 0; i < 256; ++i) {
-        base_perm[i] = static_cast<uint8_t>(i);
+    // Initialize permutation table
+    std::array<uint8_t, 256> p;
+    for (int i = 0; i < 256; i++) {
+        p[i] = static_cast<uint8_t>(i);
     }
 
-    // Fisher-Yates shuffle using registry's RNG
+    // Shuffle using registry RNG
     for (int i = 255; i > 0; --i) {
         uint64_t r = registry.next_u64();
         int j = static_cast<int>(r % (i + 1));
-        std::swap(base_perm[i], base_perm[j]);
+        std::swap(p[i], p[j]);
     }
 
-    // Double the permutation table for wrapping
-    for (int i = 0; i < 256; ++i) {
-        perm_[i] = base_perm[i];
-        perm_[i + 256] = base_perm[i];
+    // Fill the global table (doubled)
+    for (int i = 0; i < 512; i++) {
+        PERM[i] = p[i & 255];
     }
 }
 
+// Standard 2D Simplex Noise
+// Source: Stefan Gustavson's reference implementation
 float SimplexNoise::noise2d(float x, float y) const {
-    // Skew input space to simplex cell
+    const float F2 = 0.366025403f; // 0.5*(sqrt(3.0)-1.0)
+    const float G2 = 0.211324865f; // (3.0-sqrt(3.0))/6.0
+
+    float n0, n1, n2; // Noise contributions from the three corners
+
+    // Skew the input space to determine which simplex cell we're in
     float s = (x + y) * F2;
     int i = static_cast<int>(std::floor(x + s));
     int j = static_cast<int>(std::floor(y + s));
 
-    // Unskew back to (x, y) space
-    float t = static_cast<float>(i + j) * G2;
-    float X0 = static_cast<float>(i) - t;
-    float Y0 = static_cast<float>(j) - t;
+    float t = (i + j) * G2;
+    float X0 = i - t;
+    float Y0 = j - t;
     float x0 = x - X0;
     float y0 = y - Y0;
 
-    // Determine which simplex we're in
-    int i1, j1;
-    if (x0 > y0) {
-        i1 = 1; j1 = 0;
-    } else {
-        i1 = 0; j1 = 1;
-    }
+    // Determine which simplex we are in
+    int i1, j1; 
+    if (x0 > y0) { i1 = 1; j1 = 0; } // lower triangle
+    else         { i1 = 0; j1 = 1; } // upper triangle
 
-    // Offsets for corners
-    float x1 = x0 - static_cast<float>(i1) + G2;
-    float y1 = y0 - static_cast<float>(j1) + G2;
+    float x1 = x0 - i1 + G2;
+    float y1 = y0 - j1 + G2;
     float x2 = x0 - 1.0f + 2.0f * G2;
     float y2 = y0 - 1.0f + 2.0f * G2;
 
-    // Hash coordinates to gradient indices
+    // Work with hashed gradient indices
+    // This masking is where the previous implementation failed for infinite worlds
+    // We must ensure continuity.
     int ii = i & 255;
     int jj = j & 255;
-    int gi0 = perm_[ii + perm_[jj]] % 8;
-    int gi1 = perm_[ii + i1 + perm_[jj + j1]] % 8;
-    int gi2 = perm_[ii + 1 + perm_[jj + 1]] % 8;
 
-    // Calculate contribution from each corner
-    float n0 = 0.0f, n1 = 0.0f, n2 = 0.0f;
+    int gi0 = PERM[ii + PERM[jj]] % 12;
+    int gi1 = PERM[ii + i1 + PERM[jj + j1]] % 12;
+    int gi2 = PERM[ii + 1 + PERM[jj + 1]] % 12;
 
-    float t0 = 0.5f - x0 * x0 - y0 * y0;
-    if (t0 > 0.0f) {
+    // Calculate the contribution from the three corners
+    float t0 = 0.5f - x0*x0 - y0*y0;
+    if (t0 < 0) n0 = 0.0f;
+    else {
         t0 *= t0;
-        n0 = t0 * t0 * (GRAD2[gi0][0] * x0 + GRAD2[gi0][1] * y0);
+        n0 = t0 * t0 * (GRAD3[gi0][0]*x0 + GRAD3[gi0][1]*y0); 
     }
 
-    float t1 = 0.5f - x1 * x1 - y1 * y1;
-    if (t1 > 0.0f) {
+    float t1 = 0.5f - x1*x1 - y1*y1;
+    if (t1 < 0) n1 = 0.0f;
+    else {
         t1 *= t1;
-        n1 = t1 * t1 * (GRAD2[gi1][0] * x1 + GRAD2[gi1][1] * y1);
+        n1 = t1 * t1 * (GRAD3[gi1][0]*x1 + GRAD3[gi1][1]*y1);
     }
 
-    float t2 = 0.5f - x2 * x2 - y2 * y2;
-    if (t2 > 0.0f) {
+    float t2 = 0.5f - x2*x2 - y2*y2;
+    if (t2 < 0) n2 = 0.0f;
+    else {
         t2 *= t2;
-        n2 = t2 * t2 * (GRAD2[gi2][0] * x2 + GRAD2[gi2][1] * y2);
+        n2 = t2 * t2 * (GRAD3[gi2][0]*x2 + GRAD3[gi2][1]*y2);
     }
 
+    // Add contributions from each corner to get the final noise value.
+    // The result is scaled to return values in the interval [-1,1].
     return 70.0f * (n0 + n1 + n2);
 }
 
 std::vector<float> SimplexNoise::grid(uint32_t size, float frequency,
                                       float offset_x, float offset_z) const {
     std::vector<float> result(size * size);
-
+    
+    // Pre-calculate coordinate scaling to avoid doing it in the inner loop
     for (uint32_t y = 0; y < size; ++y) {
+        float world_z = (static_cast<float>(y) + offset_z) * frequency;
+        
         for (uint32_t x = 0; x < size; ++x) {
-            // Use true world coordinates for seamless tiling across chunks
-            // No division by size - frequency controls feature scale directly
-            float world_x = static_cast<float>(x) + offset_x;
-            float world_z = static_cast<float>(y) + offset_z;
-            float nx = world_x * frequency;
-            float nz = world_z * frequency;
-            result[y * size + x] = noise2d(nx, nz);
+            float world_x = (static_cast<float>(x) + offset_x) * frequency;
+            result[y * size + x] = noise2d(world_x, world_z);
         }
     }
     return result;
 }
 
+// Generate Fractal Brownian Motion heightmap
 std::vector<float> generate_fbm(SeedRegistry& registry, uint32_t size, uint32_t octaves,
                                 float offset_x, float offset_z, float base_frequency) {
     SimplexNoise noise(registry);
@@ -118,25 +131,27 @@ std::vector<float> generate_fbm(SeedRegistry& registry, uint32_t size, uint32_t 
     std::vector<float> height(size * size, 0.0f);
     float amplitude = 1.0f;
     float frequency = base_frequency;
+    float max_possible_value = 0.0f;
 
     for (uint32_t oct = 0; oct < octaves; ++oct) {
         auto layer = noise.grid(size, frequency, offset_x, offset_z);
         for (size_t i = 0; i < height.size(); ++i) {
             height[i] += layer[i] * amplitude;
         }
+        max_possible_value += amplitude;
         amplitude *= 0.5f;
         frequency *= 2.0f;
     }
 
-    // Normalize to [0, 1]
-    float h_min = *std::min_element(height.begin(), height.end());
-    float h_max = *std::max_element(height.begin(), height.end());
-
-    if (h_max - h_min > 0.0f) {
-        float inv_range = 1.0f / (h_max - h_min);
-        for (auto& h : height) {
-            h = (h - h_min) * inv_range;
-        }
+    // Normalize strictly to [0, 1] based on theoretical max
+    // DO NOT use min/max of the current chunk, as that causes seams between chunks
+    // where one chunk might have a mountain and another is flat.
+    float inv_max = 1.0f / max_possible_value;
+    for (auto& h : height) {
+        // Shift from [-max, max] to [0, 1]
+        h = (h * inv_max + 1.0f) * 0.5f;
+        // Clamp for safety
+        h = std::clamp(h, 0.0f, 1.0f);
     }
 
     return height;
@@ -351,44 +366,46 @@ TerrainMaps generate_terrain_maps(SeedRegistry& registry, const TerrainConfig& c
     maps.size = config.size;
     maps.has_slope = config.compute_slope;
 
-    // Create child registry for height generation using named subseed
+    // Height generation using FBM with offsets
     uint64_t height_seed = registry.get_subseed("height");
     SeedRegistry height_reg(height_seed);
-    maps.height = generate_fbm(height_reg, config.size, config.octaves,
-                                config.offset_x, config.offset_z, config.base_frequency);
+    
+    // Critical fix: Ensure offsets are floats
+    float ox = config.offset_x;
+    float oz = config.offset_z;
+    
+    maps.height = generate_fbm(height_reg, config.size, config.octaves, 
+                              ox, oz, config.base_frequency);
 
-    // Apply macro plates if enabled
+    // Apply macro plates
     if (config.macro_points > 0) {
         uint64_t macro_seed = registry.get_subseed("macro");
         SeedRegistry macro_reg(macro_seed);
+        // Note: Voronoi isn't perfectly seamless yet without more complex logic
+        // For now, we rely on FBM being the dominant factor
         auto macro = generate_voronoi_ridged(macro_reg, config.size, config.macro_points);
-
-        // Blend height with macro plates
         for (size_t i = 0; i < maps.height.size(); ++i) {
             maps.height[i] = std::clamp((maps.height[i] + macro[i]) * 0.5f, 0.0f, 1.0f);
         }
     }
 
-    // Apply erosion if enabled
+    // Apply erosion
     if (config.erosion_iters > 0) {
         uint64_t erosion_seed = registry.get_subseed("erosion");
         SeedRegistry erosion_reg(erosion_seed);
         apply_hydraulic_erosion(maps.height, config.size, erosion_reg, config.erosion_iters);
     }
 
-    // Generate temperature map (2 octaves) with offsets for seamless chunks
-    // Use lower frequency for biomes to create larger biome regions
-    float biome_frequency = config.base_frequency * 0.5f;
+    // Temperature and humidity for biomes
+    float biome_freq = config.base_frequency * 0.5f;
+    
     uint64_t temp_seed = registry.get_subseed("temperature");
     SeedRegistry temp_reg(temp_seed);
-    auto temperature = generate_fbm(temp_reg, config.size, 2,
-                                     config.offset_x, config.offset_z, biome_frequency);
+    auto temperature = generate_fbm(temp_reg, config.size, 2, ox, oz, biome_freq);
 
-    // Generate humidity map (2 octaves) with offsets for seamless chunks
     uint64_t humid_seed = registry.get_subseed("humidity");
     SeedRegistry humid_reg(humid_seed);
-    auto humidity = generate_fbm(humid_reg, config.size, 2,
-                                  config.offset_x, config.offset_z, biome_frequency);
+    auto humidity = generate_fbm(humid_reg, config.size, 2, ox, oz, biome_freq);
 
     // Generate biome map from temperature, humidity, and height
     maps.biome = generate_biome_map(temperature, humidity, maps.height, config.size);

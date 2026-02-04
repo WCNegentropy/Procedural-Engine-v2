@@ -87,14 +87,6 @@ public:
      */
     std::vector<float> grid(uint32_t size, float frequency,
                             float offset_x = 0.0f, float offset_z = 0.0f) const;
-
-private:
-    std::array<uint8_t, 512> perm_;  // Permutation table (doubled for wrapping)
-
-    static constexpr std::array<std::array<float, 2>, 8> GRAD2 = {{
-        {1.0f, 1.0f}, {-1.0f, 1.0f}, {1.0f, -1.0f}, {-1.0f, -1.0f},
-        {1.0f, 0.0f}, {-1.0f, 0.0f}, {0.0f, 1.0f}, {0.0f, -1.0f}
-    }};
 };
 
 /**

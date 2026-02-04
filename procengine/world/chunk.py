@@ -493,17 +493,17 @@ class ChunkManager:
         chunk_name = f"chunk_{coord[0]}_{coord[1]}"
         chunk_registry = self._registry.spawn(chunk_name)
 
-        # Generate terrain maps with world-space offset for seamless tiling
-        # The offset ensures noise coordinates are continuous across chunks
-        offset_x = coord[0] * self._chunk_size
-        offset_z = coord[1] * self._chunk_size
+        # Calculate offsets based on chunk size
+        # This assumes chunk (1,0) should start noise where chunk (0,0) ended
+        offset_x = float(coord[0] * self._chunk_size)
+        offset_z = float(coord[1] * self._chunk_size)
 
         maps = generate_terrain_maps(
             chunk_registry,
             size=self._chunk_size,
             octaves=6,
-            macro_points=8,
-            erosion_iters=0,
+            macro_points=0, # Disable macro points for now as they can cause seams
+            erosion_iters=0, # Disable erosion for now as it simulates locally
             return_slope=True,
             offset_x=offset_x,
             offset_z=offset_z,
