@@ -102,10 +102,10 @@ std::vector<float> SimplexNoise::grid(uint32_t size, float frequency,
         for (uint32_t x = 0; x < size; ++x) {
             // Use global coordinates for seamless tiling across chunks
             float world_x = static_cast<float>(x) + offset_x;
-            float world_y = static_cast<float>(y) + offset_z;
+            float world_z = static_cast<float>(y) + offset_z;
             float nx = world_x * inv_size * frequency;
-            float ny = world_y * inv_size * frequency;
-            result[y * size + x] = noise2d(nx, ny);
+            float nz = world_z * inv_size * frequency;
+            result[y * size + x] = noise2d(nx, nz);
         }
     }
     return result;

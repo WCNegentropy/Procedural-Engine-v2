@@ -671,6 +671,9 @@ class GameRunner:
     - UI rendering (when available)
     """
 
+    # Height scale factor for terrain (converts normalized [0,1] to world units)
+    HEIGHT_SCALE: float = 30.0
+
     def __init__(
         self,
         config: Optional[RunnerConfig] = None,
@@ -1394,8 +1397,7 @@ class GameRunner:
             slope_map = result[3] if len(result) > 3 else None
             
             # Scale heights to world units
-            HEIGHT_SCALE = 30.0
-            heightmap = heightmap * HEIGHT_SCALE
+            heightmap = heightmap * self.HEIGHT_SCALE
             
             # Store terrain data for other systems
             self._terrain_heightmap = heightmap
@@ -1539,14 +1541,14 @@ class GameRunner:
                     local_z = int(spawn_z) % self.config.chunk_size
                     local_x = min(max(local_x, 0), self.config.chunk_size - 1)
                     local_z = min(max(local_z, 0), self.config.chunk_size - 1)
-                    terrain_y = float(chunk.heightmap[local_z, local_x]) * 30.0  # HEIGHT_SCALE
+                    terrain_y = float(chunk.heightmap[local_z, local_x]) * self.HEIGHT_SCALE
                     player.position = Vec3(spawn_x, terrain_y + 2.0, spawn_z)
                     player.velocity = Vec3(0, 0, 0)
                     player.grounded = True
                     print(f"Player spawned at terrain height: {terrain_y + 2.0}")
                     
                     # Also set terrain heightmap for camera positioning
-                    self._terrain_heightmap = chunk.heightmap * 30.0
+                    self._terrain_heightmap = chunk.heightmap * self.HEIGHT_SCALE
             
             print(f"Dynamic terrain initialized: {len(chunks)} chunks loaded")
             
@@ -1570,8 +1572,7 @@ class GameRunner:
             return
         
         # Scale heights to world units
-        HEIGHT_SCALE = 30.0
-        scaled_heightmap = chunk.heightmap * HEIGHT_SCALE
+        scaled_heightmap = chunk.heightmap * self.HEIGHT_SCALE
         
         success = self._graphics_bridge.upload_terrain_mesh(
             chunk.mesh_id,

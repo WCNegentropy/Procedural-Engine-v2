@@ -563,6 +563,11 @@ class ChunkedHeightField:
         """Get the chunk size in world units."""
         return self._manager.chunk_size
 
+    # Multiplier for calculating effective terrain size from render distance.
+    # Value of 4 provides coverage for: current chunk + render distance radius + margin
+    # for player movement. This is a heuristic value that provides reasonable bounds.
+    _SIZE_MULTIPLIER: int = 4
+
     @property
     def size_x(self) -> int:
         """Number of samples in X direction (virtual/effective size).
@@ -572,7 +577,7 @@ class ChunkedHeightField:
         """
         # Return a large value representing loaded chunk coverage
         # The actual terrain extent depends on loaded chunks
-        return self._manager.chunk_size * self._manager.render_distance * 4
+        return self._manager.chunk_size * self._manager.render_distance * self._SIZE_MULTIPLIER
 
     @property
     def size_z(self) -> int:
@@ -582,7 +587,7 @@ class ChunkedHeightField:
         effectively infinite terrain in the Z direction.
         """
         # Return a large value representing loaded chunk coverage
-        return self._manager.chunk_size * self._manager.render_distance * 4
+        return self._manager.chunk_size * self._manager.render_distance * self._SIZE_MULTIPLIER
 
     def sample(self, x: float, z: float) -> float:
         """Sample terrain height at a world position.

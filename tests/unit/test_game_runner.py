@@ -673,3 +673,12 @@ class TestDynamicChunks:
         runner.run_frames(10)
         
         assert runner.frame_count == 10
+        
+        # Verify chunk manager state
+        assert runner._chunk_manager is not None
+        assert len(runner._chunk_manager.chunks) > 0
+        
+        # Verify chunks are loaded around spawn point
+        spawn_chunk = runner._chunk_manager.get_chunk_at_world(16.0, 16.0)
+        assert spawn_chunk is not None
+        assert spawn_chunk.is_loaded
