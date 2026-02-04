@@ -112,7 +112,9 @@ def _simplex_grid(
     size:
         Width and height of the grid.
     frequency:
-        Base frequency of the noise.
+        Frequency scale for noise (world units per cycle). Lower values
+        create larger features. For seamless multi-chunk terrain, use
+        values like 0.01 (one cycle per 100 world units).
     offset_x:
         World-space X offset for seamless tiling across chunks.
     offset_z:
@@ -121,10 +123,13 @@ def _simplex_grid(
     grid = np.zeros((size, size), dtype=np.float32)
     for y in range(size):
         for x in range(size):
-            # Use global coordinates for seamless tiling
-            nx = ((x + offset_x) / size) * frequency
-            ny = ((y + offset_z) / size) * frequency
-            grid[y, x] = _simplex2d(nx, ny, perm)
+            # Use true world coordinates for seamless tiling
+            # No division by size - frequency controls feature scale directly
+            world_x = float(x) + offset_x
+            world_z = float(y) + offset_z
+            nx = world_x * frequency
+            nz = world_z * frequency
+            grid[y, x] = _simplex2d(nx, nz, perm)
     return grid
 
 
@@ -134,6 +139,7 @@ def _fbm_noise(
     octaves: int = 6,
     offset_x: float = 0.0,
     offset_z: float = 0.0,
+    base_frequency: float = 0.01,
 ) -> np.ndarray:
     """Generate fractal Brownian motion using 2D simplex noise.
 
@@ -149,13 +155,16 @@ def _fbm_noise(
         World-space X offset for seamless tiling across chunks.
     offset_z:
         World-space Z offset for seamless tiling across chunks.
+    base_frequency:
+        Base frequency for the lowest octave (default 0.01 = one cycle per
+        100 world units, creating large features spanning ~2 chunks).
     """
     perm = rng.permutation(256)
     perm = np.concatenate([perm, perm])
 
     height = np.zeros((size, size), dtype=np.float32)
     amplitude = 1.0
-    frequency = 1.0
+    frequency = base_frequency
     for _ in range(octaves):
         height += _simplex_grid(perm, size, frequency, offset_x, offset_z) * amplitude
         amplitude *= 0.5
@@ -235,6 +244,7 @@ def generate_terrain_maps(
     return_slope: bool = False,
     offset_x: float = 0.0,
     offset_z: float = 0.0,
+    base_frequency: float = 0.01,
 ) -> Tuple[np.ndarray, ...]:
     """Return deterministic terrain maps.
 
@@ -261,10 +271,17 @@ def generate_terrain_maps(
     offset_z:
         World-space Z offset for seamless tiling across chunks. When generating
         adjacent chunks, pass ``chunk_z * size`` here.
+    base_frequency:
+        Base frequency for terrain noise (default 0.01 = one full noise cycle
+        per 100 world units). Lower values create larger terrain features that
+        span multiple chunks for a more realistic infinite world.
     """
 
     rng_height = registry.get_rng("terrain_height")
-    height = _fbm_noise(rng_height, size=size, octaves=octaves, offset_x=offset_x, offset_z=offset_z)
+    height = _fbm_noise(
+        rng_height, size=size, octaves=octaves,
+        offset_x=offset_x, offset_z=offset_z, base_frequency=base_frequency
+    )
     if macro_points > 0:
         rng_macro = registry.get_rng("terrain_macro")
         macro = _voronoi_ridged(rng_macro, size=size, points=macro_points)
@@ -275,10 +292,18 @@ def generate_terrain_maps(
         height = _hydraulic_erosion(height, rng_erosion, erosion_iters)
 
     # Temperature and humidity maps drive biome selection
+    # Use a lower frequency for biomes to create larger biome regions
+    biome_frequency = base_frequency * 0.5  # Biomes span ~twice the area of terrain features
     rng_temp = registry.get_rng("terrain_temp")
-    temperature = _fbm_noise(rng_temp, size=size, octaves=2, offset_x=offset_x, offset_z=offset_z)
+    temperature = _fbm_noise(
+        rng_temp, size=size, octaves=2,
+        offset_x=offset_x, offset_z=offset_z, base_frequency=biome_frequency
+    )
     rng_humid = registry.get_rng("terrain_humidity")
-    humidity = _fbm_noise(rng_humid, size=size, octaves=2, offset_x=offset_x, offset_z=offset_z)
+    humidity = _fbm_noise(
+        rng_humid, size=size, octaves=2,
+        offset_x=offset_x, offset_z=offset_z, base_frequency=biome_frequency
+    )
 
     temp_idx = np.digitize(temperature, [0.33, 0.66])
     humid_idx = np.digitize(humidity, [0.33, 0.66])

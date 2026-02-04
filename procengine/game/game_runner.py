@@ -1561,12 +1561,12 @@ class GameRunner:
             self._setup_terrain()
 
     def _upload_chunk_mesh(self, chunk: Any) -> None:
-        """Upload a chunk's terrain mesh to the GPU.
+        """Upload a chunk's terrain mesh to the GPU and spawn pending props.
         
         Parameters
         ----------
         chunk:
-            The Chunk object containing heightmap and biome data.
+            The Chunk object containing heightmap, biome data, and pending props.
         """
         if not self._graphics_bridge or chunk.heightmap is None:
             return
@@ -1585,6 +1585,90 @@ class GameRunner:
             chunk.is_mesh_uploaded = True
         else:
             print(f"Warning: Failed to upload chunk mesh {chunk.mesh_id}")
+        
+        # Spawn pending props as entities
+        if self._world and hasattr(chunk, 'pending_props') and chunk.pending_props:
+            # Get world-space origin for this chunk
+            if hasattr(chunk, 'world_origin'):
+                world_x, world_z = chunk.world_origin(self.config.chunk_size)
+            else:
+                world_x = chunk.coords[0] * self.config.chunk_size
+                world_z = chunk.coords[1] * self.config.chunk_size
+            
+            self._spawn_chunk_props(chunk, world_x, world_z)
+
+    def _spawn_chunk_props(self, chunk: Any, world_x: float, world_z: float) -> None:
+        """Spawn props from a chunk's pending_props list as game entities.
+
+        Parameters
+        ----------
+        chunk:
+            The Chunk object with pending_props to spawn.
+        world_x:
+            World X coordinate of the chunk's origin.
+        world_z:
+            World Z coordinate of the chunk's origin.
+        """
+        if not self._world or not hasattr(chunk, 'pending_props'):
+            return
+
+        # Vertical offset to lift rocks slightly above terrain to prevent clipping
+        ROCK_Y_OFFSET = 0.1
+
+        prop_count = 0
+        for idx, prop_desc in enumerate(chunk.pending_props):
+            prop_type = prop_desc.get("type", "unknown")
+            local_pos = prop_desc.get("position", [0, 0, 0])
+
+            # Convert local chunk position to global world position
+            global_x = world_x + local_pos[0]
+            global_y = local_pos[1] * self.HEIGHT_SCALE  # Scale height to world units
+            global_z = world_z + local_pos[2]
+
+            # Create unique entity ID using chunk coordinates
+            entity_id = f"{prop_type}_{chunk.coords[0]}_{chunk.coords[1]}_{idx}"
+
+            if prop_type == "rock":
+                prop = Prop(
+                    entity_id=entity_id,
+                    position=Vec3(global_x, global_y + ROCK_Y_OFFSET, global_z),
+                    prop_type="rock",
+                    state={
+                        "radius": prop_desc.get("radius", 1.0),
+                        "noise_seed": prop_desc.get("noise_seed", 0),
+                    },
+                )
+            elif prop_type == "tree":
+                prop = Prop(
+                    entity_id=entity_id,
+                    position=Vec3(global_x, global_y, global_z),
+                    prop_type="tree",
+                    state={
+                        "axiom": prop_desc.get("axiom", "F"),
+                        "rules": prop_desc.get("rules", {}),
+                        "angle": prop_desc.get("angle", 25.0),
+                        "iterations": prop_desc.get("iterations", 3),
+                    },
+                )
+            else:
+                # Generic prop fallback
+                prop = Prop(
+                    entity_id=entity_id,
+                    position=Vec3(global_x, global_y, global_z),
+                    prop_type=prop_type,
+                    state=prop_desc.get("state", {}),
+                )
+
+            spawned_id = self._world.spawn_entity(prop)
+            if spawned_id:
+                chunk.entity_ids.add(spawned_id)
+                prop_count += 1
+
+        # Clear pending props to save memory
+        chunk.pending_props = []
+
+        if prop_count > 0:
+            print(f"Spawned {prop_count} props in chunk {chunk.coords}")
 
     def _update_physics_terrain(self, heightmap: "np.ndarray", size: int) -> None:
         """Update physics system with terrain height field."""
