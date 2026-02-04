@@ -655,10 +655,78 @@ class GraphicsBridge:
         """Get a previously uploaded mesh."""
         return self._meshes.get(name)
 
-    def destroy_mesh(self, name: str) -> None:
-        """Destroy a mesh and free GPU resources."""
-        if name in self._meshes:
-            del self._meshes[name]
+    def destroy_mesh(self, name: str) -> bool:
+        """Destroy a mesh and free GPU resources.
+
+        Parameters
+        ----------
+        name:
+            Name of the mesh to destroy.
+
+        Returns
+        -------
+        bool:
+            True if the mesh was found and destroyed.
+        """
+        if name not in self._meshes:
+            return False
+
+        mesh = self._meshes.pop(name)
+
+        # If we have a proper GPU mesh, try to destroy it
+        if not self._headless and self._graphics_system:
+            try:
+                if hasattr(mesh, 'destroy'):
+                    mesh.destroy()
+                elif hasattr(self._graphics_system, 'destroy_mesh'):
+                    self._graphics_system.destroy_mesh(mesh)
+            except Exception as e:
+                logger.warning(f"Error destroying mesh '{name}': {e}")
+
+        return True
+
+    def unload_chunk_mesh(self, chunk_coord: Tuple[int, int]) -> bool:
+        """Unload a terrain chunk mesh by its coordinates.
+
+        Convenience method for chunk-based world systems.
+
+        Parameters
+        ----------
+        chunk_coord:
+            Chunk coordinates (x, z).
+
+        Returns
+        -------
+        bool:
+            True if the mesh was found and destroyed.
+        """
+        mesh_name = f"terrain_{chunk_coord[0]}_{chunk_coord[1]}"
+        return self.destroy_mesh(mesh_name)
+
+    def has_mesh(self, name: str) -> bool:
+        """Check if a mesh exists.
+
+        Parameters
+        ----------
+        name:
+            Name of the mesh to check.
+
+        Returns
+        -------
+        bool:
+            True if the mesh exists.
+        """
+        return name in self._meshes
+
+    def get_loaded_mesh_count(self) -> int:
+        """Get the number of loaded meshes.
+
+        Returns
+        -------
+        int:
+            Number of meshes currently loaded.
+        """
+        return len(self._meshes)
 
     # -------------------------------------------------------------------------
     # Pipeline/Material Management
