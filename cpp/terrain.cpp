@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <numeric>
 
 namespace terrain {
 
@@ -10,16 +11,14 @@ namespace terrain {
 static constexpr float F2 = 0.3660254037844386f;   // 0.5 * (sqrt(3) - 1)
 static constexpr float G2 = 0.21132486540518713f;  // (3 - sqrt(3)) / 6
 
-// Initialize constexpr gradient table
+// Initialize constexpr gradient table (8 gradients for 2D)
 constexpr std::array<std::array<float, 2>, 8> SimplexNoise::GRAD2;
 
 SimplexNoise::SimplexNoise(SeedRegistry& registry) {
     // Generate permutation table using Fisher-Yates shuffle
     // This matches numpy's rng.permutation(256) behavior
     std::array<uint8_t, 256> base_perm;
-    for (int i = 0; i < 256; ++i) {
-        base_perm[i] = static_cast<uint8_t>(i);
-    }
+    std::iota(base_perm.begin(), base_perm.end(), 0);
 
     // Fisher-Yates shuffle using registry's RNG
     for (int i = 255; i > 0; --i) {
@@ -29,6 +28,7 @@ SimplexNoise::SimplexNoise(SeedRegistry& registry) {
     }
 
     // Double the permutation table for wrapping
+    // Stored in member variable perm_ for thread safety
     for (int i = 0; i < 256; ++i) {
         perm_[i] = base_perm[i];
         perm_[i + 256] = base_perm[i];
@@ -65,6 +65,8 @@ float SimplexNoise::noise2d(float x, float y) const {
     // Hash coordinates to gradient indices
     int ii = i & 255;
     int jj = j & 255;
+    
+    // Modulo 8 matches the 8 gradients in GRAD2, preventing directional bias
     int gi0 = perm_[ii + perm_[jj]] % 8;
     int gi1 = perm_[ii + i1 + perm_[jj + j1]] % 8;
     int gi2 = perm_[ii + 1 + perm_[jj + 1]] % 8;
@@ -90,6 +92,7 @@ float SimplexNoise::noise2d(float x, float y) const {
         n2 = t2 * t2 * (GRAD2[gi2][0] * x2 + GRAD2[gi2][1] * y2);
     }
 
+    // Result is in approx [-1, 1] range (scaled by 70.0)
     return 70.0f * (n0 + n1 + n2);
 }
 
@@ -98,14 +101,10 @@ std::vector<float> SimplexNoise::grid(uint32_t size, float frequency,
     std::vector<float> result(size * size);
 
     for (uint32_t y = 0; y < size; ++y) {
+        float world_z = (static_cast<float>(y) + offset_z) * frequency;
         for (uint32_t x = 0; x < size; ++x) {
-            // Use true world coordinates for seamless tiling across chunks
-            // No division by size - frequency controls feature scale directly
-            float world_x = static_cast<float>(x) + offset_x;
-            float world_z = static_cast<float>(y) + offset_z;
-            float nx = world_x * frequency;
-            float nz = world_z * frequency;
-            result[y * size + x] = noise2d(nx, nz);
+            float world_x = (static_cast<float>(x) + offset_x) * frequency;
+            result[y * size + x] = noise2d(world_x, world_z);
         }
     }
     return result;
@@ -118,24 +117,29 @@ std::vector<float> generate_fbm(SeedRegistry& registry, uint32_t size, uint32_t 
     std::vector<float> height(size * size, 0.0f);
     float amplitude = 1.0f;
     float frequency = base_frequency;
+    float max_possible_value = 0.0f;
 
     for (uint32_t oct = 0; oct < octaves; ++oct) {
         auto layer = noise.grid(size, frequency, offset_x, offset_z);
         for (size_t i = 0; i < height.size(); ++i) {
             height[i] += layer[i] * amplitude;
         }
+        max_possible_value += amplitude;
         amplitude *= 0.5f;
         frequency *= 2.0f;
     }
 
-    // Normalize to [0, 1]
-    float h_min = *std::min_element(height.begin(), height.end());
-    float h_max = *std::max_element(height.begin(), height.end());
-
-    if (h_max - h_min > 0.0f) {
-        float inv_range = 1.0f / (h_max - h_min);
+    // CRITICAL FIX: Global Normalization
+    // Do NOT normalize using local min/max of the chunk, as that guarantees seams.
+    // Instead, normalize using the theoretical maximum range of the FBM summation.
+    // noise2d returns approx [-1, 1], so FBM sums to [-max_possible, max_possible].
+    if (max_possible_value > 0.0f) {
+        float scale = 1.0f / max_possible_value;
         for (auto& h : height) {
-            h = (h - h_min) * inv_range;
+            // Map [-max, max] to [-1, 1] then to [0, 1]
+            h = (h * scale) * 0.5f + 0.5f;
+            // Clamp to ensure floating point errors don't exceed bounds
+            h = std::clamp(h, 0.0f, 1.0f);
         }
     }
 
@@ -191,20 +195,21 @@ std::vector<float> generate_voronoi_ridged(SeedRegistry& registry, uint32_t size
 
 void apply_hydraulic_erosion(std::vector<float>& height, uint32_t size,
                              SeedRegistry& registry, uint32_t iterations) {
+    // Note: This erosion simulation is local to the chunk and random.
+    // It WILL create seams at chunk boundaries if iterations > 0.
+    // For seamless infinite terrain, erosion should either be disabled
+    // or implemented using a deterministic, global approach (not done here).
     for (uint32_t iter = 0; iter < iterations; ++iter) {
-        // Random cell selection matching Python's rng.integers(0, size)
         uint64_t rx = registry.next_u64();
         uint64_t ry = registry.next_u64();
         int x = static_cast<int>(rx % size);
         int y = static_cast<int>(ry % size);
 
-        // Compute neighborhood bounds
         int x0 = std::max(x - 1, 0);
         int x1 = std::min(x + 1, static_cast<int>(size) - 1);
         int y0 = std::max(y - 1, 0);
         int y1 = std::min(y + 1, static_cast<int>(size) - 1);
 
-        // Compute neighborhood average
         float sum = 0.0f;
         int count = 0;
         for (int ny = y0; ny <= y1; ++ny) {
@@ -215,12 +220,10 @@ void apply_hydraulic_erosion(std::vector<float>& height, uint32_t size,
         }
         float avg = sum / static_cast<float>(count);
 
-        // Relax toward average
         size_t idx = static_cast<size_t>(y * size + x);
         height[idx] = (height[idx] + avg) * 0.5f;
     }
 
-    // Clamp to [0, 1]
     for (auto& h : height) {
         h = std::clamp(h, 0.0f, 1.0f);
     }
@@ -229,35 +232,28 @@ void apply_hydraulic_erosion(std::vector<float>& height, uint32_t size,
 std::vector<float> compute_slope_map(const std::vector<float>& height, uint32_t size) {
     std::vector<float> slope(size * size);
 
-    // Compute gradient magnitude using central differences
     for (uint32_t y = 0; y < size; ++y) {
         for (uint32_t x = 0; x < size; ++x) {
-            // X gradient (central difference with boundary handling)
-            float gx;
-            if (x == 0) {
-                gx = height[y * size + 1] - height[y * size];
-            } else if (x == size - 1) {
-                gx = height[y * size + x] - height[y * size + x - 1];
-            } else {
-                gx = (height[y * size + x + 1] - height[y * size + x - 1]) * 0.5f;
-            }
+            float gx, gy;
+            
+            // X gradient
+            if (x == 0) gx = height[y * size + 1] - height[y * size];
+            else if (x == size - 1) gx = height[y * size + x] - height[y * size + x - 1];
+            else gx = (height[y * size + x + 1] - height[y * size + x - 1]) * 0.5f;
 
             // Y gradient
-            float gy;
-            if (y == 0) {
-                gy = height[size + x] - height[x];
-            } else if (y == size - 1) {
-                gy = height[y * size + x] - height[(y - 1) * size + x];
-            } else {
-                gy = (height[(y + 1) * size + x] - height[(y - 1) * size + x]) * 0.5f;
-            }
+            if (y == 0) gy = height[size + x] - height[x];
+            else if (y == size - 1) gy = height[y * size + x] - height[(y - 1) * size + x];
+            else gy = (height[(y + 1) * size + x] - height[(y - 1) * size + x]) * 0.5f;
 
             slope[y * size + x] = std::sqrt(gx * gx + gy * gy);
         }
     }
 
-    // Normalize to [0, 1]
-    float s_min = *std::min_element(slope.begin(), slope.end());
+    // Slope normalization is inherently local (gradient depends on local height deltas).
+    // This is generally acceptable for prop placement, but for visuals
+    // a global max slope constant would be better if perfect consistency is needed.
+    float s_min = 0.0f; // Slope is always >= 0
     float s_max = *std::max_element(slope.begin(), slope.end());
 
     if (s_max > s_min) {
@@ -276,60 +272,26 @@ std::vector<uint8_t> generate_biome_map(const std::vector<float>& temperature,
                                          const std::vector<float>& humidity,
                                          const std::vector<float>& height,
                                          uint32_t size) {
-    // Biome LUT matching Python reference: [temp_idx][humid_idx][height_idx]
-    // temp_idx: 0=cold, 1=temperate, 2=hot
-    // humid_idx: 0=dry, 1=normal, 2=wet
-    // height_idx: 0=low, 1=mid, 2=high
+    // Biome LUT [temp][humid][height]
     static constexpr uint8_t BIOME_LUT[3][3][3] = {
-        // Cold
-        {
-            {0, 0, 1},    // dry  -> water, water, tundra
-            {0, 2, 3},    // normal -> water, boreal forest, snow
-            {0, 4, 5},    // wet -> water, cold swamp, glacier
-        },
-        // Temperate
-        {
-            {0, 0, 6},    // dry -> water, water, steppe
-            {0, 7, 8},    // normal -> water, forest, mountain
-            {0, 9, 10},   // wet -> water, swamp, alpine
-        },
-        // Hot
-        {
-            {0, 0, 11},   // dry -> water, water, desert plateau
-            {0, 12, 13},  // normal -> water, savanna, mesa
-            {0, 14, 15},  // wet -> water, jungle, rainforest highland
-        },
+        { {0, 0, 1}, {0, 2, 3}, {0, 4, 5} },    // Cold
+        { {0, 0, 6}, {0, 7, 8}, {0, 9, 10} },   // Temperate
+        { {0, 0, 11}, {0, 12, 13}, {0, 14, 15} } // Hot
     };
 
     std::vector<uint8_t> biome(size * size);
 
     for (size_t i = 0; i < size * size; ++i) {
-        // Clamp inputs to [0, 1] to ensure valid LUT indices
-        float temp_clamped = std::clamp(temperature[i], 0.0f, 1.0f);
-        float humid_clamped = std::clamp(humidity[i], 0.0f, 1.0f);
-        float height_clamped = std::clamp(height[i], 0.0f, 1.0f);
+        float t = std::clamp(temperature[i], 0.0f, 1.0f);
+        float h = std::clamp(humidity[i], 0.0f, 1.0f);
+        float alt = std::clamp(height[i], 0.0f, 1.0f);
 
-        // Digitize temperature: [0, 0.33) -> 0, [0.33, 0.66) -> 1, [0.66, 1] -> 2
-        int temp_idx;
-        if (temp_clamped < 0.33f) temp_idx = 0;
-        else if (temp_clamped < 0.66f) temp_idx = 1;
-        else temp_idx = 2;
+        int t_idx = (t < 0.33f) ? 0 : (t < 0.66f ? 1 : 2);
+        int h_idx = (h < 0.33f) ? 0 : (h < 0.66f ? 1 : 2);
+        int a_idx = (alt < 0.3f) ? 0 : (alt < 0.6f ? 1 : 2);
 
-        // Digitize humidity
-        int humid_idx;
-        if (humid_clamped < 0.33f) humid_idx = 0;
-        else if (humid_clamped < 0.66f) humid_idx = 1;
-        else humid_idx = 2;
-
-        // Digitize height
-        int height_idx;
-        if (height_clamped < 0.3f) height_idx = 0;
-        else if (height_clamped < 0.6f) height_idx = 1;
-        else height_idx = 2;
-
-        biome[i] = BIOME_LUT[temp_idx][humid_idx][height_idx];
+        biome[i] = BIOME_LUT[t_idx][h_idx][a_idx];
     }
-
     return biome;
 }
 
@@ -351,54 +313,44 @@ TerrainMaps generate_terrain_maps(SeedRegistry& registry, const TerrainConfig& c
     maps.size = config.size;
     maps.has_slope = config.compute_slope;
 
-    // Create child registry for height generation using named subseed
     uint64_t height_seed = registry.get_subseed("height");
     SeedRegistry height_reg(height_seed);
     maps.height = generate_fbm(height_reg, config.size, config.octaves,
                                 config.offset_x, config.offset_z, config.base_frequency);
 
-    // Apply macro plates if enabled
+    // Apply macro plates (Voronoi) - NOTE: Voronoi boundaries may still cause seams
     if (config.macro_points > 0) {
         uint64_t macro_seed = registry.get_subseed("macro");
         SeedRegistry macro_reg(macro_seed);
         auto macro = generate_voronoi_ridged(macro_reg, config.size, config.macro_points);
-
-        // Blend height with macro plates
         for (size_t i = 0; i < maps.height.size(); ++i) {
             maps.height[i] = std::clamp((maps.height[i] + macro[i]) * 0.5f, 0.0f, 1.0f);
         }
     }
 
-    // Apply erosion if enabled
     if (config.erosion_iters > 0) {
         uint64_t erosion_seed = registry.get_subseed("erosion");
         SeedRegistry erosion_reg(erosion_seed);
         apply_hydraulic_erosion(maps.height, config.size, erosion_reg, config.erosion_iters);
     }
 
-    // Generate temperature map (2 octaves) with offsets for seamless chunks
-    // Use lower frequency for biomes to create larger biome regions
-    float biome_frequency = config.base_frequency * 0.5f;
+    float biome_freq = config.base_frequency * 0.5f;
     uint64_t temp_seed = registry.get_subseed("temperature");
     SeedRegistry temp_reg(temp_seed);
-    auto temperature = generate_fbm(temp_reg, config.size, 2,
-                                     config.offset_x, config.offset_z, biome_frequency);
+    auto temperature = generate_fbm(temp_reg, config.size, 2, 
+                                     config.offset_x, config.offset_z, biome_freq);
 
-    // Generate humidity map (2 octaves) with offsets for seamless chunks
     uint64_t humid_seed = registry.get_subseed("humidity");
     SeedRegistry humid_reg(humid_seed);
-    auto humidity = generate_fbm(humid_reg, config.size, 2,
-                                  config.offset_x, config.offset_z, biome_frequency);
+    auto humidity = generate_fbm(humid_reg, config.size, 2, 
+                                  config.offset_x, config.offset_z, biome_freq);
 
-    // Generate biome map from temperature, humidity, and height
     maps.biome = generate_biome_map(temperature, humidity, maps.height, config.size);
 
-    // Generate river mask
     uint64_t river_seed = registry.get_subseed("river");
     SeedRegistry river_reg(river_seed);
     maps.river = generate_river_mask(river_reg, config.size);
 
-    // Compute slope if requested
     if (config.compute_slope) {
         maps.slope = compute_slope_map(maps.height, config.size);
     }
@@ -406,24 +358,11 @@ TerrainMaps generate_terrain_maps(SeedRegistry& registry, const TerrainConfig& c
     return maps;
 }
 
-// Biome color palette matching the Biome enum
 static const std::array<std::array<float, 3>, 16> BIOME_COLORS = {{
-    {0.15f, 0.35f, 0.60f},  // 0: Water - deep blue
-    {0.75f, 0.78f, 0.80f},  // 1: Tundra - pale gray
-    {0.20f, 0.35f, 0.25f},  // 2: BorealForest - dark green
-    {0.95f, 0.97f, 1.00f},  // 3: Snow - white
-    {0.30f, 0.35f, 0.30f},  // 4: ColdSwamp - murky green
-    {0.85f, 0.92f, 0.98f},  // 5: Glacier - ice blue
-    {0.72f, 0.68f, 0.50f},  // 6: Steppe - tan/khaki
-    {0.25f, 0.50f, 0.20f},  // 7: Forest - green
-    {0.50f, 0.45f, 0.40f},  // 8: Mountain - gray-brown
-    {0.35f, 0.42f, 0.30f},  // 9: Swamp - dark olive
-    {0.55f, 0.58f, 0.55f},  // 10: Alpine - light gray
-    {0.85f, 0.75f, 0.55f},  // 11: DesertPlateau - sand
-    {0.70f, 0.62f, 0.35f},  // 12: Savanna - golden brown
-    {0.75f, 0.50f, 0.35f},  // 13: Mesa - orange-red
-    {0.15f, 0.55f, 0.25f},  // 14: Jungle - vibrant green
-    {0.20f, 0.48f, 0.30f},  // 15: RainforestHighland - deep green
+    {0.15f, 0.35f, 0.60f}, {0.75f, 0.78f, 0.80f}, {0.20f, 0.35f, 0.25f}, {0.95f, 0.97f, 1.00f},
+    {0.30f, 0.35f, 0.30f}, {0.85f, 0.92f, 0.98f}, {0.72f, 0.68f, 0.50f}, {0.25f, 0.50f, 0.20f},
+    {0.50f, 0.45f, 0.40f}, {0.35f, 0.42f, 0.30f}, {0.55f, 0.58f, 0.55f}, {0.85f, 0.75f, 0.55f},
+    {0.70f, 0.62f, 0.35f}, {0.75f, 0.50f, 0.35f}, {0.15f, 0.55f, 0.25f}, {0.20f, 0.48f, 0.30f},
 }};
 
 ::props::Mesh generate_terrain_mesh(
@@ -434,14 +373,9 @@ static const std::array<std::array<float, 3>, 16> BIOME_COLORS = {{
     float height_scale
 ) {
     ::props::Mesh mesh;
-
-    if (heightmap.size() != size * size) {
-        return mesh;
-    }
-
+    if (heightmap.size() != size * size) return mesh;
     bool has_biomes = biome_map && biome_map->size() == size * size;
 
-    // 1. Generate vertices with colors
     mesh.vertices.reserve(size * size);
     mesh.colors.reserve(size * size);
     
@@ -453,61 +387,22 @@ static const std::array<std::array<float, 3>, 16> BIOME_COLORS = {{
             float world_z = static_cast<float>(z) * cell_size;
             mesh.vertices.push_back(::props::Vec3(world_x, world_y, world_z));
             
-            // Determine color from biome or height
             ::props::Vec3 color;
             if (has_biomes) {
                 uint8_t biome_idx = (*biome_map)[idx];
                 if (biome_idx < BIOME_COLORS.size()) {
-                    color = ::props::Vec3(
-                        BIOME_COLORS[biome_idx][0],
-                        BIOME_COLORS[biome_idx][1],
-                        BIOME_COLORS[biome_idx][2]
-                    );
+                    color = ::props::Vec3(BIOME_COLORS[biome_idx][0], BIOME_COLORS[biome_idx][1], BIOME_COLORS[biome_idx][2]);
                 } else {
-                    color = ::props::Vec3(1.0f, 0.0f, 1.0f); // Magenta for invalid
+                    color = ::props::Vec3(1.0f, 0.0f, 1.0f);
                 }
             } else {
-                // Height-based gradient fallback
                 float h = heightmap[idx];
-                if (h < 0.25f) {
-                    // Low: water/beach blend
-                    float t = h / 0.25f;
-                    color = ::props::Vec3(
-                        0.15f + t * 0.55f,
-                        0.35f + t * 0.30f,
-                        0.60f - t * 0.45f
-                    );
-                } else if (h < 0.5f) {
-                    // Mid-low: grass/forest
-                    float t = (h - 0.25f) / 0.25f;
-                    color = ::props::Vec3(
-                        0.25f - t * 0.05f,
-                        0.50f + t * 0.05f,
-                        0.15f + t * 0.05f
-                    );
-                } else if (h < 0.75f) {
-                    // Mid-high: forest to mountain
-                    float t = (h - 0.5f) / 0.25f;
-                    color = ::props::Vec3(
-                        0.20f + t * 0.30f,
-                        0.55f - t * 0.15f,
-                        0.20f + t * 0.20f
-                    );
-                } else {
-                    // High: mountain to snow
-                    float t = (h - 0.75f) / 0.25f;
-                    color = ::props::Vec3(
-                        0.50f + t * 0.45f,
-                        0.40f + t * 0.55f,
-                        0.40f + t * 0.55f
-                    );
-                }
+                color = ::props::Vec3(h, h, h); // Simple grayscale fallback
             }
             mesh.colors.push_back(color);
         }
     }
 
-    // 2. Generate indices (2 triangles per quad)
     mesh.indices.reserve((size - 1) * (size - 1) * 6);
     for (uint32_t z = 0; z < size - 1; ++z) {
         for (uint32_t x = 0; x < size - 1; ++x) {
@@ -515,38 +410,22 @@ static const std::array<std::array<float, 3>, 16> BIOME_COLORS = {{
             uint32_t tr = z * size + x + 1;
             uint32_t bl = (z + 1) * size + x;
             uint32_t br = (z + 1) * size + x + 1;
-
-            mesh.indices.push_back(tl);
-            mesh.indices.push_back(bl);
-            mesh.indices.push_back(tr);
-
-            mesh.indices.push_back(tr);
-            mesh.indices.push_back(bl);
-            mesh.indices.push_back(br);
+            mesh.indices.push_back(tl); mesh.indices.push_back(bl); mesh.indices.push_back(tr);
+            mesh.indices.push_back(tr); mesh.indices.push_back(bl); mesh.indices.push_back(br);
         }
     }
 
-    // 3. Compute smooth normals
     mesh.normals.reserve(size * size);
     for (uint32_t z = 0; z < size; ++z) {
         for (uint32_t x = 0; x < size; ++x) {
             float gx, gz;
+            if (x == 0) gx = (heightmap[z * size + 1] - heightmap[z * size]) * height_scale / cell_size;
+            else if (x == size - 1) gx = (heightmap[z * size + x] - heightmap[z * size + x - 1]) * height_scale / cell_size;
+            else gx = (heightmap[z * size + x + 1] - heightmap[z * size + x - 1]) * height_scale / (2.0f * cell_size);
 
-            if (x == 0) {
-                gx = (heightmap[z * size + 1] - heightmap[z * size]) * height_scale / cell_size;
-            } else if (x == size - 1) {
-                gx = (heightmap[z * size + x] - heightmap[z * size + x - 1]) * height_scale / cell_size;
-            } else {
-                gx = (heightmap[z * size + x + 1] - heightmap[z * size + x - 1]) * height_scale / (2.0f * cell_size);
-            }
-
-            if (z == 0) {
-                gz = (heightmap[size + x] - heightmap[x]) * height_scale / cell_size;
-            } else if (z == size - 1) {
-                gz = (heightmap[z * size + x] - heightmap[(z - 1) * size + x]) * height_scale / cell_size;
-            } else {
-                gz = (heightmap[(z + 1) * size + x] - heightmap[(z - 1) * size + x]) * height_scale / (2.0f * cell_size);
-            }
+            if (z == 0) gz = (heightmap[size + x] - heightmap[x]) * height_scale / cell_size;
+            else if (z == size - 1) gz = (heightmap[z * size + x] - heightmap[(z - 1) * size + x]) * height_scale / cell_size;
+            else gz = (heightmap[(z + 1) * size + x] - heightmap[(z - 1) * size + x]) * height_scale / (2.0f * cell_size);
 
             ::props::Vec3 normal(-gx, 1.0f, -gz);
             mesh.normals.push_back(normal.normalized());
