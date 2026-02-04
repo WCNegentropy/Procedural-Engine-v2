@@ -90,7 +90,7 @@ class RunnerConfig:
     chunk_size: int = 64
 
     # Dynamic chunk loading settings
-    enable_dynamic_chunks: bool = False  # False = static single chunk mode
+    enable_dynamic_chunks: bool = True  # Dynamic infinite world (default)
     render_distance: int = 8  # chunks radius for rendering
     sim_distance: int = 4  # chunks radius for physics/AI simulation
 

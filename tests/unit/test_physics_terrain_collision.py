@@ -24,6 +24,7 @@ def test_player_spawns_on_terrain():
         headless=True,
         chunk_size=64,
         world_seed=42,
+        enable_dynamic_chunks=False,  # Use static terrain for predictable test
     )
     
     backend = HeadlessBackend()
@@ -55,6 +56,7 @@ def test_player_stays_on_terrain():
         headless=True,
         chunk_size=64,
         world_seed=42,
+        enable_dynamic_chunks=False,  # Use static terrain for predictable test
     )
     
     # 5 seconds at 60 FPS = 300 frames
@@ -92,6 +94,7 @@ def test_heightfield_is_set():
         headless=True,
         chunk_size=64,
         world_seed=42,
+        enable_dynamic_chunks=False,  # Use static terrain for predictable test
     )
     
     backend = HeadlessBackend()
@@ -127,6 +130,7 @@ def test_player_falls_and_lands():
         headless=True,
         chunk_size=64,
         world_seed=42,
+        enable_dynamic_chunks=False,  # Use static terrain for predictable test
     )
     
     # ~8.3 seconds at 60 FPS, enough for fall and settle

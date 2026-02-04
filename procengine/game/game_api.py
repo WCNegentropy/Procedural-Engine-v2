@@ -1197,7 +1197,7 @@ class GameConfig:
     render_distance: int = 8  # chunks radius for rendering
     sim_distance: int = 4  # chunks radius for physics/AI simulation
     unload_buffer: int = 2  # extra distance before unloading
-    enable_dynamic_chunks: bool = False  # False = static single chunk mode
+    enable_dynamic_chunks: bool = True  # Dynamic infinite world (default)
 
 
 class GameWorld:

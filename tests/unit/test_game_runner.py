@@ -369,7 +369,8 @@ class TestFrameRateLimiting:
         """Test that frame rate limiting doesn't affect headless mode."""
         import time
         
-        config = RunnerConfig(headless=True, target_fps=30)
+        # Use static terrain for faster test execution
+        config = RunnerConfig(headless=True, target_fps=30, enable_dynamic_chunks=False)
         runner = GameRunner(config)
         
         start_time = time.perf_counter()
@@ -556,7 +557,7 @@ class TestDynamicChunks:
         assert config.enable_dynamic_chunks is True
         
         config2 = RunnerConfig()  # Default
-        assert config2.enable_dynamic_chunks is False
+        assert config2.enable_dynamic_chunks is True  # Dynamic chunks is now the default
 
     def test_config_render_distance(self):
         """Test that render_distance config option exists."""
