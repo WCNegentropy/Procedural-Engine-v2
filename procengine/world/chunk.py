@@ -81,6 +81,8 @@ class Chunk:
         Whether the chunk mesh is currently on the GPU.
     is_simulating : bool
         Whether entities in this chunk should be physics-stepped.
+    has_props : bool
+        Whether props have been generated for this chunk.
     """
 
     coords: ChunkCoord
@@ -94,6 +96,7 @@ class Chunk:
     is_loaded: bool = False
     is_mesh_uploaded: bool = False
     is_simulating: bool = False
+    has_props: bool = False
 
     def __post_init__(self) -> None:
         """Generate mesh_id from coords if not provided."""
@@ -192,6 +195,10 @@ class ChunkManager:
         # Queues for async loading/unloading
         self._load_queue: List[ChunkCoord] = []
         self._unload_queue: List[ChunkCoord] = []
+
+        # FIX: Prop generation distance (defaults to half render distance)
+        self._prop_distance = max(1, render_distance // 2)
+        self._props_queue: List[ChunkCoord] = []
 
         # Statistics
         self._chunks_generated: int = 0
@@ -308,6 +315,16 @@ class ChunkManager:
         for coord, chunk in self._chunks.items():
             chunk.is_simulating = coord in sim_set
 
+        # FIX: Check for loaded chunks that entered prop range but lack props
+        prop_radius_sq = self._prop_distance ** 2
+        for coord, chunk in self._chunks.items():
+            if not chunk.has_props:
+                dx = coord[0] - new_chunk[0]
+                dz = coord[1] - new_chunk[1]
+                if dx * dx + dz * dz <= prop_radius_sq:
+                    if coord not in self._props_queue:
+                        self._props_queue.append(coord)
+
     def _get_chunks_in_radius(
         self, center: ChunkCoord, radius: int
     ) -> Set[ChunkCoord]:
@@ -413,6 +430,49 @@ class ChunkManager:
 
         return unloaded
 
+    def process_prop_queue(self, max_per_frame: int = 1) -> List[Chunk]:
+        """Generate props for chunks that have entered prop range.
+
+        This method processes chunks that were initially loaded without props
+        (because they were outside prop_distance) but have since entered
+        the prop generation range due to player movement.
+
+        Parameters
+        ----------
+        max_per_frame : int
+            Maximum chunks to process this frame (default 1).
+
+        Returns
+        -------
+        List[Chunk]
+            Chunks that had props generated.
+        """
+        updated_chunks: List[Chunk] = []
+        for _ in range(min(max_per_frame, len(self._props_queue))):
+            if not self._props_queue:
+                break
+
+            coord = self._props_queue.pop(0)
+            chunk = self._chunks.get(coord)
+
+            if chunk and not chunk.has_props:
+                # Regenerate props using deterministic seed
+                chunk_name = f"chunk_{coord[0]}_{coord[1]}"
+                chunk_registry = self._registry.spawn(chunk_name)
+
+                from procengine.world.props import generate_chunk_props
+
+                chunk.pending_props = generate_chunk_props(
+                    chunk_registry,
+                    self._chunk_size,
+                    chunk.heightmap,
+                    chunk.slope_map,
+                )
+                chunk.has_props = True
+                updated_chunks.append(chunk)
+
+        return updated_chunks
+
     def _generate_chunk(self, coord: ChunkCoord) -> Chunk:
         """Generate terrain data for a chunk at the given coordinates.
 
@@ -451,15 +511,23 @@ class ChunkManager:
 
         height, biome, river, slope = maps
 
-        # Generate props for this chunk using terrain data for valid placement
-        from procengine.world.props import generate_chunk_props
+        # FIX: Check if chunk is within prop generation range
+        player_x, player_y = self._player_chunk
+        dist_sq = (coord[0] - player_x) ** 2 + (coord[1] - player_y) ** 2
 
-        prop_descriptors = generate_chunk_props(
-            chunk_registry,
-            self._chunk_size,
-            height,
-            slope,
-        )
+        prop_descriptors: List[Dict[str, Any]] = []
+        has_props = False
+        # Only generate props if within prop_distance
+        if dist_sq <= self._prop_distance ** 2:
+            from procengine.world.props import generate_chunk_props
+
+            prop_descriptors = generate_chunk_props(
+                chunk_registry,
+                self._chunk_size,
+                height,
+                slope,
+            )
+            has_props = True
 
         chunk = Chunk(
             coords=coord,
@@ -469,6 +537,7 @@ class ChunkManager:
             slope_map=slope,
             pending_props=prop_descriptors,
             is_loaded=True,
+            has_props=has_props,
         )
 
         return chunk

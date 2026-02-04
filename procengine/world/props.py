@@ -60,7 +60,9 @@ def generate_tree_descriptors(
     registry: SeedRegistry,
     count: int,
     *,
-    iterations_range: tuple[int, int] = (2, 4),
+    # FIX: Reduced range from (2, 4) to (2, 3)
+    # 3 iterations provides plenty of detail without exponential explosion
+    iterations_range: tuple[int, int] = (2, 3),
     angle_range: tuple[float, float] = (15.0, 45.0),
 ) -> List[Dict[str, object]]:
     """Return ``count`` deterministic tree descriptors.

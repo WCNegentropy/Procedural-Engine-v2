@@ -149,9 +149,9 @@ Mesh generate_rock_mesh(const RockDescriptor& desc, uint32_t segments, uint32_t 
 // ============================================================================
 
 // Maximum L-system string length to prevent memory exhaustion
-static constexpr size_t MAX_LSYSTEM_LENGTH = 10 * 1024 * 1024;  // 10 MB
+static constexpr size_t MAX_LSYSTEM_LENGTH = 1 * 1024 * 1024;  // FIX: Reduced to 1 MB (was 10 MB)
 // Maximum L-system iterations to prevent runaway growth
-static constexpr uint32_t MAX_LSYSTEM_ITERATIONS = 15;
+static constexpr uint32_t MAX_LSYSTEM_ITERATIONS = 6;  // FIX: Reduced to 6 (was 15)
 
 std::string evaluate_lsystem(const LSystemRules& rules, uint32_t iterations) {
     std::string current = rules.axiom;
