@@ -146,6 +146,63 @@ std::vector<float> generate_fbm(SeedRegistry& registry, uint32_t size, uint32_t 
     return height;
 }
 
+// Helper: Hash integer cell coordinates to a float [0, 1]
+// This ensures deterministic, globally consistent feature point positions
+static float hash_coords(int x, int y, uint64_t seed) {
+    uint64_t h = static_cast<uint64_t>(x) * 374761393ULL;
+    h ^= static_cast<uint64_t>(y) * 668265263ULL;
+    h ^= seed;
+    h = (h ^ (h >> 13)) * 1274126177ULL;
+    return static_cast<float>((h ^ (h >> 16)) & 0xFFFFULL) / 65535.0f;
+}
+
+// Generate seamless ridged Voronoi noise using global cellular/Worley noise
+// Unlike the local implementation, this uses world coordinates to determine
+// feature points, ensuring plate boundaries align across chunk boundaries.
+std::vector<float> generate_global_voronoi_ridged(
+    uint64_t seed, uint32_t size,
+    float offset_x, float offset_z, float frequency
+) {
+    std::vector<float> result(size * size);
+
+    for (uint32_t y = 0; y < size; ++y) {
+        for (uint32_t x = 0; x < size; ++x) {
+            float world_x = (static_cast<float>(x) + offset_x) * frequency;
+            float world_z = (static_cast<float>(y) + offset_z) * frequency;
+
+            // Cell coordinates in the global grid
+            int cx = static_cast<int>(std::floor(world_x));
+            int cy = static_cast<int>(std::floor(world_z));
+
+            float min_dist = 100.0f;
+
+            // Check 3x3 neighbor cells for closest feature point
+            for (int dy = -1; dy <= 1; ++dy) {
+                for (int dx = -1; dx <= 1; ++dx) {
+                    int ncx = cx + dx;
+                    int ncy = cy + dy;
+
+                    // Generate two independent random values for x and y offsets.
+                    // Using different coordinate offsets (123, 456) ensures px and py
+                    // are decorrelated, producing better-distributed feature points.
+                    float px = static_cast<float>(ncx) + hash_coords(ncx, ncy, seed);
+                    float py = static_cast<float>(ncy) + hash_coords(ncx + 123, ncy + 456, seed);
+
+                    float dist_sq = (world_x - px) * (world_x - px) + (world_z - py) * (world_z - py);
+                    min_dist = std::min(min_dist, dist_sq);
+                }
+            }
+
+            // Sqrt for euclidean distance, normalize, and invert for ridges
+            // 1.0 at cell centers (plate interiors), lower at edges (plate boundaries)
+            result[y * size + x] = 1.0f - std::clamp(std::sqrt(min_dist), 0.0f, 1.0f);
+        }
+    }
+
+    return result;
+}
+
+// Legacy local Voronoi implementation (deprecated - causes chunk boundary seams)
 std::vector<float> generate_voronoi_ridged(SeedRegistry& registry, uint32_t size, uint32_t points) {
     // Generate random seed points
     std::vector<float> seeds_x(points);
@@ -295,7 +352,27 @@ std::vector<uint8_t> generate_biome_map(const std::vector<float>& temperature,
     return biome;
 }
 
-std::vector<uint8_t> generate_river_mask(SeedRegistry& registry, uint32_t size, float probability) {
+// Generate seamless river mask using coherent FBM noise instead of white noise
+// This ensures rivers naturally cross chunk boundaries as continuous winding paths
+std::vector<uint8_t> generate_river_mask(SeedRegistry& registry, uint32_t size,
+                                          float offset_x, float offset_z, float base_frequency) {
+    // Use FBM noise to create coherent river patterns
+    auto river_noise = generate_fbm(registry, size, 4, offset_x, offset_z, base_frequency * 2.0f);
+
+    std::vector<uint8_t> river(size * size);
+    for (size_t i = 0; i < size * size; ++i) {
+        // Create distinct river paths by thresholding a narrow band around 0.5.
+        // This technique selects values near the noise function's midpoint, which
+        // form contour-like bands that naturally wind through the noise field,
+        // creating organic river channels that cross chunk boundaries seamlessly.
+        river[i] = (std::abs(river_noise[i] - 0.5f) < 0.025f) ? 1 : 0;
+    }
+
+    return river;
+}
+
+// Legacy white noise river generation (deprecated - causes chunk boundary seams)
+std::vector<uint8_t> generate_river_mask_legacy(SeedRegistry& registry, uint32_t size, float probability) {
     std::vector<uint8_t> river(size * size);
 
     for (size_t i = 0; i < size * size; ++i) {
@@ -318,11 +395,14 @@ TerrainMaps generate_terrain_maps(SeedRegistry& registry, const TerrainConfig& c
     maps.height = generate_fbm(height_reg, config.size, config.octaves,
                                 config.offset_x, config.offset_z, config.base_frequency);
 
-    // Apply macro plates (Voronoi) - NOTE: Voronoi boundaries may still cause seams
+    // Apply macro plates using global Voronoi for seamless boundaries
     if (config.macro_points > 0) {
         uint64_t macro_seed = registry.get_subseed("macro");
-        SeedRegistry macro_reg(macro_seed);
-        auto macro = generate_voronoi_ridged(macro_reg, config.size, config.macro_points);
+        // Convert "points" count to frequency for global Voronoi
+        // Using sqrt(points)/size approximates similar point density
+        float macro_freq = std::sqrt(static_cast<float>(config.macro_points)) / static_cast<float>(config.size);
+        auto macro = generate_global_voronoi_ridged(macro_seed, config.size,
+                                                     config.offset_x, config.offset_z, macro_freq);
         for (size_t i = 0; i < maps.height.size(); ++i) {
             maps.height[i] = std::clamp((maps.height[i] + macro[i]) * 0.5f, 0.0f, 1.0f);
         }
@@ -347,9 +427,10 @@ TerrainMaps generate_terrain_maps(SeedRegistry& registry, const TerrainConfig& c
 
     maps.biome = generate_biome_map(temperature, humidity, maps.height, config.size);
 
+    // Generate seamless rivers using coherent noise
     uint64_t river_seed = registry.get_subseed("river");
     SeedRegistry river_reg(river_seed);
-    maps.river = generate_river_mask(river_reg, config.size);
+    maps.river = generate_river_mask(river_reg, config.size, config.offset_x, config.offset_z, config.base_frequency);
 
     if (config.compute_slope) {
         maps.slope = compute_slope_map(maps.height, config.size);

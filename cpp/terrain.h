@@ -121,12 +121,29 @@ std::vector<float> generate_fbm(SeedRegistry& registry, uint32_t size, uint32_t 
 /**
  * Generate Voronoi ridged noise for macro terrain plates.
  *
+ * @deprecated Use generate_global_voronoi_ridged for seamless chunk boundaries.
  * @param registry SeedRegistry for deterministic RNG
  * @param size Map dimensions
  * @param points Number of Voronoi sites
  * @return Ridged noise map [0,1] (row-major)
  */
 std::vector<float> generate_voronoi_ridged(SeedRegistry& registry, uint32_t size, uint32_t points = 8);
+
+/**
+ * Generate seamless ridged Voronoi noise using global cellular/Worley noise.
+ *
+ * Unlike generate_voronoi_ridged, this uses world coordinates to determine
+ * feature points, ensuring plate boundaries align across chunk boundaries.
+ *
+ * @param seed Global seed for deterministic plate positions
+ * @param size Map dimensions
+ * @param offset_x World-space X offset for seamless chunk tiling
+ * @param offset_z World-space Z offset for seamless chunk tiling
+ * @param frequency Density of Voronoi cells (higher = more, smaller plates)
+ * @return Ridged noise map [0,1] (row-major)
+ */
+std::vector<float> generate_global_voronoi_ridged(uint64_t seed, uint32_t size,
+                                                   float offset_x, float offset_z, float frequency);
 
 /**
  * Apply hydraulic erosion simulation to heightmap.
@@ -164,15 +181,21 @@ std::vector<uint8_t> generate_biome_map(const std::vector<float>& temperature,
                                          uint32_t size);
 
 /**
- * Generate river mask.
+ * Generate seamless river mask using coherent FBM noise.
+ *
+ * Rivers are generated using thresholded noise, ensuring they cross
+ * chunk boundaries naturally as continuous winding paths.
  *
  * @param registry SeedRegistry for deterministic RNG
  * @param size Map dimensions
- * @param probability Probability of river at each cell (default 0.05)
+ * @param offset_x World-space X offset for seamless chunk tiling
+ * @param offset_z World-space Z offset for seamless chunk tiling
+ * @param base_frequency Base frequency for river noise (default 0.01)
  * @return Binary river mask
  */
 std::vector<uint8_t> generate_river_mask(SeedRegistry& registry, uint32_t size,
-                                          float probability = 0.05f);
+                                          float offset_x = 0.0f, float offset_z = 0.0f,
+                                          float base_frequency = DEFAULT_BASE_FREQUENCY);
 
 /**
  * Generate complete terrain maps (main entry point).

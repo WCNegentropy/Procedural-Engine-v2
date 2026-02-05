@@ -409,6 +409,10 @@ def generate_terrain_maps(
         rng_height, size=size, octaves=octaves,
         offset_x=offset_x, offset_z=offset_z, base_frequency=base_frequency
     )
+
+    # Pre-calculate macro plate parameters if enabled (also needed for slope ghost buffer)
+    macro_seed = 0
+    macro_freq = 0.0
     if macro_points > 0:
         # Use a deterministic seed derived from the registry for global Voronoi
         # This ensures the same plate pattern regardless of chunk loading order
@@ -476,9 +480,52 @@ def generate_terrain_maps(
 
     biome = biome_lut[temp_idx, humid_idx, height_idx]
 
+    # Generate seamless rivers using coherent noise instead of white noise
+    # This ensures rivers cross chunk boundaries naturally
     rng_river = registry.get_rng("terrain_river")
-    river = (rng_river.random((size, size)) < 0.05).astype(np.uint8)
+    river_noise = _fbm_noise(
+        rng_river, size=size, octaves=4,
+        offset_x=offset_x, offset_z=offset_z, base_frequency=base_frequency * 2.0
+    )
+    # Create distinct river paths by thresholding a narrow band around 0.5.
+    # This technique selects values near the noise function's midpoint, which
+    # form contour-like bands that naturally wind through the noise field,
+    # creating organic river paths that cross chunk boundaries seamlessly.
+    river = (np.abs(river_noise - 0.5) < 0.025).astype(np.uint8)
     if return_slope:
-        slope = _slope_map(height)
+        # Use ghost buffer for slope calculation to avoid edge artifacts
+        # Generate a padded heightmap (size+2) with 1-pixel overlap on all sides
+        padded_size = size + 2
+        padded_offset_x = offset_x - 1.0
+        padded_offset_z = offset_z - 1.0
+
+        # Create a fresh RNG for the padded height using a separate key
+        rng_height_padded = registry.get_rng("terrain_height_slope")
+        height_padded = _fbm_noise(
+            rng_height_padded, size=padded_size, octaves=octaves,
+            offset_x=padded_offset_x, offset_z=padded_offset_z,
+            base_frequency=base_frequency
+        )
+
+        # Apply macro plates to padded heightmap if enabled
+        if macro_points > 0:
+            macro_padded = _global_ridged_voronoi(
+                size=padded_size,
+                offset_x=padded_offset_x,
+                offset_z=padded_offset_z,
+                frequency=macro_freq,
+                seed=macro_seed
+            )
+            height_padded = np.clip((height_padded + macro_padded) * 0.5, 0.0, 1.0)
+
+        # Note: We don't apply erosion to padded height since erosion is local
+        # and the edge data is only used for gradient calculation
+
+        # Calculate slope on padded data (edges now have proper neighbors)
+        slope_padded = _slope_map(height_padded)
+
+        # Crop slope back to original size
+        slope = slope_padded[1:-1, 1:-1].copy()
+
         return height.astype(np.float32), biome, river, slope
     return height.astype(np.float32), biome, river
