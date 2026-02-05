@@ -165,22 +165,34 @@ def _fbm_noise(
     height = np.zeros((size, size), dtype=np.float32)
     amplitude = 1.0
     frequency = base_frequency
+    total_amplitude = 0.0
     for _ in range(octaves):
+        # Simplex noise is approx [-1, 1], so we accumulate amplitude
         height += _simplex_grid(perm, size, frequency, offset_x, offset_z) * amplitude
+        total_amplitude += amplitude
         amplitude *= 0.5
         frequency *= 2.0
 
-    h_min = float(height.min())
-    h_max = float(height.max())
-    if h_max - h_min > 0.0:
-        height = (height - h_min) / (h_max - h_min)
+    # Normalize globally based on theoretical range [-total, +total]
+    # This ensures consistent scaling across all chunks
+    if total_amplitude > 0.0:
+        # Map [-total, total] -> [-1, 1] -> [0, 1]
+        height = (height / total_amplitude) * 0.5 + 0.5
+        np.clip(height, 0.0, 1.0, out=height)
+
     return height
 
 
 def _voronoi_ridged(
     rng: np.random.Generator, size: int, points: int = 8
 ) -> np.ndarray:
-    """Return ridged Voronoi noise used for macro terrain plates."""
+    """Return ridged Voronoi noise used for macro terrain plates.
+
+    .. deprecated::
+        This function generates local Voronoi noise and causes seams at chunk
+        boundaries. Use :func:`_global_ridged_voronoi` instead for seamless
+        terrain across multiple chunks.
+    """
 
     seeds = rng.random((points, 2)) * size
     grid_y, grid_x = np.mgrid[0:size, 0:size]
@@ -190,6 +202,117 @@ def _voronoi_ridged(
     dists /= float(dists.max())
     ridged = 1.0 - dists
     return ridged.astype(np.float32)
+
+
+def _hash_coords(x: int, y: int, seed: int) -> Tuple[float, float]:
+    """Deterministic hash returning a normalized 2D point [0,1] for grid coordinates.
+
+    This function generates a pseudo-random offset for a cell in the global
+    Voronoi grid. The same (x, y, seed) always returns the same result,
+    ensuring seamless feature points across chunk boundaries.
+
+    Parameters
+    ----------
+    x : int
+        Cell X coordinate in the global grid.
+    y : int
+        Cell Y coordinate in the global grid.
+    seed : int
+        Global seed for the Voronoi pattern.
+
+    Returns
+    -------
+    Tuple[float, float]
+        Normalized (x, y) offset in range [0, 1] for the feature point within the cell.
+    """
+    # Simple integer mixing hash for speed and determinism
+    h = (x * 374761393) ^ (y * 668265263) ^ seed
+    h = ((h ^ (h >> 13)) * 1274126177) & 0xFFFFFFFF
+    h = (h ^ (h >> 16)) & 0xFFFFFFFF
+
+    # Split 32-bit hash into two floats
+    val_x = (h & 0xFFFF) / 65535.0
+    val_y = ((h >> 16) & 0xFFFF) / 65535.0
+    return val_x, val_y
+
+
+def _global_ridged_voronoi(
+    size: int,
+    offset_x: float,
+    offset_z: float,
+    frequency: float = 0.02,
+    seed: int = 12345
+) -> np.ndarray:
+    """Generate seamless ridged Voronoi noise using a global cellular grid.
+
+    Unlike :func:`_voronoi_ridged`, this function uses world coordinates to
+    determine feature points, ensuring that plate boundaries align correctly
+    across chunk boundaries.
+
+    Parameters
+    ----------
+    size : int
+        Width and height of the output grid.
+    offset_x : float
+        World-space X offset (typically ``chunk_x * chunk_size``).
+    offset_z : float
+        World-space Z offset (typically ``chunk_z * chunk_size``).
+    frequency : float
+        Density of Voronoi cells. Higher values = more, smaller plates.
+        Default 0.02 creates approximately one plate per 50 world units.
+    seed : int
+        Global seed for deterministic plate positions.
+
+    Returns
+    -------
+    np.ndarray
+        A ``size × size`` array of float32 values in [0, 1], where 1.0 is at
+        plate centers and 0.0 is at plate edges (ridges).
+    """
+    # Pre-calculate world coordinates for the entire chunk
+    y_indices, x_indices = np.mgrid[0:size, 0:size]
+    world_x = x_indices.astype(np.float32) + offset_x
+    world_z = y_indices.astype(np.float32) + offset_z
+
+    # Convert to cell space
+    px = world_x * frequency
+    pz = world_z * frequency
+
+    # Identify the min/max cell indices needed for this chunk (with 1 cell buffer)
+    min_cx = int(math.floor(float(px.min()))) - 1
+    max_cx = int(math.floor(float(px.max()))) + 1
+    min_cz = int(math.floor(float(pz.min()))) - 1
+    max_cz = int(math.floor(float(pz.max()))) + 1
+
+    # Initialize minDist with a large value
+    min_dists = np.full((size, size), 100.0, dtype=np.float32)
+
+    # Iterate over relevant grid cells
+    for cz in range(min_cz, max_cz + 1):
+        for cx in range(min_cx, max_cx + 1):
+            # Get the feature point for this cell
+            ox, oz = _hash_coords(cx, cz, seed)
+
+            # Global position of the feature point
+            fp_x = float(cx) + ox
+            fp_z = float(cz) + oz
+
+            # Vectorized distance calculation to this feature point
+            dx = px - fp_x
+            dz = pz - fp_z
+            dist_sq = dx * dx + dz * dz
+
+            # Update minimum distance
+            min_dists = np.minimum(min_dists, dist_sq)
+
+    # Sqrt to get euclidean distance
+    dists = np.sqrt(min_dists)
+
+    # Normalize (assuming max dist is roughly sqrt(2)/2 ~ 0.7 for standard voronoi)
+    # We invert to get ridges (1.0 at center, 0.0 at edges)
+    dists = 1.0 - np.clip(dists, 0.0, 1.0)
+
+    return dists.astype(np.float32)
 
 
 def _hydraulic_erosion(
@@ -283,8 +406,21 @@ def generate_terrain_maps(
         offset_x=offset_x, offset_z=offset_z, base_frequency=base_frequency
     )
     if macro_points > 0:
-        rng_macro = registry.get_rng("terrain_macro")
-        macro = _voronoi_ridged(rng_macro, size=size, points=macro_points)
+        # Use a deterministic seed derived from the registry for global Voronoi
+        # This ensures the same plate pattern regardless of chunk loading order
+        macro_seed = registry.get_subseed("terrain_macro") & 0xFFFFFFFF
+
+        # Heuristic to convert "points" parameter to frequency:
+        # 8 points in 64 units -> ~1 point every 22 units -> freq ~0.045
+        macro_freq = math.sqrt(macro_points) / float(size)
+
+        macro = _global_ridged_voronoi(
+            size=size,
+            offset_x=offset_x,
+            offset_z=offset_z,
+            frequency=macro_freq,
+            seed=macro_seed
+        )
         height = np.clip((height + macro) * 0.5, 0.0, 1.0)
 
     if erosion_iters > 0:
