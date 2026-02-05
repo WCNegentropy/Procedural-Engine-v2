@@ -487,8 +487,10 @@ def generate_terrain_maps(
         rng_river, size=size, octaves=4,
         offset_x=offset_x, offset_z=offset_z, base_frequency=base_frequency * 2.0
     )
-    # Create distinct river paths by thresholding a narrow band around 0.5
-    # The 'abs(noise - 0.5)' trick creates long, winding river paths
+    # Create distinct river paths by thresholding a narrow band around 0.5.
+    # This technique selects values near the noise function's midpoint, which
+    # form contour-like bands that naturally wind through the noise field,
+    # creating organic river paths that cross chunk boundaries seamlessly.
     river = (np.abs(river_noise - 0.5) < 0.025).astype(np.uint8)
     if return_slope:
         # Use ghost buffer for slope calculation to avoid edge artifacts

@@ -182,7 +182,9 @@ std::vector<float> generate_global_voronoi_ridged(
                     int ncx = cx + dx;
                     int ncy = cy + dy;
 
-                    // Deterministic feature point for this cell
+                    // Generate two independent random values for x and y offsets.
+                    // Using different coordinate offsets (123, 456) ensures px and py
+                    // are decorrelated, producing better-distributed feature points.
                     float px = static_cast<float>(ncx) + hash_coords(ncx, ncy, seed);
                     float py = static_cast<float>(ncy) + hash_coords(ncx + 123, ncy + 456, seed);
 
@@ -359,8 +361,10 @@ std::vector<uint8_t> generate_river_mask(SeedRegistry& registry, uint32_t size,
 
     std::vector<uint8_t> river(size * size);
     for (size_t i = 0; i < size * size; ++i) {
-        // Create distinct river paths by thresholding a narrow band around 0.5
-        // The 'abs(noise - 0.5) < threshold' creates long, winding river channels
+        // Create distinct river paths by thresholding a narrow band around 0.5.
+        // This technique selects values near the noise function's midpoint, which
+        // form contour-like bands that naturally wind through the noise field,
+        // creating organic river channels that cross chunk boundaries seamlessly.
         river[i] = (std::abs(river_noise[i] - 0.5f) < 0.025f) ? 1 : 0;
     }
 
