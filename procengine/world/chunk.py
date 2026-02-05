@@ -200,6 +200,11 @@ class ChunkManager:
         self._prop_distance = max(1, render_distance // 2)
         self._props_queue: List[ChunkCoord] = []
 
+        # Global terrain registry for consistent terrain across all chunks.
+        # This ensures the same world coordinate produces the same noise value
+        # regardless of which chunk generates it, enabling seamless edges.
+        self._terrain_registry = seed_registry.spawn("global_terrain")
+
         # Statistics
         self._chunks_generated: int = 0
         self._chunks_unloaded: int = 0
@@ -462,11 +467,17 @@ class ChunkManager:
 
                 from procengine.world.props import generate_chunk_props
 
+                # Slice the maps to original chunk_size for props.
+                # Heightmaps are generated with size+1 for vertex overlap,
+                # but props should only spawn within [0, chunk_size) bounds.
+                height_for_props = chunk.heightmap[:self._chunk_size, :self._chunk_size]
+                slope_for_props = chunk.slope_map[:self._chunk_size, :self._chunk_size] if chunk.slope_map is not None else None
+
                 chunk.pending_props = generate_chunk_props(
                     chunk_registry,
                     self._chunk_size,
-                    chunk.heightmap,
-                    chunk.slope_map,
+                    height_for_props,
+                    slope_for_props,
                 )
                 chunk.has_props = True
                 updated_chunks.append(chunk)
@@ -488,8 +499,20 @@ class ChunkManager:
         -------
         Chunk
             A new Chunk with generated terrain data and pending props.
+
+        Notes
+        -----
+        The chunk generates terrain with size+1 vertices to ensure seamless
+        mesh stitching. If a chunk is 64 units wide, it needs 65 vertices
+        (0 to 64) to enclose 64 quads. Vertex 64 of Chunk A is physically
+        coincident with Vertex 0 of Chunk B.
+
+        Terrain uses a global registry to ensure the same world coordinate
+        produces the same noise value regardless of which chunk generates it.
+        This enables seamless edges where Noise(x=64) in Chunk A equals
+        Noise(x=0) in Chunk B.
         """
-        # Create a deterministic seed registry for this chunk
+        # Create a deterministic seed registry for chunk-specific things (props)
         chunk_name = f"chunk_{coord[0]}_{coord[1]}"
         chunk_registry = self._registry.spawn(chunk_name)
 
@@ -498,9 +521,18 @@ class ChunkManager:
         offset_x = float(coord[0] * self._chunk_size)
         offset_z = float(coord[1] * self._chunk_size)
 
+        # Request size + 1 to generate overlap vertices.
+        # This closes the physical gap between meshes by ensuring the right
+        # edge of this chunk contains the exact same data as the left edge
+        # of the adjacent chunk.
+        gen_size = self._chunk_size + 1
+
+        # Use global terrain registry for consistent terrain across all chunks.
+        # This ensures seamless chunk boundaries by using the same noise
+        # permutation table for all terrain generation.
         maps = generate_terrain_maps(
-            chunk_registry,
-            size=self._chunk_size,
+            self._terrain_registry,
+            size=gen_size,
             octaves=6,
             macro_points=0, # Disable macro points for now as they can cause seams
             erosion_iters=0, # Disable erosion for now as it simulates locally
@@ -521,11 +553,15 @@ class ChunkManager:
         if dist_sq <= self._prop_distance ** 2:
             from procengine.world.props import generate_chunk_props
 
+            # Slice the maps to original size for props.
+            # We don't want props spawning on the overlap edge (index chunk_size)
+            # because the neighbor chunk will spawn them at index 0.
+            # Use chunk_registry for deterministic per-chunk prop generation.
             prop_descriptors = generate_chunk_props(
                 chunk_registry,
                 self._chunk_size,
-                height,
-                slope,
+                height[:self._chunk_size, :self._chunk_size],
+                slope[:self._chunk_size, :self._chunk_size],
             )
             has_props = True
 
@@ -696,9 +732,12 @@ class ChunkedHeightField:
         local_x = x - chunk.coords[0] * size
         local_z = z - chunk.coords[1] * size
 
-        # Clamp to valid range
-        ix = int(min(max(local_x, 0), size - 1))
-        iz = int(min(max(local_z, 0), size - 1))
+        # Get actual heightmap dimensions (may be size+1 for vertex overlap)
+        hm_height, hm_width = chunk.heightmap.shape
+
+        # Clamp to valid range (heightmap may have size+1 for overlap)
+        ix = int(min(max(local_x, 0), hm_width - 1))
+        iz = int(min(max(local_z, 0), hm_height - 1))
 
         # Sample and scale
         raw_height = chunk.heightmap[iz, ix]
@@ -729,11 +768,14 @@ class ChunkedHeightField:
         local_x = x - chunk.coords[0] * size
         local_z = z - chunk.coords[1] * size
 
+        # Get actual heightmap dimensions (may be size+1 for vertex overlap)
+        hm_height, hm_width = chunk.heightmap.shape
+
         # Get the four surrounding points
         x0 = int(math.floor(local_x))
         z0 = int(math.floor(local_z))
-        x1 = min(x0 + 1, size - 1)
-        z1 = min(z0 + 1, size - 1)
+        x1 = min(x0 + 1, hm_width - 1)
+        z1 = min(z0 + 1, hm_height - 1)
         x0 = max(x0, 0)
         z0 = max(z0, 0)
 

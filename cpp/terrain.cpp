@@ -390,30 +390,88 @@ TerrainMaps generate_terrain_maps(SeedRegistry& registry, const TerrainConfig& c
     maps.size = config.size;
     maps.has_slope = config.compute_slope;
 
-    uint64_t height_seed = registry.get_subseed("height");
-    SeedRegistry height_reg(height_seed);
-    maps.height = generate_fbm(height_reg, config.size, config.octaves,
-                                config.offset_x, config.offset_z, config.base_frequency);
-
-    // Apply macro plates using global Voronoi for seamless boundaries
+    // Pre-calculate macro plate parameters if needed (also for slope ghost buffer)
+    uint64_t macro_seed = 0;
+    float macro_freq = 0.0f;
     if (config.macro_points > 0) {
-        uint64_t macro_seed = registry.get_subseed("macro");
+        macro_seed = registry.get_subseed("macro");
         // Convert "points" count to frequency for global Voronoi
         // Using sqrt(points)/size approximates similar point density
-        float macro_freq = std::sqrt(static_cast<float>(config.macro_points)) / static_cast<float>(config.size);
-        auto macro = generate_global_voronoi_ridged(macro_seed, config.size,
-                                                     config.offset_x, config.offset_z, macro_freq);
-        for (size_t i = 0; i < maps.height.size(); ++i) {
-            maps.height[i] = std::clamp((maps.height[i] + macro[i]) * 0.5f, 0.0f, 1.0f);
+        macro_freq = std::sqrt(static_cast<float>(config.macro_points)) / static_cast<float>(config.size);
+    }
+
+    // Generate height with or without ghost buffer depending on slope requirement
+    if (config.compute_slope) {
+        // GHOST BUFFER: Generate padded (size+2) terrain for proper slope calculation
+        // This ensures slope values at chunk edges take neighbor terrain into account
+        uint32_t padded_size = config.size + 2;
+        float padded_off_x = config.offset_x - 1.0f;
+        float padded_off_z = config.offset_z - 1.0f;
+
+        // Generate padded heightmap
+        uint64_t height_seed = registry.get_subseed("height");
+        SeedRegistry height_reg(height_seed);
+        auto height_padded = generate_fbm(height_reg, padded_size, config.octaves,
+                                          padded_off_x, padded_off_z, config.base_frequency);
+
+        // Apply macro plates to padded data
+        if (config.macro_points > 0) {
+            auto macro_padded = generate_global_voronoi_ridged(macro_seed, padded_size,
+                                                               padded_off_x, padded_off_z, macro_freq);
+            for (size_t i = 0; i < height_padded.size(); ++i) {
+                height_padded[i] = std::clamp((height_padded[i] + macro_padded[i]) * 0.5f, 0.0f, 1.0f);
+            }
+        }
+
+        // Crop height back to requested size [1, size+1) from padded data
+        maps.height.resize(config.size * config.size);
+        for (uint32_t y = 0; y < config.size; ++y) {
+            for (uint32_t x = 0; x < config.size; ++x) {
+                maps.height[y * config.size + x] = height_padded[(y + 1) * padded_size + (x + 1)];
+            }
+        }
+
+        // Apply erosion to cropped height if requested
+        if (config.erosion_iters > 0) {
+            uint64_t erosion_seed = registry.get_subseed("erosion");
+            SeedRegistry erosion_reg(erosion_seed);
+            apply_hydraulic_erosion(maps.height, config.size, erosion_reg, config.erosion_iters);
+        }
+
+        // Calculate slope on the full padded array first
+        auto slope_padded = compute_slope_map(height_padded, padded_size);
+
+        // Then crop slope, just like height
+        maps.slope.resize(config.size * config.size);
+        for (uint32_t y = 0; y < config.size; ++y) {
+            for (uint32_t x = 0; x < config.size; ++x) {
+                maps.slope[y * config.size + x] = slope_padded[(y + 1) * padded_size + (x + 1)];
+            }
+        }
+    } else {
+        // No slope needed - generate height directly without ghost buffer
+        uint64_t height_seed = registry.get_subseed("height");
+        SeedRegistry height_reg(height_seed);
+        maps.height = generate_fbm(height_reg, config.size, config.octaves,
+                                    config.offset_x, config.offset_z, config.base_frequency);
+
+        // Apply macro plates
+        if (config.macro_points > 0) {
+            auto macro = generate_global_voronoi_ridged(macro_seed, config.size,
+                                                         config.offset_x, config.offset_z, macro_freq);
+            for (size_t i = 0; i < maps.height.size(); ++i) {
+                maps.height[i] = std::clamp((maps.height[i] + macro[i]) * 0.5f, 0.0f, 1.0f);
+            }
+        }
+
+        if (config.erosion_iters > 0) {
+            uint64_t erosion_seed = registry.get_subseed("erosion");
+            SeedRegistry erosion_reg(erosion_seed);
+            apply_hydraulic_erosion(maps.height, config.size, erosion_reg, config.erosion_iters);
         }
     }
 
-    if (config.erosion_iters > 0) {
-        uint64_t erosion_seed = registry.get_subseed("erosion");
-        SeedRegistry erosion_reg(erosion_seed);
-        apply_hydraulic_erosion(maps.height, config.size, erosion_reg, config.erosion_iters);
-    }
-
+    // Generate other maps (temperature, humidity, biome, river) - no ghost buffer needed
     float biome_freq = config.base_frequency * 0.5f;
     uint64_t temp_seed = registry.get_subseed("temperature");
     SeedRegistry temp_reg(temp_seed);
@@ -431,10 +489,6 @@ TerrainMaps generate_terrain_maps(SeedRegistry& registry, const TerrainConfig& c
     uint64_t river_seed = registry.get_subseed("river");
     SeedRegistry river_reg(river_seed);
     maps.river = generate_river_mask(river_reg, config.size, config.offset_x, config.offset_z, config.base_frequency);
-
-    if (config.compute_slope) {
-        maps.slope = compute_slope_map(maps.height, config.size);
-    }
 
     return maps;
 }

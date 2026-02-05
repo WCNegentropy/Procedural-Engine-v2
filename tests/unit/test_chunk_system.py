@@ -191,7 +191,8 @@ class TestChunkManager:
         chunk = generated[0]
         assert chunk.is_loaded is True
         assert chunk.heightmap is not None
-        assert chunk.heightmap.shape == (32, 32)
+        # Heightmap is size+1 (33x33) for vertex overlap to ensure seamless mesh stitching
+        assert chunk.heightmap.shape == (33, 33)
         assert chunk.biome_map is not None
         assert chunk.coords in manager.chunks
 
@@ -625,3 +626,161 @@ class TestChunkPropsGeneration:
             pos_b = [p.get('position', []) for p in chunk_b.pending_props]
             # At least positions should be different (they're in different chunk spaces)
             assert pos_a != pos_b
+
+
+# =============================================================================
+# Vertex Overlap Tests (Seamless Mesh Stitching)
+# =============================================================================
+
+
+class TestVertexOverlap:
+    """Tests for vertex overlap to ensure seamless mesh stitching between chunks."""
+
+    def test_chunk_heightmap_has_overlap_vertices(self):
+        """Test that chunk heightmaps have size+1 for vertex overlap.
+        
+        A chunk that is N units wide needs N+1 vertices to enclose N quads.
+        This ensures meshes can be stitched together without gaps.
+        """
+        registry = SeedRegistry(42)
+        manager = ChunkManager(registry, chunk_size=32, render_distance=0)
+
+        manager.update_player_position(16.0, 16.0)
+        generated = manager.process_load_queue(max_per_frame=1)
+
+        assert len(generated) == 1
+        chunk = generated[0]
+        
+        # Heightmap should be (chunk_size + 1) x (chunk_size + 1)
+        assert chunk.heightmap.shape == (33, 33)
+        assert chunk.biome_map.shape == (33, 33)
+        assert chunk.river_map.shape == (33, 33)
+        assert chunk.slope_map.shape == (33, 33)
+
+    def test_adjacent_chunks_share_edge_vertices(self):
+        """Test that adjacent chunks have identical height values at shared edges.
+        
+        Vertex 64 of Chunk A should equal Vertex 0 of Chunk B when they share
+        an edge. This is what enables seamless mesh stitching.
+        """
+        registry = SeedRegistry(42)
+        chunk_size = 32
+        manager = ChunkManager(registry, chunk_size=chunk_size, render_distance=2)
+
+        # Position to load chunk (0,0) and (1,0)
+        manager.update_player_position(float(chunk_size) / 2, float(chunk_size) / 2)
+        while manager.get_load_queue_size() > 0:
+            manager.process_load_queue(max_per_frame=20)
+
+        chunk_a = manager.chunks.get((0, 0))
+        chunk_b = manager.chunks.get((1, 0))
+
+        assert chunk_a is not None
+        assert chunk_b is not None
+
+        # The right edge of chunk_a (column chunk_size) should match
+        # the left edge of chunk_b (column 0)
+        right_edge_a = chunk_a.heightmap[:, chunk_size]
+        left_edge_b = chunk_b.heightmap[:, 0]
+
+        # They should be exactly equal (same world coordinates)
+        np.testing.assert_array_almost_equal(
+            right_edge_a, left_edge_b, decimal=5,
+            err_msg="Adjacent chunk edges don't match - mesh gaps will occur"
+        )
+
+    def test_vertical_adjacent_chunks_share_edge_vertices(self):
+        """Test that vertically adjacent chunks share edge vertices."""
+        registry = SeedRegistry(42)
+        chunk_size = 32
+        manager = ChunkManager(registry, chunk_size=chunk_size, render_distance=2)
+
+        manager.update_player_position(float(chunk_size) / 2, float(chunk_size) / 2)
+        while manager.get_load_queue_size() > 0:
+            manager.process_load_queue(max_per_frame=20)
+
+        chunk_a = manager.chunks.get((0, 0))
+        chunk_c = manager.chunks.get((0, 1))
+
+        assert chunk_a is not None
+        assert chunk_c is not None
+
+        # The bottom edge of chunk_a (row chunk_size) should match
+        # the top edge of chunk_c (row 0)
+        bottom_edge_a = chunk_a.heightmap[chunk_size, :]
+        top_edge_c = chunk_c.heightmap[0, :]
+
+        np.testing.assert_array_almost_equal(
+            bottom_edge_a, top_edge_c, decimal=5,
+            err_msg="Vertically adjacent chunk edges don't match"
+        )
+
+    def test_props_only_spawn_within_original_bounds(self):
+        """Test that props only spawn within [0, chunk_size) bounds.
+        
+        Props should not spawn at the overlap edge (index chunk_size) to
+        avoid duplicate props when neighbor chunk spawns at index 0.
+        """
+        registry = SeedRegistry(42)
+        chunk_size = 32
+        manager = ChunkManager(registry, chunk_size=chunk_size, render_distance=0)
+
+        manager.update_player_position(float(chunk_size) / 2, float(chunk_size) / 2)
+        generated = manager.process_load_queue(max_per_frame=1)
+
+        assert len(generated) == 1
+        chunk = generated[0]
+
+        # All prop positions should be within [0, chunk_size)
+        for prop in chunk.pending_props:
+            pos = prop.get('position', [0, 0, 0])
+            assert 0 <= pos[0] < chunk_size, f"Prop X position {pos[0]} out of bounds"
+            assert 0 <= pos[2] < chunk_size, f"Prop Z position {pos[2]} out of bounds"
+
+    def test_heightfield_sample_uses_overlap_vertices(self):
+        """Test that ChunkedHeightField correctly samples within chunk bounds.
+        
+        The overlap vertex (at index chunk_size) exists in the heightmap but
+        corresponds to a world position that belongs to the adjacent chunk.
+        ChunkedHeightField samples from the chunk that owns each world position.
+        """
+        registry = SeedRegistry(42)
+        chunk_size = 32
+        manager = ChunkManager(registry, chunk_size=chunk_size, render_distance=0)
+
+        manager.update_player_position(float(chunk_size) / 2, float(chunk_size) / 2)
+        manager.process_load_queue(max_per_frame=1)
+
+        heightfield = ChunkedHeightField(manager, height_scale=30.0)
+
+        # Sample at a position well within the chunk bounds
+        height_at_center = heightfield.sample(float(chunk_size) / 2, float(chunk_size) / 2)
+        
+        # Should return a valid height (non-default since chunk is loaded)
+        assert height_at_center != 0.0, "Should sample valid height within chunk"
+        
+        # Verify the heightmap has the overlap vertices (size+1)
+        chunk = manager.chunks[(0, 0)]
+        assert chunk.heightmap.shape == (chunk_size + 1, chunk_size + 1)
+
+    def test_chunk_determinism_with_overlap(self):
+        """Test that chunks with overlap vertices are still deterministic."""
+        registry1 = SeedRegistry(42)
+        registry2 = SeedRegistry(42)
+        chunk_size = 32
+
+        manager1 = ChunkManager(registry1, chunk_size=chunk_size, render_distance=0)
+        manager2 = ChunkManager(registry2, chunk_size=chunk_size, render_distance=0)
+
+        manager1.update_player_position(float(chunk_size) / 2, float(chunk_size) / 2)
+        manager2.update_player_position(float(chunk_size) / 2, float(chunk_size) / 2)
+
+        chunks1 = manager1.process_load_queue(max_per_frame=1)
+        chunks2 = manager2.process_load_queue(max_per_frame=1)
+
+        # Both chunks should have identical heightmaps (including overlap)
+        np.testing.assert_array_equal(
+            chunks1[0].heightmap,
+            chunks2[0].heightmap,
+            err_msg="Chunk terrain is not deterministic with overlap vertices"
+        )
