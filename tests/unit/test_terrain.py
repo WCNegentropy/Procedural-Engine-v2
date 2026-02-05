@@ -393,3 +393,175 @@ def test_global_voronoi_plates_span_chunks():
 
     avg_edge_diff = total_edge_diff / edge_count
     assert avg_edge_diff < 0.1, f"Average edge discontinuity ({avg_edge_diff}) too high"
+
+
+# =============================================================================
+# Seamless Rivers Tests
+# =============================================================================
+
+
+def test_seamless_rivers_continuous_across_chunks():
+    """Test that rivers are continuous across chunk boundaries.
+
+    Rivers are now generated using coherent FBM noise instead of white noise.
+    This ensures river paths naturally cross chunk boundaries.
+    """
+    chunk_size = 32
+    seed = 42
+
+    # Generate two adjacent chunks
+    reg1 = SeedRegistry(seed)
+    _, _, r1 = generate_terrain_maps(
+        reg1.spawn("chunk_0_0"), size=chunk_size,
+        offset_x=0, offset_z=0,
+        macro_points=0, base_frequency=0.01
+    )
+
+    reg2 = SeedRegistry(seed)
+    _, _, r2 = generate_terrain_maps(
+        reg2.spawn("chunk_1_0"), size=chunk_size,
+        offset_x=chunk_size, offset_z=0,
+        macro_points=0, base_frequency=0.01
+    )
+
+    # Check edge alignment - river presence should correlate at boundaries
+    right_edge = r1[:, -1].astype(np.float32)
+    left_edge = r2[:, 0].astype(np.float32)
+
+    # With coherent noise, edges should show some correlation
+    # (not perfectly matched due to threshold but should trend together)
+    # At minimum, if there's a river at the boundary on one side,
+    # there should be a similar pattern on the other side
+    edge_match_count = np.sum(right_edge == left_edge)
+    match_ratio = edge_match_count / len(right_edge)
+
+    # With coherent noise, we expect reasonable alignment (> 70%)
+    assert match_ratio > 0.7, f"River edge match ratio ({match_ratio}) too low - rivers not continuous"
+
+
+def test_seamless_rivers_deterministic():
+    """Test that river generation is deterministic with coherent noise."""
+    chunk_size = 32
+    seed = 123
+
+    # Generate same chunk twice
+    reg1 = SeedRegistry(seed)
+    _, _, r1 = generate_terrain_maps(
+        reg1.spawn("test"), size=chunk_size,
+        offset_x=64, offset_z=64,
+        macro_points=0
+    )
+
+    reg2 = SeedRegistry(seed)
+    _, _, r2 = generate_terrain_maps(
+        reg2.spawn("test"), size=chunk_size,
+        offset_x=64, offset_z=64,
+        macro_points=0
+    )
+
+    # Rivers should be identical
+    assert np.array_equal(r1, r2), "River generation not deterministic"
+
+
+def test_seamless_rivers_pattern_varies_with_position():
+    """Test that different world positions produce different river patterns."""
+    chunk_size = 32
+    seed = 42
+
+    # Generate chunks at different positions
+    reg1 = SeedRegistry(seed)
+    _, _, r1 = generate_terrain_maps(
+        reg1.spawn("chunk_0_0"), size=chunk_size,
+        offset_x=0, offset_z=0, macro_points=0
+    )
+
+    reg2 = SeedRegistry(seed)
+    _, _, r2 = generate_terrain_maps(
+        reg2.spawn("chunk_5_5"), size=chunk_size,
+        offset_x=5 * chunk_size, offset_z=5 * chunk_size, macro_points=0
+    )
+
+    # Different positions should give different patterns
+    # (with small probability of being identical, but highly unlikely)
+    assert not np.array_equal(r1, r2), "Different positions should have different river patterns"
+
+
+# =============================================================================
+# Ghost Buffer Slope Tests
+# =============================================================================
+
+
+def test_slope_ghost_buffer_no_edge_artifacts():
+    """Test that slope calculation uses ghost buffers to avoid edge artifacts.
+
+    With ghost buffers, the slope values at chunk edges should be calculated
+    using neighboring terrain data, not just edge-case handling.
+    """
+    chunk_size = 32
+    seed = 42
+
+    # Generate two adjacent chunks with slope
+    reg1 = SeedRegistry(seed)
+    h1, _, _, s1 = generate_terrain_maps(
+        reg1.spawn("chunk_0_0"), size=chunk_size,
+        offset_x=0, offset_z=0,
+        macro_points=0, return_slope=True
+    )
+
+    reg2 = SeedRegistry(seed)
+    h2, _, _, s2 = generate_terrain_maps(
+        reg2.spawn("chunk_1_0"), size=chunk_size,
+        offset_x=chunk_size, offset_z=0,
+        macro_points=0, return_slope=True
+    )
+
+    # Get slope at edges
+    right_edge_slope = s1[:, -1]
+    left_edge_slope = s2[:, 0]
+
+    # With ghost buffers, slope values should be reasonably similar at boundaries
+    # (they won't be identical because they're computed on different padded data,
+    # but should be much closer than without ghost buffers)
+    slope_diff = np.abs(right_edge_slope - left_edge_slope).mean()
+    assert slope_diff < 0.3, f"Slope edge difference ({slope_diff}) too high - ghost buffer may not be working"
+
+
+def test_slope_deterministic():
+    """Test that slope calculation is deterministic with ghost buffers."""
+    chunk_size = 32
+    seed = 123
+
+    # Generate same chunk twice
+    reg1 = SeedRegistry(seed)
+    _, _, _, s1 = generate_terrain_maps(
+        reg1.spawn("test"), size=chunk_size,
+        offset_x=64, offset_z=64,
+        macro_points=4, return_slope=True
+    )
+
+    reg2 = SeedRegistry(seed)
+    _, _, _, s2 = generate_terrain_maps(
+        reg2.spawn("test"), size=chunk_size,
+        offset_x=64, offset_z=64,
+        macro_points=4, return_slope=True
+    )
+
+    # Slopes should be identical
+    assert np.allclose(s1, s2), "Slope calculation not deterministic"
+
+
+def test_slope_range_valid():
+    """Test that slope values are in valid [0, 1] range."""
+    chunk_size = 32
+    seed = 42
+
+    reg = SeedRegistry(seed)
+    _, _, _, slope = generate_terrain_maps(
+        reg.spawn("test"), size=chunk_size,
+        offset_x=0, offset_z=0,
+        macro_points=4, return_slope=True
+    )
+
+    assert slope.min() >= 0.0, f"Slope below 0: {slope.min()}"
+    assert slope.max() <= 1.0, f"Slope above 1: {slope.max()}"
+    assert slope.dtype == np.float32, f"Slope dtype should be float32, got {slope.dtype}"
