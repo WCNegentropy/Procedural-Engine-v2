@@ -308,8 +308,12 @@ def _global_ridged_voronoi(
     # Sqrt to get euclidean distance
     dists = np.sqrt(min_dists)
 
-    # Normalize (assuming max dist is roughly sqrt(2)/2 ~ 0.7 for standard voronoi)
-    # We invert to get ridges (1.0 at center, 0.0 at edges)
+    # Normalize: clip distances to [0, 1] range and invert for ridges.
+    # In a standard Voronoi diagram with one point per unit cell, the maximum
+    # distance from any point to its nearest feature is bounded by the cell
+    # diagonal (sqrt(2) ≈ 1.41). Clipping to 1.0 captures most of the range
+    # while ensuring consistent output. Inversion gives 1.0 at cell centers
+    # (plate interiors) and lower values at cell edges (plate boundaries).
     dists = 1.0 - np.clip(dists, 0.0, 1.0)
 
     return dists.astype(np.float32)
@@ -410,8 +414,9 @@ def generate_terrain_maps(
         # This ensures the same plate pattern regardless of chunk loading order
         macro_seed = registry.get_subseed("terrain_macro") & 0xFFFFFFFF
 
-        # Heuristic to convert "points" parameter to frequency:
-        # 8 points in 64 units -> ~1 point every 22 units -> freq ~0.045
+        # Convert "points" count to frequency for global Voronoi.
+        # Using sqrt(points)/size approximates similar point density:
+        # e.g., 8 points in 64x64 -> sqrt(8)/64 ≈ 0.044 cycles per unit.
         macro_freq = math.sqrt(macro_points) / float(size)
 
         macro = _global_ridged_voronoi(

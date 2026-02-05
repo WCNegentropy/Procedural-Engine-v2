@@ -1,5 +1,7 @@
 """Tests covering deterministic terrain map generation."""
 
+import math
+
 import numpy as np
 
 from procengine.core.seed_registry import SeedRegistry
@@ -295,11 +297,13 @@ def test_global_voronoi_determinism():
 
     # Generate the same chunk twice with identical parameters
     macro_seed = 12345
+    # Frequency derived from sqrt(macro_points)/size: sqrt(8)/32 ≈ 0.088
+    freq = math.sqrt(8) / 32
     v1 = _global_ridged_voronoi(
         size=chunk_size,
         offset_x=chunk_size,
         offset_z=chunk_size,
-        frequency=0.044,  # sqrt(8)/32
+        frequency=freq,
         seed=macro_seed
     )
 
@@ -307,7 +311,7 @@ def test_global_voronoi_determinism():
         size=chunk_size,
         offset_x=chunk_size,
         offset_z=chunk_size,
-        frequency=0.044,
+        frequency=freq,
         seed=macro_seed
     )
 
