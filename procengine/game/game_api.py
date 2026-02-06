@@ -1194,8 +1194,8 @@ class GameConfig:
     auto_save_interval: float = 300.0  # seconds
 
     # Dynamic chunk loading settings
-    render_distance: int = 8  # chunks radius for rendering
-    sim_distance: int = 4  # chunks radius for physics/AI simulation
+    render_distance: int = 6  # chunks radius for rendering (reduced from 8 for perf)
+    sim_distance: int = 3  # chunks radius for physics/AI simulation (reduced from 4)
     unload_buffer: int = 2  # extra distance before unloading
     enable_dynamic_chunks: bool = True  # Dynamic infinite world (default)
 

@@ -1181,7 +1181,16 @@ PYBIND11_MODULE(procengine_cpp, m) {
 
     m.def("imgui_new_frame",
           [](float dt, float width, float height, bool left_down, bool right_down) {
+              // Safety: if ImGui context is null, bail out
+              if (!ImGui::GetCurrentContext()) return;
+
               ImGuiIO& io = ImGui::GetIO();
+
+              // Clamp dt to prevent ImGui layout issues during long frames
+              // (e.g. during chunk generation stalls)
+              if (dt <= 0.0f) dt = 1.0f / 60.0f;
+              if (dt > 0.1f) dt = 0.1f;
+
               ImGui_ImplVulkan_NewFrame();
 #if HAS_SDL2
               ImGui_ImplSDL2_NewFrame();
@@ -1202,6 +1211,7 @@ PYBIND11_MODULE(procengine_cpp, m) {
           "Begin a new ImGui frame with explicit time, dimensions, and mouse state");
 
     m.def("imgui_render", []() {
+        if (!ImGui::GetCurrentContext()) return;
         ImGui::Render();
     }, "Finalize ImGui rendering (call before end_frame)");
 

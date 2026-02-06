@@ -176,8 +176,8 @@ class ChunkManager:
         self,
         seed_registry: SeedRegistry,
         chunk_size: int = 64,
-        render_distance: int = 8,
-        sim_distance: int = 4,
+        render_distance: int = 6,
+        sim_distance: int = 3,
         unload_buffer: int = 2,
     ) -> None:
         self._registry = seed_registry

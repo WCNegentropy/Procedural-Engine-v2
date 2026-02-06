@@ -521,7 +521,7 @@ struct Camera {
     std::array<float, 3> up = {0.0f, 1.0f, 0.0f};
     float fov = 60.0f;
     float near_plane = 0.1f;
-    float far_plane = 1000.0f;
+    float far_plane = 800.0f;  // Reduced from 1000 to match shorter render distance
 };
 
 /**
@@ -884,6 +884,7 @@ private:
 
     // Dear ImGui state
     bool imgui_initialized_ = false;
+    bool imgui_frame_active_ = false;  // True between NewFrame and Render
     VkDescriptorPool imgui_descriptor_pool_ = VK_NULL_HANDLE;
 
     // Create default shaders source

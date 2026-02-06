@@ -2265,8 +2265,10 @@ void RenderContext::record_draw_commands() {
     }
 
     // Render Dear ImGui draw data on top of the scene (if available)
+    // Only render if ImGui::Render() was called this frame (GetDrawData != null)
+    // and the draw data is valid (non-zero command lists)
     ImDrawData* imgui_draw_data = ImGui::GetDrawData();
-    if (imgui_draw_data && imgui_draw_data->CmdListsCount > 0) {
+    if (imgui_draw_data && imgui_draw_data->Valid && imgui_draw_data->CmdListsCount > 0) {
         ImGui_ImplVulkan_RenderDrawData(imgui_draw_data, cmd);
     }
 
@@ -2641,8 +2643,8 @@ void main() {
     
     // Simple fog based on distance
     float dist = length(fragWorldPos - frame.cameraPos.xyz);
-    float fogFactor = 1.0 - exp(-dist * 0.002);
-    fogFactor = clamp(fogFactor, 0.0, 0.7);
+    float fogFactor = 1.0 - exp(-dist * 0.0027);
+    fogFactor = clamp(fogFactor, 0.0, 0.75);
     vec3 fogColor = vec3(0.4, 0.5, 0.7);  // Deeper sky blue to avoid washed-out look
     finalColor = mix(finalColor, fogColor, fogFactor);
     
@@ -2763,16 +2765,23 @@ void GraphicsSystem::shutdown_imgui() {
 
 void GraphicsSystem::imgui_new_frame() {
     if (!imgui_initialized_) return;
+    // Prevent double-NewFrame without an intervening Render
+    if (imgui_frame_active_) {
+        // Discard the previous unfinished frame
+        ImGui::EndFrame();
+    }
     ImGui_ImplVulkan_NewFrame();
 #if HAS_SDL2
     ImGui_ImplSDL2_NewFrame();
 #endif
     ImGui::NewFrame();
+    imgui_frame_active_ = true;
 }
 
 void GraphicsSystem::imgui_render() {
-    if (!imgui_initialized_) return;
+    if (!imgui_initialized_ || !imgui_frame_active_) return;
     ImGui::Render();
+    imgui_frame_active_ = false;
     // The actual draw data is consumed in RenderContext::record_draw_commands()
     // via ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd).
 }

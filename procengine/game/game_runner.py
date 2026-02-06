@@ -91,8 +91,12 @@ class RunnerConfig:
 
     # Dynamic chunk loading settings
     enable_dynamic_chunks: bool = True  # Dynamic infinite world (default)
-    render_distance: int = 8  # chunks radius for rendering
-    sim_distance: int = 4  # chunks radius for physics/AI simulation
+    render_distance: int = 6  # chunks radius for rendering (reduced from 8 for perf)
+    sim_distance: int = 3  # chunks radius for physics/AI simulation (reduced from 4)
+
+    # World loading settings
+    loading_chunks_per_frame: int = 4  # chunks to generate per frame during LOADING
+    min_loaded_chunks: int = 0  # auto-calculated from render_distance if 0
 
 
 # =============================================================================
@@ -748,6 +752,11 @@ class GameRunner:
         # Chunk management (for dynamic chunks mode)
         self._chunk_manager: Optional[Any] = None
 
+        # World loading state (progressive loading before gameplay starts)
+        self._loading_total_chunks: int = 0  # Total chunks needed before PLAYING
+        self._loading_chunks_done: int = 0  # Chunks loaded so far
+        self._loading_complete: bool = False  # True when world is ready
+
         # Timing
         self._last_time: float = 0.0
         self._accumulator: float = 0.0
@@ -856,7 +865,14 @@ class GameRunner:
         # Initialize command system
         self._init_commands()
 
-        self._state = GameState.PLAYING
+        # Start in LOADING for dynamic chunks (world loads first, then player starts)
+        # For static terrain, loading is already done so go straight to PLAYING
+        if self.config.enable_dynamic_chunks and not self._loading_complete:
+            self._state = GameState.LOADING
+            print("Entering LOADING state — generating world terrain...")
+        else:
+            self._state = GameState.PLAYING
+
         self._last_time = self._backend.get_time()
         self._fps_update_time = self._last_time
 
@@ -1162,6 +1178,12 @@ class GameRunner:
 
     def _update(self, dt: float) -> None:
         """Update game state."""
+
+        # === LOADING STATE: progressively generate world chunks ===
+        if self._state == GameState.LOADING:
+            self._update_loading(dt)
+            return
+
         # When the console is open, route keyboard input to it instead of
         # the player controller.  The console toggle key (GRAVE) is still
         # handled by PlayerController._handle_ui_input so the player can
@@ -1223,6 +1245,32 @@ class GameRunner:
     def _render(self) -> None:
         """Render the game world."""
         if self._graphics_bridge and not self._graphics_bridge.is_headless:
+
+            # --- LOADING state: show progress screen only ---
+            if self._state == GameState.LOADING:
+                self._graphics_bridge.begin_frame()
+                # Render already-loaded chunks so the player sees the world
+                # building up during loading (visual feedback)
+                if self.config.enable_dynamic_chunks and self._chunk_manager:
+                    from procengine.graphics.graphics_bridge import (
+                        create_translation_matrix,
+                    )
+
+                    for chunk in self._chunk_manager.get_render_chunks():
+                        if chunk.is_mesh_uploaded:
+                            world_x, world_z = self._chunk_manager.chunk_to_world(
+                                chunk.coords
+                            )
+                            transform = create_translation_matrix(world_x, 0, world_z)
+                            self._graphics_bridge.draw_mesh(
+                                chunk.mesh_id, "default", transform
+                            )
+                # Render the loading progress UI on top
+                self._render_loading_screen()
+                self._graphics_bridge.end_frame()
+                return
+
+            # --- Normal PLAYING / PAUSED / etc. rendering ---
             # Update camera from player controller
             if self._player_controller:
                 self._graphics_bridge.set_camera_from_controller(
@@ -1491,8 +1539,12 @@ class GameRunner:
         """Setup dynamic chunk-based terrain with ChunkManager.
         
         This method initializes the ChunkManager for infinite world generation,
-        connecting it to the GameWorld and physics system. Initial chunks around
-        the player spawn are generated immediately.
+        connecting it to the GameWorld and physics system. Chunks are loaded
+        progressively during the LOADING state to avoid frame-rate drops.
+        
+        The game stays in LOADING state until enough chunks are generated
+        to fill the initial view, then transitions to PLAYING and spawns
+        the player on the terrain.
         """
         try:
             from procengine.world.chunk import ChunkManager, ChunkedHeightField
@@ -1500,7 +1552,7 @@ class GameRunner:
             
             print(f"Initializing Infinite World (Chunk Size: {self.config.chunk_size})")
             
-            # Initialize Chunk Manager
+            # Initialize Chunk Manager with reduced distances
             self._chunk_manager = ChunkManager(
                 seed_registry=SeedRegistry(self.config.world_seed),
                 chunk_size=self.config.chunk_size,
@@ -1516,7 +1568,7 @@ class GameRunner:
                 heightfield = ChunkedHeightField(self._chunk_manager)
                 self._world.set_heightfield(heightfield)
             
-            # Initial load around spawn
+            # Calculate spawn position
             player = self._world.get_player() if self._world else None
             if player:
                 spawn_x = player.position.x
@@ -1525,18 +1577,40 @@ class GameRunner:
                 spawn_x = self.config.chunk_size // 2
                 spawn_z = self.config.chunk_size // 2
             
+            # Queue all chunks, but don't generate them yet —
+            # the LOADING state will process them progressively
             self._chunk_manager.update_player_position(spawn_x, spawn_z)
             
-            # Force immediate generation of starting chunks so player doesn't fall
-            chunks = self._chunk_manager.process_load_queue(max_per_frame=10)
-            for chunk in chunks:
-                self._upload_chunk_mesh(chunk)
+            # Calculate how many chunks fill the render distance (circular area)
+            import math
+            r = self.config.render_distance
+            total_in_render = sum(
+                1 for dx in range(-r, r + 1)
+                for dz in range(-r, r + 1)
+                if dx * dx + dz * dz <= r * r
+            )
             
-            # Adjust player to terrain height in their current chunk
-            if player and chunks:
+            # Set minimum loaded chunks before gameplay starts
+            min_chunks = self.config.min_loaded_chunks
+            if min_chunks <= 0:
+                # Default: load ALL chunks in render distance before starting
+                min_chunks = total_in_render
+            
+            self._loading_total_chunks = min_chunks
+            self._loading_chunks_done = 0
+            self._loading_complete = False
+            
+            # Force-load the one chunk directly under the player so we have
+            # ground for the player spawn height calculation
+            immediate = self._chunk_manager.process_load_queue(max_per_frame=1)
+            for chunk in immediate:
+                self._upload_chunk_mesh(chunk)
+                self._loading_chunks_done += 1
+            
+            # Adjust player to terrain height of spawn chunk
+            if player and immediate:
                 chunk = self._chunk_manager.get_chunk_at_world(spawn_x, spawn_z)
                 if chunk and chunk.heightmap is not None:
-                    # Get local coordinates within chunk
                     local_x = int(spawn_x) % self.config.chunk_size
                     local_z = int(spawn_z) % self.config.chunk_size
                     local_x = min(max(local_x, 0), self.config.chunk_size - 1)
@@ -1545,12 +1619,12 @@ class GameRunner:
                     player.position = Vec3(spawn_x, terrain_y + 2.0, spawn_z)
                     player.velocity = Vec3(0, 0, 0)
                     player.grounded = True
-                    print(f"Player spawned at terrain height: {terrain_y + 2.0}")
-                    
-                    # Also set terrain heightmap for camera positioning
                     self._terrain_heightmap = chunk.heightmap * self.HEIGHT_SCALE
             
-            print(f"Dynamic terrain initialized: {len(chunks)} chunks loaded")
+            print(
+                f"Dynamic terrain initialized — "
+                f"loading {self._loading_total_chunks} chunks before gameplay..."
+            )
             
         except Exception as e:
             print(f"Warning: Dynamic terrain setup failed: {e}")
@@ -1559,6 +1633,8 @@ class GameRunner:
             # Fall back to static terrain
             print("Falling back to static terrain...")
             self._setup_terrain()
+            # Mark loading as complete so we don't get stuck
+            self._loading_complete = True
 
     def _upload_chunk_mesh(self, chunk: Any) -> None:
         """Upload a chunk's terrain mesh to the GPU and spawn pending props.
@@ -1669,6 +1745,149 @@ class GameRunner:
 
         if prop_count > 0:
             print(f"Spawned {prop_count} props in chunk {chunk.coords}")
+
+    # =========================================================================
+    # World Loading (progressive chunk generation during LOADING state)
+    # =========================================================================
+
+    def _update_loading(self, dt: float) -> None:
+        """Progressively load world chunks during the LOADING state.
+
+        Called from ``_update`` when ``self._state == GameState.LOADING``.
+        Generates several chunks per frame to fill the render distance as
+        quickly as possible without blocking the render loop entirely,
+        allowing the loading screen (with progress bar) to update smoothly.
+
+        Once all required chunks are loaded, the player is repositioned on
+        the terrain and the game transitions to ``PLAYING``.
+        """
+        if not self._chunk_manager:
+            # No chunk manager — skip straight to playing
+            self._loading_complete = True
+            self._state = GameState.PLAYING
+            return
+
+        # Generate several chunks per frame during loading (more aggressive
+        # than the 1-per-frame used during gameplay)
+        batch = self.config.loading_chunks_per_frame
+        new_chunks = self._chunk_manager.process_load_queue(max_per_frame=batch)
+        for chunk in new_chunks:
+            self._upload_chunk_mesh(chunk)
+            self._loading_chunks_done += 1
+
+        # Log progress periodically
+        if new_chunks and self._loading_chunks_done % 10 == 0:
+            pct = (
+                self._loading_chunks_done / max(self._loading_total_chunks, 1) * 100
+            )
+            print(
+                f"Loading: {self._loading_chunks_done}/{self._loading_total_chunks} "
+                f"chunks ({pct:.0f}%)"
+            )
+
+        # Check if we're done
+        queue_empty = len(self._chunk_manager._load_queue) == 0
+        enough_chunks = self._loading_chunks_done >= self._loading_total_chunks
+
+        if queue_empty or enough_chunks:
+            self._finish_loading()
+
+    def _finish_loading(self) -> None:
+        """Transition from LOADING to PLAYING.
+
+        Repositions the player on the terrain, resets physics velocity,
+        and sets the game state to PLAYING.
+        """
+        self._loading_complete = True
+
+        # Final player position adjustment
+        player = self._world.get_player() if self._world else None
+        if player and self._chunk_manager:
+            spawn_x = player.position.x
+            spawn_z = player.position.z
+            chunk = self._chunk_manager.get_chunk_at_world(spawn_x, spawn_z)
+            if chunk and chunk.heightmap is not None:
+                local_x = int(spawn_x) % self.config.chunk_size
+                local_z = int(spawn_z) % self.config.chunk_size
+                local_x = min(max(local_x, 0), self.config.chunk_size - 1)
+                local_z = min(max(local_z, 0), self.config.chunk_size - 1)
+                terrain_y = float(chunk.heightmap[local_z, local_x]) * self.HEIGHT_SCALE
+                player.position = Vec3(spawn_x, terrain_y + 2.0, spawn_z)
+                player.velocity = Vec3(0, 0, 0)
+                player.grounded = True
+                self._terrain_heightmap = chunk.heightmap * self.HEIGHT_SCALE
+                print(f"Player spawned at terrain height: {terrain_y + 2.0}")
+
+        # Set initial camera
+        if self._graphics_bridge and self._player_controller:
+            center = self.config.chunk_size // 2
+            terrain_target_y = 0.0
+            if self._terrain_heightmap is not None:
+                h, w = self._terrain_heightmap.shape
+                safe_z = min(center, h - 1)
+                safe_x = min(center, w - 1)
+                terrain_target_y = float(self._terrain_heightmap[safe_z, safe_x])
+            camera_y = terrain_target_y + 35.0
+            self._player_controller.camera.camera.position = Vec3(
+                center, camera_y, center + 30
+            )
+            self._player_controller.camera.camera.target = Vec3(
+                center, terrain_target_y, center
+            )
+
+        self._state = GameState.PLAYING
+        print(
+            f"World loaded! {self._loading_chunks_done} chunks generated. "
+            f"Entering PLAYING state."
+        )
+
+    def _render_loading_screen(self) -> None:
+        """Render a loading screen with progress bar via ImGui.
+
+        Called from ``_render`` when the game is in ``LOADING`` state.
+        Draws directly using the UI manager so it participates in the
+        normal ImGui begin_frame / end_frame cycle.
+        """
+        if not self._ui_manager:
+            return
+
+        progress = (
+            self._loading_chunks_done / max(self._loading_total_chunks, 1)
+        )
+        progress = min(progress, 1.0)
+
+        left_down = False
+        right_down = False
+        if self._input_manager:
+            left_down = self._input_manager.is_mouse_button_down(0)
+            right_down = self._input_manager.is_mouse_button_down(2)
+
+        self._ui_manager.begin_frame(
+            dt=self.config.fixed_timestep,
+            left_down=left_down,
+            right_down=right_down,
+        )
+
+        # Centre the loading window
+        w, h = 400, 120
+        screen_w = self._backend.width if hasattr(self._backend, "width") else 1920
+        screen_h = self._backend.height if hasattr(self._backend, "height") else 1080
+        x = (screen_w - w) / 2
+        y = (screen_h - h) / 2
+
+        backend = self._ui_manager._backend
+        if backend.begin_window("Loading World", x, y, w, h, flags=0):
+            backend.text("Generating terrain...")
+            backend.text(
+                f"Chunks: {self._loading_chunks_done} / {self._loading_total_chunks}"
+            )
+            backend.progress_bar(progress, 350, 20)
+            backend.text(f"{progress * 100:.0f}% complete")
+            backend.text("")
+            backend.text("Please wait...")
+            backend.end_window()
+
+        self._ui_manager.end_frame()
 
     def _update_physics_terrain(self, heightmap: "np.ndarray", size: int) -> None:
         """Update physics system with terrain height field."""
