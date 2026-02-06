@@ -17,24 +17,27 @@
 
 namespace terrain {
 
-// Biome type enumeration matching Python LUT
+// Sea level threshold matching Python SEA_LEVEL constant
+static constexpr float SEA_LEVEL = 0.35f;
+
+// Biome type enumeration matching Python biome IDs
 enum class Biome : uint8_t {
-    Water = 0,
-    Tundra = 1,
-    BorealForest = 2,
-    Snow = 3,
-    ColdSwamp = 4,
-    Glacier = 5,
-    Steppe = 6,
+    DeepOcean = 0,
+    Ocean = 1,
+    FrozenOcean = 2,
+    Tundra = 3,
+    Taiga = 4,
+    SnowyMountain = 5,
+    Plains = 6,
     Forest = 7,
     Mountain = 8,
     Swamp = 9,
-    Alpine = 10,
-    DesertPlateau = 11,
-    Savanna = 12,
-    Mesa = 13,
-    Jungle = 14,
-    RainforestHighland = 15
+    Desert = 10,
+    Savanna = 11,
+    Mesa = 12,
+    Jungle = 13,
+    Beach = 14,
+    Glacier = 15
 };
 
 /**

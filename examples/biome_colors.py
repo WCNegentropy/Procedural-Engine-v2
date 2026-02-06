@@ -13,18 +13,18 @@ import numpy as np
 def print_biome_color_palette():
     """Print the 16-biome color palette."""
     biome_names = [
-        "Water", "Tundra", "BorealForest", "Snow", "ColdSwamp", "Glacier",
-        "Steppe", "Forest", "Mountain", "Swamp", "Alpine", "DesertPlateau",
-        "Savanna", "Mesa", "Jungle", "RainforestHighland"
+        "DeepOcean", "Ocean", "FrozenOcean", "Tundra", "Taiga", "SnowyMountain",
+        "Plains", "Forest", "Mountain", "Swamp", "Desert", "Savanna",
+        "Mesa", "Jungle", "Beach", "Glacier"
     ]
     
     biome_colors = [
-        (0.15, 0.35, 0.60), (0.75, 0.78, 0.80), (0.20, 0.35, 0.25),
-        (0.95, 0.97, 1.00), (0.30, 0.35, 0.30), (0.85, 0.92, 0.98),
-        (0.72, 0.68, 0.50), (0.25, 0.50, 0.20), (0.50, 0.45, 0.40),
-        (0.35, 0.42, 0.30), (0.55, 0.58, 0.55), (0.85, 0.75, 0.55),
-        (0.70, 0.62, 0.35), (0.75, 0.50, 0.35), (0.15, 0.55, 0.25),
-        (0.20, 0.48, 0.30)
+        (0.08, 0.22, 0.52), (0.15, 0.35, 0.60), (0.60, 0.75, 0.85),
+        (0.72, 0.72, 0.68), (0.20, 0.38, 0.28), (0.92, 0.94, 0.98),
+        (0.55, 0.70, 0.35), (0.22, 0.50, 0.18), (0.50, 0.45, 0.40),
+        (0.30, 0.40, 0.28), (0.85, 0.78, 0.55), (0.70, 0.62, 0.35),
+        (0.75, 0.50, 0.35), (0.12, 0.52, 0.22), (0.90, 0.85, 0.65),
+        (0.82, 0.90, 0.96)
     ]
     
     print("\n" + "="*60)

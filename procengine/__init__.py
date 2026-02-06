@@ -15,7 +15,7 @@ from procengine.core.engine import Engine
 from procengine.core.seed_registry import SeedRegistry
 
 # World generation
-from procengine.world.terrain import generate_terrain_maps
+from procengine.world.terrain import generate_terrain_maps, SEA_LEVEL
 from procengine.world.props import (
     generate_rock_descriptors,
     generate_tree_descriptors,

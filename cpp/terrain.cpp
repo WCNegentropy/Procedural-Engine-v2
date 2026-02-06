@@ -329,12 +329,20 @@ std::vector<uint8_t> generate_biome_map(const std::vector<float>& temperature,
                                          const std::vector<float>& humidity,
                                          const std::vector<float>& height,
                                          uint32_t size) {
-    // Biome LUT [temp][humid][height]
-    static constexpr uint8_t BIOME_LUT[3][3][3] = {
-        { {0, 0, 1}, {0, 2, 3}, {0, 4, 5} },    // Cold
-        { {0, 0, 6}, {0, 7, 8}, {0, 9, 10} },   // Temperate
-        { {0, 0, 11}, {0, 12, 13}, {0, 14, 15} } // Hot
+    // Land biome LUT [temp][humid][elevation_above_sea]
+    // temp:  cold(0), temperate(1), hot(2)
+    // humid: dry(0), normal(1), wet(2)
+    // elev:  low(0), mid(1), high(2)
+    static constexpr uint8_t LAND_LUT[3][3][3] = {
+        // Cold
+        { {3, 3, 5}, {4, 4, 5}, {4, 15, 15} },
+        // Temperate
+        { {6, 6, 8}, {7, 7, 8}, {9, 7, 8} },
+        // Hot
+        { {10, 10, 12}, {11, 11, 12}, {13, 13, 12} }
     };
+
+    static constexpr float BEACH_THRESHOLD = 0.06f;
 
     std::vector<uint8_t> biome(size * size);
 
@@ -343,11 +351,29 @@ std::vector<uint8_t> generate_biome_map(const std::vector<float>& temperature,
         float h = std::clamp(humidity[i], 0.0f, 1.0f);
         float alt = std::clamp(height[i], 0.0f, 1.0f);
 
-        int t_idx = (t < 0.33f) ? 0 : (t < 0.66f ? 1 : 2);
-        int h_idx = (h < 0.33f) ? 0 : (h < 0.66f ? 1 : 2);
-        int a_idx = (alt < 0.3f) ? 0 : (alt < 0.6f ? 1 : 2);
+        if (alt < SEA_LEVEL) {
+            // Ocean biomes
+            if (alt < SEA_LEVEL * 0.55f) {
+                biome[i] = 0;  // DeepOcean
+            } else if (t < 0.3f) {
+                biome[i] = 2;  // FrozenOcean
+            } else {
+                biome[i] = 1;  // Ocean
+            }
+        } else {
+            // Land: normalise elevation above sea level to [0,1]
+            float land_elev = (alt - SEA_LEVEL) / (1.0f - SEA_LEVEL);
+            land_elev = std::clamp(land_elev, 0.0f, 1.0f);
 
-        biome[i] = BIOME_LUT[t_idx][h_idx][a_idx];
+            if (land_elev < BEACH_THRESHOLD) {
+                biome[i] = 14;  // Beach
+            } else {
+                int t_idx = (t < 0.33f) ? 0 : (t < 0.66f ? 1 : 2);
+                int h_idx = (h < 0.33f) ? 0 : (h < 0.66f ? 1 : 2);
+                int e_idx = (land_elev < 0.25f) ? 0 : (land_elev < 0.6f ? 1 : 2);
+                biome[i] = LAND_LUT[t_idx][h_idx][e_idx];
+            }
+        }
     }
     return biome;
 }
@@ -493,11 +519,28 @@ TerrainMaps generate_terrain_maps(SeedRegistry& registry, const TerrainConfig& c
     return maps;
 }
 
+// Biome colour palette (indexed by Biome enum)
+//  0 DeepOcean       1 Ocean           2 FrozenOcean     3 Tundra
+//  4 Taiga           5 SnowyMountain   6 Plains          7 Forest
+//  8 Mountain        9 Swamp          10 Desert         11 Savanna
+// 12 Mesa           13 Jungle         14 Beach          15 Glacier
 static const std::array<std::array<float, 3>, 16> BIOME_COLORS = {{
-    {0.15f, 0.35f, 0.60f}, {0.75f, 0.78f, 0.80f}, {0.20f, 0.35f, 0.25f}, {0.95f, 0.97f, 1.00f},
-    {0.30f, 0.35f, 0.30f}, {0.85f, 0.92f, 0.98f}, {0.72f, 0.68f, 0.50f}, {0.25f, 0.50f, 0.20f},
-    {0.50f, 0.45f, 0.40f}, {0.35f, 0.42f, 0.30f}, {0.55f, 0.58f, 0.55f}, {0.85f, 0.75f, 0.55f},
-    {0.70f, 0.62f, 0.35f}, {0.75f, 0.50f, 0.35f}, {0.15f, 0.55f, 0.25f}, {0.20f, 0.48f, 0.30f},
+    {0.08f, 0.22f, 0.52f},  //  0 DeepOcean
+    {0.15f, 0.35f, 0.60f},  //  1 Ocean
+    {0.60f, 0.75f, 0.85f},  //  2 FrozenOcean
+    {0.72f, 0.72f, 0.68f},  //  3 Tundra
+    {0.20f, 0.38f, 0.28f},  //  4 Taiga
+    {0.92f, 0.94f, 0.98f},  //  5 SnowyMountain
+    {0.55f, 0.70f, 0.35f},  //  6 Plains
+    {0.22f, 0.50f, 0.18f},  //  7 Forest
+    {0.50f, 0.45f, 0.40f},  //  8 Mountain
+    {0.30f, 0.40f, 0.28f},  //  9 Swamp
+    {0.85f, 0.78f, 0.55f},  // 10 Desert
+    {0.70f, 0.62f, 0.35f},  // 11 Savanna
+    {0.75f, 0.50f, 0.35f},  // 12 Mesa
+    {0.12f, 0.52f, 0.22f},  // 13 Jungle
+    {0.90f, 0.85f, 0.65f},  // 14 Beach
+    {0.82f, 0.90f, 0.96f},  // 15 Glacier
 }};
 
 ::props::Mesh generate_terrain_mesh(

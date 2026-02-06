@@ -6,6 +6,17 @@ flows through :class:`~seed_registry.SeedRegistry` to satisfy the
 determinism contract defined in ``AGENTS.md``.  The algorithms are light
 weight, NumPy based stand‑ins for their C++ counterparts and are intended
 for tests and design exploration.
+
+Height generation uses multi-layer noise combining:
+- Continent-scale noise for large landmasses and ocean basins
+- FBM detail noise for surface variation
+- Ridged noise for mountain ranges and valleys
+- Optional macro-plate (Voronoi) ridges
+
+Biomes use a proper sea-level system: terrain below ``SEA_LEVEL`` is
+classified as ocean (Deep Ocean, Ocean, or Frozen Ocean depending on
+depth and temperature).  Land biomes are assigned via a temperature ×
+humidity × elevation look-up table.
 """
 from __future__ import annotations
 
@@ -17,7 +28,17 @@ import numpy as np
 from procengine.core.seed_registry import SeedRegistry
 
 
-__all__ = ["generate_terrain_maps"]
+__all__ = ["generate_terrain_maps", "SEA_LEVEL"]
+
+# ---------------------------------------------------------------------------
+# Global constants
+# ---------------------------------------------------------------------------
+
+SEA_LEVEL: float = 0.35
+"""Height threshold separating ocean from land.  Terrain with height values
+below this is classified as an ocean biome.  The value is chosen so that
+roughly 35% of a uniform-random heightmap would be underwater, creating
+a realistic land-to-water ratio."""
 
 
 _GRAD2: np.ndarray = np.array(
@@ -179,6 +200,116 @@ def _fbm_noise(
         # Map [-total, total] -> [-1, 1] -> [0, 1]
         height = (height / total_amplitude) * 0.5 + 0.5
         np.clip(height, 0.0, 1.0, out=height)
+
+    return height
+
+
+def _ridged_noise(
+    rng: np.random.Generator,
+    size: int,
+    octaves: int = 5,
+    offset_x: float = 0.0,
+    offset_z: float = 0.0,
+    base_frequency: float = 0.01,
+) -> np.ndarray:
+    """Generate ridged multi-fractal noise for mountain ranges.
+
+    Ridged noise takes the absolute value of simplex noise, inverts it, and
+    layers multiple octaves with decreasing amplitude.  The result has sharp
+    ridge lines surrounded by smooth valleys — ideal for mountain chains.
+
+    Parameters
+    ----------
+    rng:
+        NumPy random generator for deterministic permutation.
+    size:
+        Width and height of the grid.
+    octaves:
+        Number of noise layers.
+    offset_x / offset_z:
+        World-space offsets for seamless tiling across chunks.
+    base_frequency:
+        Base frequency for the lowest octave.
+    """
+    perm = rng.permutation(256)
+    perm = np.concatenate([perm, perm])
+
+    height = np.zeros((size, size), dtype=np.float32)
+    amplitude = 1.0
+    frequency = base_frequency
+    total_amplitude = 0.0
+    prev = np.ones((size, size), dtype=np.float32)  # weight by previous octave
+
+    for _ in range(octaves):
+        raw = _simplex_grid(perm, size, frequency, offset_x, offset_z)
+        # Ridged: 1 - |noise|  →  peaks become ridges
+        ridged = 1.0 - np.abs(raw)
+        ridged = ridged * ridged  # sharpen ridges
+        ridged *= prev  # weight by previous layer for detail cascading
+        height += ridged * amplitude
+        total_amplitude += amplitude
+        prev = ridged
+        amplitude *= 0.5
+        frequency *= 2.0
+
+    if total_amplitude > 0.0:
+        height /= total_amplitude
+        np.clip(height, 0.0, 1.0, out=height)
+
+    return height
+
+
+def _continent_noise(
+    rng: np.random.Generator,
+    size: int,
+    offset_x: float = 0.0,
+    offset_z: float = 0.0,
+    base_frequency: float = 0.003,
+) -> np.ndarray:
+    """Generate very-low-frequency continent-scale noise.
+
+    This creates large, smooth landmasses surrounded by ocean basins.
+    Using only 2–3 octaves at very low frequency produces broad features
+    that span many chunks.  A cubic remapping steepens coastlines while
+    keeping interiors smooth.
+
+    Parameters
+    ----------
+    rng:
+        NumPy random generator for deterministic permutation.
+    size:
+        Width and height of the grid.
+    offset_x / offset_z:
+        World-space offsets for seamless tiling across chunks.
+    base_frequency:
+        Base frequency (default 0.003 → one noise cycle per ~333 world
+        units, giving continent-sized features).
+    """
+    perm = rng.permutation(256)
+    perm = np.concatenate([perm, perm])
+
+    height = np.zeros((size, size), dtype=np.float32)
+    amplitude = 1.0
+    frequency = base_frequency
+    total_amplitude = 0.0
+    for _ in range(3):  # only 3 octaves for broad features
+        height += _simplex_grid(perm, size, frequency, offset_x, offset_z) * amplitude
+        total_amplitude += amplitude
+        amplitude *= 0.45
+        frequency *= 2.0
+
+    if total_amplitude > 0.0:
+        height = (height / total_amplitude) * 0.5 + 0.5
+        np.clip(height, 0.0, 1.0, out=height)
+
+    # Cubic remap: steepen the coastline transition while keeping
+    # deep ocean floors and continental interiors relatively flat.
+    # Shift center slightly above 0.5 so that ~55-60% of area is land.
+    height = np.clip(height * 1.1 - 0.05, 0.0, 1.0)
+    # Power curve pushes lows lower (deeper oceans) while keeping
+    # heights that are already 1.0 at 1.0.  No per-chunk normalisation
+    # is applied so the output is globally consistent across chunks.
+    height = height ** 1.5
 
     return height
 
@@ -375,6 +506,20 @@ def generate_terrain_maps(
 ) -> Tuple[np.ndarray, ...]:
     """Return deterministic terrain maps.
 
+    Height is built from multiple noise layers:
+
+    * **Continent noise** — very-low-frequency FBM that defines broad
+      landmasses and ocean basins.
+    * **Detail FBM** — standard fractal Brownian motion for surface texture.
+    * **Ridged noise** — ridged multi-fractal for mountain chains and
+      valleys.
+    * **Macro plates** (optional) — global ridged-Voronoi features.
+
+    Biomes are assigned using a sea-level threshold (``SEA_LEVEL``).
+    Terrain below the threshold receives an ocean biome (Deep Ocean,
+    Ocean, or Frozen Ocean).  Land terrain is classified by temperature,
+    humidity, and elevation above sea level.
+
     Parameters
     ----------
     registry:
@@ -382,7 +527,7 @@ def generate_terrain_maps(
     size:
         Width and height of the generated square maps.
     octaves:
-        Number of FBM layers used for heightmap synthesis.
+        Number of FBM layers used for detail heightmap synthesis.
     macro_points:
         Number of Voronoi sites used for macro plate ridges. ``0`` disables
         the macro layer.
@@ -390,37 +535,62 @@ def generate_terrain_maps(
         Number of iterations of the simple hydraulic erosion simulation to
         run. ``0`` disables erosion.
     return_slope:
-        If ``True`` also compute and return a normalized slope map derived from
-        ``height``.
+        If ``True`` also compute and return a normalized slope map derived
+        from ``height``.
     offset_x:
-        World-space X offset for seamless tiling across chunks. When generating
-        adjacent chunks, pass ``chunk_x * size`` here.
+        World-space X offset for seamless tiling across chunks.
     offset_z:
-        World-space Z offset for seamless tiling across chunks. When generating
-        adjacent chunks, pass ``chunk_z * size`` here.
+        World-space Z offset for seamless tiling across chunks.
     base_frequency:
-        Base frequency for terrain noise (default 0.01 = one full noise cycle
-        per 100 world units). Lower values create larger terrain features that
-        span multiple chunks for a more realistic infinite world.
+        Base frequency for terrain noise (default 0.01 = one full noise
+        cycle per 100 world units).
     """
 
-    rng_height = registry.get_rng("terrain_height")
-    height = _fbm_noise(
-        rng_height, size=size, octaves=octaves,
-        offset_x=offset_x, offset_z=offset_z, base_frequency=base_frequency
+    # ------------------------------------------------------------------
+    # 1. Continent mask — broad landmasses & ocean basins
+    # ------------------------------------------------------------------
+    rng_continent = registry.get_rng("terrain_continent")
+    continent = _continent_noise(
+        rng_continent, size=size,
+        offset_x=offset_x, offset_z=offset_z,
+        base_frequency=base_frequency * 0.25,
     )
 
-    # Pre-calculate macro plate parameters if enabled (also needed for slope ghost buffer)
+    # ------------------------------------------------------------------
+    # 2. Detail FBM — fine surface variation
+    # ------------------------------------------------------------------
+    rng_height = registry.get_rng("terrain_height")
+    detail = _fbm_noise(
+        rng_height, size=size, octaves=octaves,
+        offset_x=offset_x, offset_z=offset_z, base_frequency=base_frequency,
+    )
+
+    # ------------------------------------------------------------------
+    # 3. Ridged noise — mountain ranges / valleys
+    # ------------------------------------------------------------------
+    rng_ridge = registry.get_rng("terrain_ridge")
+    ridges = _ridged_noise(
+        rng_ridge, size=size, octaves=min(octaves, 5),
+        offset_x=offset_x, offset_z=offset_z,
+        base_frequency=base_frequency * 0.5,
+    )
+
+    # ------------------------------------------------------------------
+    # 4. Combine layers
+    # ------------------------------------------------------------------
+    #   continent   controls the broad shape  (weight 0.55)
+    #   detail      adds surface roughness    (weight 0.20)
+    #   ridges      carve mountain chains     (weight 0.25)
+    height = continent * 0.55 + detail * 0.20 + ridges * 0.25
+    np.clip(height, 0.0, 1.0, out=height)
+
+    # ------------------------------------------------------------------
+    # 5. Macro plates (optional Voronoi ridges)
+    # ------------------------------------------------------------------
     macro_seed = 0
     macro_freq = 0.0
     if macro_points > 0:
-        # Use a deterministic seed derived from the registry for global Voronoi
-        # This ensures the same plate pattern regardless of chunk loading order
         macro_seed = registry.get_subseed("terrain_macro") & 0xFFFFFFFF
-
-        # Convert "points" count to frequency for global Voronoi.
-        # Using sqrt(points)/size approximates similar point density:
-        # e.g., 8 points in 64x64 -> sqrt(8)/64 ≈ 0.044 cycles per unit.
         macro_freq = math.sqrt(macro_points) / float(size)
 
         macro = _global_ridged_voronoi(
@@ -428,104 +598,209 @@ def generate_terrain_maps(
             offset_x=offset_x,
             offset_z=offset_z,
             frequency=macro_freq,
-            seed=macro_seed
+            seed=macro_seed,
         )
-        height = np.clip((height + macro) * 0.5, 0.0, 1.0)
+        # Blend macro plates lightly so they influence shape without
+        # dominating the continent/ridge structure.
+        height = np.clip(height * 0.8 + macro * 0.2, 0.0, 1.0)
 
+    # ------------------------------------------------------------------
+    # 6. Hydraulic erosion (optional)
+    # ------------------------------------------------------------------
     if erosion_iters > 0:
         rng_erosion = registry.get_rng("terrain_erosion")
         height = _hydraulic_erosion(height, rng_erosion, erosion_iters)
 
-    # Temperature and humidity maps drive biome selection
-    # Use a lower frequency for biomes to create larger biome regions
-    biome_frequency = base_frequency * 0.5  # Biomes span ~twice the area of terrain features
+    # ------------------------------------------------------------------
+    # 7. Temperature & humidity (for biome selection)
+    # ------------------------------------------------------------------
+    biome_frequency = base_frequency * 0.5
     rng_temp = registry.get_rng("terrain_temp")
     temperature = _fbm_noise(
         rng_temp, size=size, octaves=2,
-        offset_x=offset_x, offset_z=offset_z, base_frequency=biome_frequency
+        offset_x=offset_x, offset_z=offset_z, base_frequency=biome_frequency,
     )
     rng_humid = registry.get_rng("terrain_humidity")
     humidity = _fbm_noise(
         rng_humid, size=size, octaves=2,
-        offset_x=offset_x, offset_z=offset_z, base_frequency=biome_frequency
+        offset_x=offset_x, offset_z=offset_z, base_frequency=biome_frequency,
     )
 
-    temp_idx = np.digitize(temperature, [0.33, 0.66])
-    humid_idx = np.digitize(humidity, [0.33, 0.66])
-    height_idx = np.digitize(height, [0.3, 0.6])
+    # ------------------------------------------------------------------
+    # 8. Biome assignment with proper sea-level water
+    # ------------------------------------------------------------------
+    biome = _assign_biomes(height, temperature, humidity)
 
-    biome_lut = np.array(
-        [
-            # cold
-            [
-                [0, 0, 1],  # dry  -> water, water, tundra
-                [0, 2, 3],  # normal -> water, boreal forest, snow
-                [0, 4, 5],  # wet -> water, cold swamp, glacier
-            ],
-            # temperate
-            [
-                [0, 0, 6],  # dry -> water, water, steppe
-                [0, 7, 8],  # normal -> water, forest, mountain
-                [0, 9, 10],  # wet -> water, swamp, alpine
-            ],
-            # hot
-            [
-                [0, 0, 11],  # dry -> water, water, desert plateau
-                [0, 12, 13],  # normal -> water, savanna, mesa
-                [0, 14, 15],  # wet -> water, jungle, rainforest highland
-            ],
-        ],
-        dtype=np.uint8,
-    )
-
-    biome = biome_lut[temp_idx, humid_idx, height_idx]
-
-    # Generate seamless rivers using coherent noise instead of white noise
-    # This ensures rivers cross chunk boundaries naturally
+    # ------------------------------------------------------------------
+    # 9. Rivers (coherent FBM threshold — only on land)
+    # ------------------------------------------------------------------
     rng_river = registry.get_rng("terrain_river")
     river_noise = _fbm_noise(
         rng_river, size=size, octaves=4,
-        offset_x=offset_x, offset_z=offset_z, base_frequency=base_frequency * 2.0
+        offset_x=offset_x, offset_z=offset_z,
+        base_frequency=base_frequency * 2.0,
     )
-    # Create distinct river paths by thresholding a narrow band around 0.5.
-    # This technique selects values near the noise function's midpoint, which
-    # form contour-like bands that naturally wind through the noise field,
-    # creating organic river paths that cross chunk boundaries seamlessly.
     river = (np.abs(river_noise - 0.5) < 0.025).astype(np.uint8)
+    # Mask out rivers that fall in the ocean
+    river[height < SEA_LEVEL] = 0
+
+    # ------------------------------------------------------------------
+    # 10. Slope (optional, with ghost-buffer padding)
+    # ------------------------------------------------------------------
     if return_slope:
-        # Use ghost buffer for slope calculation to avoid edge artifacts
-        # Generate a padded heightmap (size+2) with 1-pixel overlap on all sides
-        padded_size = size + 2
-        padded_offset_x = offset_x - 1.0
-        padded_offset_z = offset_z - 1.0
-
-        # Create a fresh RNG for the padded height using a separate key
-        rng_height_padded = registry.get_rng("terrain_height_slope")
-        height_padded = _fbm_noise(
-            rng_height_padded, size=padded_size, octaves=octaves,
-            offset_x=padded_offset_x, offset_z=padded_offset_z,
-            base_frequency=base_frequency
+        slope = _compute_slope_with_ghost(
+            registry, size, octaves, macro_points, macro_seed, macro_freq,
+            offset_x, offset_z, base_frequency,
         )
-
-        # Apply macro plates to padded heightmap if enabled
-        if macro_points > 0:
-            macro_padded = _global_ridged_voronoi(
-                size=padded_size,
-                offset_x=padded_offset_x,
-                offset_z=padded_offset_z,
-                frequency=macro_freq,
-                seed=macro_seed
-            )
-            height_padded = np.clip((height_padded + macro_padded) * 0.5, 0.0, 1.0)
-
-        # Note: We don't apply erosion to padded height since erosion is local
-        # and the edge data is only used for gradient calculation
-
-        # Calculate slope on padded data (edges now have proper neighbors)
-        slope_padded = _slope_map(height_padded)
-
-        # Crop slope back to original size
-        slope = slope_padded[1:-1, 1:-1].copy()
-
         return height.astype(np.float32), biome, river, slope
+
     return height.astype(np.float32), biome, river
+
+
+# -----------------------------------------------------------------------
+# Biome assignment
+# -----------------------------------------------------------------------
+
+# Biome IDs (kept at 16 for C++ colour-palette compatibility)
+#  0  DeepOcean       4  Taiga          8  Mountain     12  Mesa
+#  1  Ocean           5  SnowyMountain  9  Swamp        13  Jungle
+#  2  FrozenOcean     6  Plains        10  Desert       14  Beach
+#  3  Tundra          7  Forest        11  Savanna      15  Glacier
+
+# Land biome LUT: [temperature_bin][humidity_bin][elevation_bin]
+# temperature bins: cold(0), temperate(1), hot(2)
+# humidity bins:    dry(0), normal(1), wet(2)
+# elevation bins above sea level: low(0), mid(1), high(2)
+_LAND_BIOME_LUT = np.array(
+    [
+        # cold
+        [
+            [3, 3, 5],    # dry   -> Tundra, Tundra, SnowyMountain
+            [4, 4, 5],    # normal -> Taiga, Taiga, SnowyMountain
+            [4, 15, 15],  # wet   -> Taiga, Glacier, Glacier
+        ],
+        # temperate
+        [
+            [6, 6, 8],    # dry   -> Plains, Plains, Mountain
+            [7, 7, 8],    # normal -> Forest, Forest, Mountain
+            [9, 7, 8],    # wet   -> Swamp, Forest, Mountain
+        ],
+        # hot
+        [
+            [10, 10, 12],  # dry   -> Desert, Desert, Mesa
+            [11, 11, 12],  # normal -> Savanna, Savanna, Mesa
+            [13, 13, 12],  # wet   -> Jungle, Jungle, Mesa
+        ],
+    ],
+    dtype=np.uint8,
+)
+
+
+def _assign_biomes(
+    height: np.ndarray,
+    temperature: np.ndarray,
+    humidity: np.ndarray,
+) -> np.ndarray:
+    """Assign biome IDs based on height, temperature, and humidity.
+
+    Below ``SEA_LEVEL`` the terrain receives an ocean biome; above it a
+    land biome is chosen from the temperature × humidity × elevation LUT.
+    A narrow beach band is applied at the coastline.
+    """
+
+    biome = np.zeros_like(height, dtype=np.uint8)
+
+    # --- Ocean biomes ---
+    is_water = height < SEA_LEVEL
+    is_deep = height < (SEA_LEVEL * 0.55)
+    is_cold = temperature < 0.3
+
+    # Deep ocean
+    biome[is_water & is_deep] = 0
+    # Frozen ocean (cold + not deep)
+    biome[is_water & ~is_deep & is_cold] = 2
+    # Regular ocean
+    biome[is_water & ~is_deep & ~is_cold] = 1
+
+    # --- Land biomes ---
+    is_land = ~is_water
+
+    # Normalise land elevation: [SEA_LEVEL, 1] → [0, 1]
+    land_elev = np.clip((height - SEA_LEVEL) / (1.0 - SEA_LEVEL), 0.0, 1.0)
+
+    # Beach: narrow coastal strip just above sea level
+    beach_threshold = 0.06  # ~4% of land-elevation range
+    is_beach = is_land & (land_elev < beach_threshold)
+    biome[is_beach] = 14  # Beach
+
+    # Remaining land uses the LUT
+    is_inland = is_land & ~is_beach
+
+    temp_idx = np.digitize(temperature, [0.33, 0.66])
+    humid_idx = np.digitize(humidity, [0.33, 0.66])
+    elev_idx = np.digitize(land_elev, [0.25, 0.6])
+
+    land_biome = _LAND_BIOME_LUT[temp_idx, humid_idx, elev_idx]
+    biome[is_inland] = land_biome[is_inland]
+
+    return biome
+
+
+# -----------------------------------------------------------------------
+# Slope with ghost buffer (extracted for clarity)
+# -----------------------------------------------------------------------
+
+def _compute_slope_with_ghost(
+    registry: SeedRegistry,
+    size: int,
+    octaves: int,
+    macro_points: int,
+    macro_seed: int,
+    macro_freq: float,
+    offset_x: float,
+    offset_z: float,
+    base_frequency: float,
+) -> np.ndarray:
+    """Compute slope using a 1-pixel ghost buffer on each edge."""
+
+    padded_size = size + 2
+    padded_offset_x = offset_x - 1.0
+    padded_offset_z = offset_z - 1.0
+
+    # Reproduce the same height-build pipeline on the padded grid
+    rng_continent_p = registry.get_rng("terrain_continent_slope")
+    continent_p = _continent_noise(
+        rng_continent_p, size=padded_size,
+        offset_x=padded_offset_x, offset_z=padded_offset_z,
+        base_frequency=base_frequency * 0.25,
+    )
+
+    rng_height_p = registry.get_rng("terrain_height_slope")
+    detail_p = _fbm_noise(
+        rng_height_p, size=padded_size, octaves=octaves,
+        offset_x=padded_offset_x, offset_z=padded_offset_z,
+        base_frequency=base_frequency,
+    )
+
+    rng_ridge_p = registry.get_rng("terrain_ridge_slope")
+    ridges_p = _ridged_noise(
+        rng_ridge_p, size=padded_size, octaves=min(octaves, 5),
+        offset_x=padded_offset_x, offset_z=padded_offset_z,
+        base_frequency=base_frequency * 0.5,
+    )
+
+    height_padded = continent_p * 0.55 + detail_p * 0.20 + ridges_p * 0.25
+    np.clip(height_padded, 0.0, 1.0, out=height_padded)
+
+    if macro_points > 0:
+        macro_padded = _global_ridged_voronoi(
+            size=padded_size,
+            offset_x=padded_offset_x,
+            offset_z=padded_offset_z,
+            frequency=macro_freq,
+            seed=macro_seed,
+        )
+        height_padded = np.clip(height_padded * 0.8 + macro_padded * 0.2, 0.0, 1.0)
+
+    slope_padded = _slope_map(height_padded)
+    return slope_padded[1:-1, 1:-1].copy()
