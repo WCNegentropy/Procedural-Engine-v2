@@ -654,6 +654,402 @@ Mesh generate_creature_mesh(
 }
 
 // ============================================================================
+// Bush Mesh Generation (Noise-displaced squashed sphere for foliage)
+// ============================================================================
+
+Mesh generate_bush_mesh(const BushDescriptor& desc, uint32_t segments, uint32_t rings) {
+    Mesh mesh;
+
+    float noise_magnitude = 0.15f * desc.radius;
+    // Vertical squash factor — bushes are wider than tall
+    float squash_y = 0.55f;
+
+    uint32_t grid_rings = 4;
+    uint32_t grid_segments = 6;
+
+    for (uint32_t ring = 0; ring <= rings; ++ring) {
+        float phi = PI * static_cast<float>(ring) / static_cast<float>(rings);
+        float sin_phi = std::sin(phi);
+        float cos_phi = std::cos(phi);
+
+        for (uint32_t seg = 0; seg <= segments; ++seg) {
+            float theta = 2.0f * PI * static_cast<float>(seg) / static_cast<float>(segments);
+            float sin_theta = std::sin(theta);
+            float cos_theta = std::cos(theta);
+
+            Vec3 normal(sin_phi * cos_theta, cos_phi, sin_phi * sin_theta);
+
+            // Noise for organic foliage shape — more noise at top half
+            float n = sphere_noise(desc.noise_seed, phi, theta,
+                                   grid_rings, grid_segments);
+            float noise_factor = (n * 2.0f - 1.0f) * desc.leaf_density;
+            float displaced_radius = desc.radius + noise_factor * noise_magnitude;
+
+            Vec3 vertex = desc.position + Vec3(
+                normal.x * displaced_radius,
+                normal.y * displaced_radius * squash_y + desc.radius * squash_y * 0.5f,
+                normal.z * displaced_radius
+            );
+
+            mesh.vertices.push_back(vertex);
+            mesh.normals.push_back(normal);
+        }
+    }
+
+    // Indices (same as sphere)
+    for (uint32_t ring = 0; ring < rings; ++ring) {
+        for (uint32_t seg = 0; seg < segments; ++seg) {
+            uint32_t current = ring * (segments + 1) + seg;
+            uint32_t next = current + segments + 1;
+            mesh.indices.push_back(current);
+            mesh.indices.push_back(next);
+            mesh.indices.push_back(current + 1);
+            mesh.indices.push_back(current + 1);
+            mesh.indices.push_back(next);
+            mesh.indices.push_back(next + 1);
+        }
+    }
+
+    // Recompute normals from displaced geometry
+    for (auto& n : mesh.normals) { n = Vec3(0, 0, 0); }
+    for (size_t i = 0; i < mesh.indices.size(); i += 3) {
+        uint32_t i0 = mesh.indices[i], i1 = mesh.indices[i+1], i2 = mesh.indices[i+2];
+        Vec3 edge1 = mesh.vertices[i1] - mesh.vertices[i0];
+        Vec3 edge2 = mesh.vertices[i2] - mesh.vertices[i0];
+        Vec3 fn = edge1.cross(edge2);
+        mesh.normals[i0] += fn;
+        mesh.normals[i1] += fn;
+        mesh.normals[i2] += fn;
+    }
+    for (auto& n : mesh.normals) {
+        float len = n.length();
+        if (len > 1e-6f) n = n / len;
+    }
+
+    return mesh;
+}
+
+// ============================================================================
+// Pine Tree Mesh Generation (Trunk cylinder + stacked cone canopy)
+// ============================================================================
+
+Mesh generate_pine_tree_mesh(const PineTreeDescriptor& desc,
+                              uint32_t trunk_segments,
+                              uint32_t cone_segments) {
+    Mesh mesh;
+
+    // 1) Trunk cylinder (vertical, centered at position)
+    Mesh trunk = generate_cylinder_mesh(desc.trunk_radius, desc.trunk_height, trunk_segments);
+    // Shift trunk so its base sits at position
+    for (auto& v : trunk.vertices) {
+        v.y += desc.trunk_height * 0.5f;
+        v = v + desc.position;
+    }
+    mesh.append(trunk);
+
+    // 2) Stacked cone canopy layers
+    float layer_height = desc.trunk_height * 0.6f / static_cast<float>(desc.canopy_layers);
+    float base_y = desc.trunk_height * 0.45f;  // canopy starts slightly below trunk top
+
+    for (uint32_t layer = 0; layer < desc.canopy_layers; ++layer) {
+        float t = static_cast<float>(layer) / static_cast<float>(desc.canopy_layers);
+        float cone_radius = desc.canopy_radius * (1.0f - t * 0.6f);
+        float cone_height = layer_height * (1.2f - t * 0.3f);
+        float y_offset = base_y + static_cast<float>(layer) * layer_height * 0.75f;
+
+        Mesh cone = generate_cone_mesh(cone_radius, cone_height, cone_segments);
+        // Position cone
+        for (auto& v : cone.vertices) {
+            v.y += y_offset;
+            v = v + desc.position;
+        }
+        mesh.append(cone);
+    }
+
+    return mesh;
+}
+
+// ============================================================================
+// Dead Tree Mesh Generation (L-system reuse, thinner)
+// ============================================================================
+
+Mesh generate_dead_tree_mesh(const DeadTreeDescriptor& desc,
+                              uint32_t segments_per_ring) {
+    Mesh mesh;
+
+    std::string lstring = evaluate_lsystem(desc.lsystem, desc.iterations);
+    // Thinner trunk, more aggressive taper for skeletal look
+    auto skeleton = generate_tree_skeleton(lstring, desc.angle, 0.8f, 0.06f, 0.75f);
+
+    for (const auto& seg : skeleton) {
+        Mesh cylinder = generate_cylinder(
+            seg.start, seg.end,
+            seg.start_radius, seg.end_radius,
+            segments_per_ring
+        );
+        mesh.append(cylinder);
+    }
+
+    return mesh;
+}
+
+// ============================================================================
+// Fallen Log Mesh Generation (Horizontal cylinder)
+// ============================================================================
+
+Mesh generate_fallen_log_mesh(const FallenLogDescriptor& desc,
+                               uint32_t segments) {
+    Mesh mesh;
+
+    // Generate cylinder aligned along X (lying on its side)
+    Mesh cylinder = generate_cylinder_mesh(desc.radius, desc.length, segments);
+
+    // Rotate 90 degrees around Z so it lies horizontally, then rotate around Y
+    float rot_y = desc.rotation_y * DEG_TO_RAD;
+    float cos_ry = std::cos(rot_y);
+    float sin_ry = std::sin(rot_y);
+
+    for (auto& v : cylinder.vertices) {
+        // Swap Y and X to lay the cylinder on its side
+        float orig_x = v.x;
+        float orig_y = v.y;
+        v.x = orig_y;
+        v.y = orig_x;  // Low to ground
+
+        // Rotate around Y axis
+        float rx = v.x * cos_ry - v.z * sin_ry;
+        float rz = v.x * sin_ry + v.z * cos_ry;
+        v.x = rx;
+        v.z = rz;
+
+        // Translate to position, lift slightly above ground
+        v = v + desc.position + Vec3(0, desc.radius, 0);
+    }
+
+    // Rotate normals too
+    for (auto& n : cylinder.normals) {
+        float orig_x = n.x;
+        float orig_y = n.y;
+        n.x = orig_y;
+        n.y = orig_x;
+        float rx = n.x * cos_ry - n.z * sin_ry;
+        float rz = n.x * sin_ry + n.z * cos_ry;
+        n.x = rx;
+        n.z = rz;
+    }
+
+    mesh.append(cylinder);
+    return mesh;
+}
+
+// ============================================================================
+// Boulder Cluster Mesh Generation (Multiple displaced rocks)
+// ============================================================================
+
+Mesh generate_boulder_cluster_mesh(const BoulderClusterDescriptor& desc,
+                                    uint32_t segments_per_rock,
+                                    uint32_t rings_per_rock) {
+    Mesh mesh;
+
+    for (const auto& sub : desc.sub_rocks) {
+        RockDescriptor rd;
+        rd.position = desc.position + sub.offset;
+        rd.radius = sub.radius;
+        rd.noise_seed = sub.noise_seed;
+        rd.noise_scale = 0.15f;
+
+        Mesh rock = generate_rock_mesh(rd, segments_per_rock, rings_per_rock);
+        mesh.append(rock);
+    }
+
+    return mesh;
+}
+
+// ============================================================================
+// Flower Patch Mesh Generation (Cluster of thin stems with bud spheres)
+// ============================================================================
+
+Mesh generate_flower_patch_mesh(const FlowerPatchDescriptor& desc,
+                                 uint32_t stem_segments) {
+    Mesh mesh;
+
+    float stem_height = 0.3f;
+    float stem_radius = 0.015f;
+    float bud_radius = 0.04f;
+
+    for (uint32_t i = 0; i < desc.stem_count; ++i) {
+        // Deterministic position within patch using hash
+        float fi = static_cast<float>(i);
+        float angle = fi * 2.3998628f;  // Golden angle in radians
+        float r = desc.patch_radius * std::sqrt(fi / static_cast<float>(desc.stem_count));
+        float sx = std::cos(angle) * r;
+        float sz = std::sin(angle) * r;
+
+        // Height varies slightly per stem
+        float h = stem_height * (0.7f + noise_hash(desc.color_seed, i, 0) * 0.6f);
+
+        Vec3 stem_base = desc.position + Vec3(sx, 0, sz);
+
+        // Stem cylinder
+        Mesh stem = generate_cylinder_mesh(stem_radius, h, stem_segments);
+        for (auto& v : stem.vertices) {
+            v.y += h * 0.5f;
+            v = v + stem_base;
+        }
+        mesh.append(stem);
+
+        // Small bud sphere at top (8 segments, 6 rings — very small)
+        RockDescriptor bud_desc;
+        bud_desc.position = stem_base + Vec3(0, h, 0);
+        bud_desc.radius = bud_radius;
+        bud_desc.noise_seed = desc.color_seed + i;
+        bud_desc.noise_scale = 0.05f;
+        Mesh bud = generate_rock_mesh(bud_desc, 6, 4);
+        mesh.append(bud);
+    }
+
+    return mesh;
+}
+
+// ============================================================================
+// Mushroom Mesh Generation (Stem cylinder + flattened hemisphere cap)
+// ============================================================================
+
+Mesh generate_mushroom_mesh(const MushroomDescriptor& desc,
+                             uint32_t cap_segments,
+                             uint32_t cap_rings,
+                             uint32_t stem_segments) {
+    Mesh mesh;
+
+    // 1) Stem cylinder
+    Mesh stem = generate_cylinder_mesh(desc.stem_radius, desc.stem_height, stem_segments);
+    for (auto& v : stem.vertices) {
+        v.y += desc.stem_height * 0.5f;
+        v = v + desc.position;
+    }
+    mesh.append(stem);
+
+    // 2) Cap: top hemisphere of a capsule, squashed vertically
+    float cap_squash = 0.45f;
+    Vec3 cap_center = desc.position + Vec3(0, desc.stem_height, 0);
+
+    for (uint32_t ring = 0; ring <= cap_rings; ++ring) {
+        float phi = (PI * 0.5f) * static_cast<float>(ring) / static_cast<float>(cap_rings);
+        float sin_phi = std::sin(phi);
+        float cos_phi = std::cos(phi);
+
+        for (uint32_t seg = 0; seg <= cap_segments; ++seg) {
+            float theta = 2.0f * PI * static_cast<float>(seg) / static_cast<float>(cap_segments);
+            float sin_theta = std::sin(theta);
+            float cos_theta = std::cos(theta);
+
+            Vec3 normal(sin_phi * cos_theta, cos_phi, sin_phi * sin_theta);
+            Vec3 pos = cap_center + Vec3(
+                normal.x * desc.cap_radius,
+                normal.y * desc.cap_radius * cap_squash,
+                normal.z * desc.cap_radius
+            );
+
+            mesh.vertices.push_back(pos);
+            mesh.normals.push_back(normal);
+        }
+    }
+
+    // Indices for cap hemisphere
+    uint32_t cap_base = static_cast<uint32_t>(mesh.vertices.size()) -
+                        (cap_rings + 1) * (cap_segments + 1);
+    for (uint32_t ring = 0; ring < cap_rings; ++ring) {
+        for (uint32_t seg = 0; seg < cap_segments; ++seg) {
+            uint32_t current = cap_base + ring * (cap_segments + 1) + seg;
+            uint32_t next = current + cap_segments + 1;
+            mesh.indices.push_back(current);
+            mesh.indices.push_back(next);
+            mesh.indices.push_back(current + 1);
+            mesh.indices.push_back(current + 1);
+            mesh.indices.push_back(next);
+            mesh.indices.push_back(next + 1);
+        }
+    }
+
+    return mesh;
+}
+
+// ============================================================================
+// Cactus Mesh Generation (Main column cylinder + upward-bending arms)
+// ============================================================================
+
+Mesh generate_cactus_mesh(const CactusDescriptor& desc, uint32_t segments) {
+    Mesh mesh;
+
+    // 1) Main column
+    Mesh main_col = generate_cylinder_mesh(desc.main_radius, desc.main_height, segments);
+    for (auto& v : main_col.vertices) {
+        v.y += desc.main_height * 0.5f;
+        v = v + desc.position;
+    }
+    mesh.append(main_col);
+
+    // 2) Arms — each arm is a horizontal cylinder + a short vertical tip
+    for (const auto& arm : desc.arms) {
+        float attach_y = desc.main_height * arm.attach_height;
+        float arm_angle_rad = arm.angle * DEG_TO_RAD;
+        float cos_a = std::cos(arm_angle_rad);
+        float sin_a = std::sin(arm_angle_rad);
+
+        Vec3 arm_start = desc.position + Vec3(
+            desc.main_radius * cos_a,
+            attach_y,
+            desc.main_radius * sin_a
+        );
+
+        // Horizontal part of arm
+        float arm_radius = desc.main_radius * 0.7f;
+        float horiz_len = arm.length * 0.6f;
+        Vec3 arm_dir(cos_a, 0, sin_a);
+        Vec3 arm_end = arm_start + arm_dir * horiz_len;
+
+        Mesh horiz = generate_cylinder_mesh(arm_radius, horiz_len, segments);
+        // Rotate to lie horizontally along arm direction
+        for (auto& v : horiz.vertices) {
+            float orig_y = v.y;
+            v.y = v.x;
+            v.x = orig_y;
+            // Rotate to arm direction
+            float rx = v.x * cos_a - v.z * sin_a;
+            float rz = v.x * sin_a + v.z * cos_a;
+            v.x = rx;
+            v.z = rz;
+            // Translate
+            Vec3 mid = arm_start + arm_dir * (horiz_len * 0.5f);
+            v = v + mid;
+        }
+        for (auto& n : horiz.normals) {
+            float orig_y = n.y;
+            n.y = n.x;
+            n.x = orig_y;
+            float rx = n.x * cos_a - n.z * sin_a;
+            float rz = n.x * sin_a + n.z * cos_a;
+            n.x = rx;
+            n.z = rz;
+        }
+        mesh.append(horiz);
+
+        // Vertical tip (arm going upward)
+        float vert_len = arm.length * 0.4f;
+        Mesh tip = generate_cylinder_mesh(arm_radius, vert_len, segments);
+        for (auto& v : tip.vertices) {
+            v.y += vert_len * 0.5f + attach_y;
+            v.x += arm_end.x - desc.position.x;
+            v.z += arm_end.z - desc.position.z;
+            v = v + desc.position;
+        }
+        mesh.append(tip);
+    }
+
+    return mesh;
+}
+
+// ============================================================================
 // LOD Generation (Simple vertex clustering)
 // ============================================================================
 

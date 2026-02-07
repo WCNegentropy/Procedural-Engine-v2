@@ -478,12 +478,14 @@ class ChunkManager:
                 # but props should only spawn within [0, chunk_size) bounds.
                 height_for_props = chunk.heightmap[:self._chunk_size, :self._chunk_size]
                 slope_for_props = chunk.slope_map[:self._chunk_size, :self._chunk_size] if chunk.slope_map is not None else None
+                biome_for_props = chunk.biome_map[:self._chunk_size, :self._chunk_size] if chunk.biome_map is not None else None
 
                 chunk.pending_props = generate_chunk_props(
                     chunk_registry,
                     self._chunk_size,
                     height_for_props,
                     slope_for_props,
+                    biome_for_props,
                 )
                 chunk.has_props = True
                 updated_chunks.append(chunk)
@@ -568,6 +570,7 @@ class ChunkManager:
                 self._chunk_size,
                 height[:self._chunk_size, :self._chunk_size],
                 slope[:self._chunk_size, :self._chunk_size],
+                biome[:self._chunk_size, :self._chunk_size],
             )
             has_props = True
 

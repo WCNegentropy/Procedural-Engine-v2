@@ -324,6 +324,226 @@ Mesh generate_creature_mesh(
 Mesh generate_lod(const Mesh& mesh, float target_ratio);
 
 // ============================================================================
+// Bush Mesh Generation (Noise-displaced foliage sphere)
+// ============================================================================
+
+/**
+ * Bush descriptor from Python.
+ */
+struct BushDescriptor {
+    Vec3 position;
+    float radius = 0.6f;
+    uint32_t noise_seed = 0;
+    float leaf_density = 0.8f;  // How full the foliage looks (0.5-1.0)
+};
+
+/**
+ * Generate a noise-displaced sphere mesh for a bush.
+ *
+ * Similar to rock mesh but squashed vertically and with more noise at the
+ * top to simulate irregular foliage. Uses fewer segments for performance.
+ *
+ * @param desc Bush descriptor with position, radius, and noise seed
+ * @param segments Horizontal segments (longitude)
+ * @param rings Vertical rings (latitude)
+ * @return Triangle mesh for the bush
+ */
+Mesh generate_bush_mesh(const BushDescriptor& desc, uint32_t segments = 12, uint32_t rings = 8);
+
+// ============================================================================
+// Pine Tree Mesh Generation (Stacked cones on trunk cylinder)
+// ============================================================================
+
+/**
+ * Pine tree descriptor from Python.
+ */
+struct PineTreeDescriptor {
+    Vec3 position;
+    float trunk_height = 3.0f;
+    float trunk_radius = 0.15f;
+    uint32_t canopy_layers = 3;
+    float canopy_radius = 1.2f;
+};
+
+/**
+ * Generate a pine tree mesh: cylinder trunk + stacked cone canopy layers.
+ *
+ * @param desc Pine tree descriptor
+ * @param trunk_segments Segments around the trunk
+ * @param cone_segments Segments around each cone layer
+ * @return Triangle mesh for the pine tree
+ */
+Mesh generate_pine_tree_mesh(const PineTreeDescriptor& desc,
+                              uint32_t trunk_segments = 8,
+                              uint32_t cone_segments = 12);
+
+// ============================================================================
+// Dead Tree Mesh Generation (Sparse L-system skeleton)
+// ============================================================================
+
+/**
+ * Dead tree descriptor from Python.
+ * Reuses LSystemRules/TreeDescriptor format with sparser rules.
+ */
+struct DeadTreeDescriptor {
+    LSystemRules lsystem;
+    float angle;
+    uint32_t iterations;
+};
+
+/**
+ * Generate a dead tree mesh from L-system (thinner, no leaves).
+ *
+ * @param desc Dead tree descriptor
+ * @param segments_per_ring Segments around each branch cylinder
+ * @return Triangle mesh for the dead tree
+ */
+Mesh generate_dead_tree_mesh(const DeadTreeDescriptor& desc,
+                              uint32_t segments_per_ring = 6);
+
+// ============================================================================
+// Fallen Log Mesh Generation (Horizontal cylinder)
+// ============================================================================
+
+/**
+ * Fallen log descriptor from Python.
+ */
+struct FallenLogDescriptor {
+    Vec3 position;
+    float length = 2.5f;
+    float radius = 0.2f;
+    float rotation_y = 0.0f;  // Degrees
+};
+
+/**
+ * Generate a fallen log mesh (horizontal cylinder lying on the ground).
+ *
+ * @param desc Fallen log descriptor
+ * @param segments Segments around the cylinder
+ * @return Triangle mesh for the fallen log
+ */
+Mesh generate_fallen_log_mesh(const FallenLogDescriptor& desc,
+                               uint32_t segments = 8);
+
+// ============================================================================
+// Boulder Cluster Mesh Generation (Multiple rocks in a group)
+// ============================================================================
+
+/**
+ * Sub-rock within a boulder cluster.
+ */
+struct SubRock {
+    Vec3 offset;        // Offset from cluster center
+    float radius = 0.5f;
+    uint32_t noise_seed = 0;
+};
+
+/**
+ * Boulder cluster descriptor from Python.
+ */
+struct BoulderClusterDescriptor {
+    Vec3 position;
+    std::vector<SubRock> sub_rocks;
+};
+
+/**
+ * Generate a boulder cluster mesh (multiple rocks packed together).
+ *
+ * @param desc Boulder cluster descriptor
+ * @param segments_per_rock Segments per individual rock sphere
+ * @param rings_per_rock Rings per individual rock sphere
+ * @return Combined triangle mesh for the entire cluster
+ */
+Mesh generate_boulder_cluster_mesh(const BoulderClusterDescriptor& desc,
+                                    uint32_t segments_per_rock = 10,
+                                    uint32_t rings_per_rock = 8);
+
+// ============================================================================
+// Flower Patch Mesh Generation (Cluster of simple stems)
+// ============================================================================
+
+/**
+ * Flower patch descriptor from Python.
+ */
+struct FlowerPatchDescriptor {
+    Vec3 position;
+    uint32_t stem_count = 6;
+    float patch_radius = 0.5f;
+    uint32_t color_seed = 0;
+};
+
+/**
+ * Generate a flower patch mesh (cluster of thin stems with small spheres).
+ *
+ * @param desc Flower patch descriptor
+ * @param stem_segments Segments around each stem cylinder
+ * @return Triangle mesh for the flower patch
+ */
+Mesh generate_flower_patch_mesh(const FlowerPatchDescriptor& desc,
+                                 uint32_t stem_segments = 4);
+
+// ============================================================================
+// Mushroom Mesh Generation (Cap + Stem)
+// ============================================================================
+
+/**
+ * Mushroom descriptor from Python.
+ */
+struct MushroomDescriptor {
+    Vec3 position;
+    float cap_radius = 0.3f;
+    float stem_height = 0.4f;
+    float stem_radius = 0.06f;
+};
+
+/**
+ * Generate a mushroom mesh (cylinder stem + flattened hemisphere cap).
+ *
+ * @param desc Mushroom descriptor
+ * @param cap_segments Segments around the cap
+ * @param cap_rings Rings in the cap hemisphere
+ * @param stem_segments Segments around the stem
+ * @return Triangle mesh for the mushroom
+ */
+Mesh generate_mushroom_mesh(const MushroomDescriptor& desc,
+                             uint32_t cap_segments = 12,
+                             uint32_t cap_rings = 6,
+                             uint32_t stem_segments = 8);
+
+// ============================================================================
+// Cactus Mesh Generation (Column + arms)
+// ============================================================================
+
+/**
+ * Cactus arm descriptor.
+ */
+struct CactusArm {
+    float attach_height = 0.5f;  // Height ratio (0-1) along main column
+    float length = 0.6f;
+    float angle = 0.0f;         // Degrees around Y axis
+};
+
+/**
+ * Cactus descriptor from Python.
+ */
+struct CactusDescriptor {
+    Vec3 position;
+    float main_height = 2.5f;
+    float main_radius = 0.18f;
+    std::vector<CactusArm> arms;
+};
+
+/**
+ * Generate a cactus mesh (main cylinder column + upward-bending arms).
+ *
+ * @param desc Cactus descriptor
+ * @param segments Segments around each cylinder
+ * @return Triangle mesh for the cactus
+ */
+Mesh generate_cactus_mesh(const CactusDescriptor& desc,
+                           uint32_t segments = 8);
+
+// ============================================================================
 // Primitive Mesh Generation
 // ============================================================================
 

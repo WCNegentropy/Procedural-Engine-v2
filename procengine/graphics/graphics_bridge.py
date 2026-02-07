@@ -146,12 +146,20 @@ class RenderState:
 # Entity type to base color mapping (RGB values in [0, 1])
 # These colors are used as base albedo for rendering different entity types
 ENTITY_COLORS = {
-    "player": (0.85, 0.65, 0.55),     # Skin tone
-    "npc": (0.75, 0.60, 0.50),        # Slightly different skin tone
-    "character": (0.80, 0.62, 0.52),  # Generic character skin
-    "rock": (0.55, 0.50, 0.45),       # Gray rock
-    "tree": (0.45, 0.35, 0.25),       # Brown bark
-    "building": (0.70, 0.65, 0.60),   # Stone/concrete
+    "player": (0.85, 0.65, 0.55),            # Skin tone
+    "npc": (0.75, 0.60, 0.50),               # Slightly different skin tone
+    "character": (0.80, 0.62, 0.52),         # Generic character skin
+    "rock": (0.55, 0.50, 0.45),              # Gray rock
+    "tree": (0.45, 0.35, 0.25),              # Brown bark
+    "building": (0.70, 0.65, 0.60),          # Stone/concrete
+    "bush": (0.30, 0.50, 0.20),              # Green foliage
+    "pine_tree": (0.20, 0.38, 0.18),         # Dark conifer green
+    "dead_tree": (0.50, 0.42, 0.35),         # Pale weathered wood
+    "fallen_log": (0.42, 0.33, 0.22),        # Dark bark brown
+    "boulder_cluster": (0.52, 0.48, 0.42),   # Rocky gray-brown
+    "flower_patch": (0.75, 0.45, 0.55),      # Pinkish petals
+    "mushroom": (0.72, 0.55, 0.38),          # Tan-orange cap
+    "cactus": (0.35, 0.55, 0.28),            # Desert green
 }
 DEFAULT_ENTITY_COLOR = (0.60, 0.60, 0.60)  # Neutral gray for unknown types
 
@@ -592,6 +600,89 @@ class GraphicsBridge:
                 else:
                     # Fallback cylinder if no L-system state available
                     mesh = cpp.generate_cylinder_mesh(0.2, 3.0, 16)
+            elif entity_type == "bush":
+                desc = cpp.BushDescriptor()
+                desc.position = cpp.Vec3(0, 0, 0)
+                desc.radius = 0.6
+                if entity_state:
+                    desc.noise_seed = int(entity_state.get("noise_seed", 0))
+                    desc.leaf_density = float(entity_state.get("leaf_density", 0.8))
+                mesh = cpp.generate_bush_mesh(desc)
+            elif entity_type == "pine_tree":
+                desc = cpp.PineTreeDescriptor()
+                desc.position = cpp.Vec3(0, 0, 0)
+                if entity_state:
+                    desc.trunk_height = float(entity_state.get("trunk_height", 3.0))
+                    desc.trunk_radius = float(entity_state.get("trunk_radius", 0.15))
+                    desc.canopy_layers = int(entity_state.get("canopy_layers", 3))
+                    desc.canopy_radius = float(entity_state.get("canopy_radius", 1.2))
+                mesh = cpp.generate_pine_tree_mesh(desc)
+            elif entity_type == "dead_tree":
+                if entity_state and "axiom" in entity_state:
+                    desc = cpp.create_tree_from_dict({
+                        "axiom": entity_state["axiom"],
+                        "rules": entity_state.get("rules", {"F": "F[+F][-F]"}),
+                        "angle": entity_state.get("angle", 35.0),
+                        "iterations": min(entity_state.get("iterations", 2), 3),
+                    })
+                    mesh = cpp.generate_dead_tree_mesh(desc)
+                else:
+                    mesh = cpp.generate_cylinder_mesh(0.08, 2.0, 8)
+            elif entity_type == "fallen_log":
+                desc = cpp.FallenLogDescriptor()
+                desc.position = cpp.Vec3(0, 0, 0)
+                if entity_state:
+                    desc.length = float(entity_state.get("length", 2.5))
+                    desc.radius = float(entity_state.get("radius", 0.2))
+                    desc.rotation_y = float(entity_state.get("rotation_y", 0.0))
+                mesh = cpp.generate_fallen_log_mesh(desc)
+            elif entity_type == "boulder_cluster":
+                desc = cpp.BoulderClusterDescriptor()
+                desc.position = cpp.Vec3(0, 0, 0)
+                if entity_state and "sub_rocks" in entity_state:
+                    for sr in entity_state["sub_rocks"]:
+                        sub = cpp.SubRock()
+                        off = sr.get("offset", [0, 0, 0])
+                        sub.offset = cpp.Vec3(off[0], off[1], off[2])
+                        sub.radius = float(sr.get("radius", 0.5))
+                        sub.noise_seed = int(sr.get("noise_seed", 0))
+                        desc.sub_rocks.append(sub)
+                else:
+                    # Fallback: single rock
+                    sub = cpp.SubRock()
+                    sub.radius = 0.5
+                    desc.sub_rocks.append(sub)
+                mesh = cpp.generate_boulder_cluster_mesh(desc)
+            elif entity_type == "flower_patch":
+                desc = cpp.FlowerPatchDescriptor()
+                desc.position = cpp.Vec3(0, 0, 0)
+                if entity_state:
+                    desc.stem_count = int(entity_state.get("stem_count", 6))
+                    desc.patch_radius = float(entity_state.get("patch_radius", 0.5))
+                    desc.color_seed = int(entity_state.get("color_seed", 0))
+                mesh = cpp.generate_flower_patch_mesh(desc)
+            elif entity_type == "mushroom":
+                desc = cpp.MushroomDescriptor()
+                desc.position = cpp.Vec3(0, 0, 0)
+                if entity_state:
+                    desc.cap_radius = float(entity_state.get("cap_radius", 0.3))
+                    desc.stem_height = float(entity_state.get("stem_height", 0.4))
+                    desc.stem_radius = float(entity_state.get("stem_radius", 0.06))
+                mesh = cpp.generate_mushroom_mesh(desc)
+            elif entity_type == "cactus":
+                desc = cpp.CactusDescriptor()
+                desc.position = cpp.Vec3(0, 0, 0)
+                if entity_state:
+                    desc.main_height = float(entity_state.get("main_height", 2.5))
+                    desc.main_radius = float(entity_state.get("main_radius", 0.18))
+                    if "arms" in entity_state:
+                        for arm_dict in entity_state["arms"]:
+                            arm = cpp.CactusArm()
+                            arm.attach_height = float(arm_dict.get("attach_height", 0.5))
+                            arm.length = float(arm_dict.get("length", 0.6))
+                            arm.angle = float(arm_dict.get("angle", 0.0))
+                            desc.arms.append(arm)
+                mesh = cpp.generate_cactus_mesh(desc)
             elif entity_type == "building":
                 # Box for buildings
                 mesh = cpp.generate_box_mesh(cpp.Vec3(3, 2, 3))

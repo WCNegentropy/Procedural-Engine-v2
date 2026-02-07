@@ -59,6 +59,27 @@ __all__ = [
 
 
 # =============================================================================
+# Prop render-scale helper
+# =============================================================================
+
+def _prop_render_scale(prop_type: str, state: dict | None) -> float:
+    """Return the world-space render scale for a prop entity.
+
+    Rocks and boulder clusters scale by their radius so their visual size
+    matches the generated descriptor.  Most other props are authored at
+    final size so they use 1.0.
+    """
+    if state is None:
+        return 1.0
+    if prop_type == "rock":
+        return state.get("radius", 1.0) * 2.0
+    if prop_type == "bush":
+        return state.get("radius", 0.6) * 2.0
+    # Everything else is authored at its natural size
+    return 1.0
+
+
+# =============================================================================
 # Configuration
 # =============================================================================
 
@@ -1368,10 +1389,7 @@ class GameRunner:
                     mesh_name = self._get_or_create_entity_mesh(
                         entity.entity_id, prop_type, entity.state,
                     )
-                    scale = 1.0
-                    if prop_type == "rock":
-                        radius = entity.state.get("radius", 1.0)
-                        scale = radius * 2.0
+                    scale = _prop_render_scale(prop_type, entity.state)
                     self._graphics_bridge.draw_entity(
                         mesh_name,
                         "default",
@@ -1396,12 +1414,7 @@ class GameRunner:
                 mesh_name = self._get_or_create_entity_mesh(
                     entity.entity_id, prop_type, entity.state,
                 )
-                scale = 1.0
-                if prop_type == "rock":
-                    radius = entity.state.get("radius", 1.0)
-                    scale = radius * 2.0
-                elif prop_type == "tree":
-                    scale = 1.0
+                scale = _prop_render_scale(prop_type, entity.state)
                 self._graphics_bridge.draw_entity(
                     mesh_name,
                     "default",
@@ -1781,6 +1794,94 @@ class GameRunner:
                         "rules": prop_desc.get("rules", {}),
                         "angle": prop_desc.get("angle", 25.0),
                         "iterations": prop_desc.get("iterations", 3),
+                    },
+                )
+            elif prop_type == "bush":
+                prop = Prop(
+                    entity_id=entity_id,
+                    position=Vec3(global_x, global_y + ROCK_Y_OFFSET, global_z),
+                    prop_type="bush",
+                    state={
+                        "radius": prop_desc.get("radius", 0.6),
+                        "noise_seed": prop_desc.get("noise_seed", 0),
+                        "leaf_density": prop_desc.get("leaf_density", 0.8),
+                    },
+                )
+            elif prop_type == "pine_tree":
+                prop = Prop(
+                    entity_id=entity_id,
+                    position=Vec3(global_x, global_y, global_z),
+                    prop_type="pine_tree",
+                    state={
+                        "trunk_height": prop_desc.get("trunk_height", 3.0),
+                        "trunk_radius": prop_desc.get("trunk_radius", 0.15),
+                        "canopy_layers": prop_desc.get("canopy_layers", 3),
+                        "canopy_radius": prop_desc.get("canopy_radius", 1.2),
+                    },
+                )
+            elif prop_type == "dead_tree":
+                prop = Prop(
+                    entity_id=entity_id,
+                    position=Vec3(global_x, global_y, global_z),
+                    prop_type="dead_tree",
+                    state={
+                        "axiom": prop_desc.get("axiom", "F"),
+                        "rules": prop_desc.get("rules", {"F": "F[+F][-F]"}),
+                        "angle": prop_desc.get("angle", 35.0),
+                        "iterations": prop_desc.get("iterations", 2),
+                    },
+                )
+            elif prop_type == "fallen_log":
+                prop = Prop(
+                    entity_id=entity_id,
+                    position=Vec3(global_x, global_y + ROCK_Y_OFFSET, global_z),
+                    prop_type="fallen_log",
+                    state={
+                        "length": prop_desc.get("length", 2.5),
+                        "radius": prop_desc.get("radius", 0.2),
+                        "rotation_y": prop_desc.get("rotation_y", 0.0),
+                    },
+                )
+            elif prop_type == "boulder_cluster":
+                prop = Prop(
+                    entity_id=entity_id,
+                    position=Vec3(global_x, global_y + ROCK_Y_OFFSET, global_z),
+                    prop_type="boulder_cluster",
+                    state={
+                        "sub_rocks": prop_desc.get("sub_rocks", []),
+                    },
+                )
+            elif prop_type == "flower_patch":
+                prop = Prop(
+                    entity_id=entity_id,
+                    position=Vec3(global_x, global_y, global_z),
+                    prop_type="flower_patch",
+                    state={
+                        "stem_count": prop_desc.get("stem_count", 6),
+                        "patch_radius": prop_desc.get("patch_radius", 0.5),
+                        "color_seed": prop_desc.get("color_seed", 0),
+                    },
+                )
+            elif prop_type == "mushroom":
+                prop = Prop(
+                    entity_id=entity_id,
+                    position=Vec3(global_x, global_y, global_z),
+                    prop_type="mushroom",
+                    state={
+                        "cap_radius": prop_desc.get("cap_radius", 0.3),
+                        "stem_height": prop_desc.get("stem_height", 0.4),
+                        "stem_radius": prop_desc.get("stem_radius", 0.06),
+                    },
+                )
+            elif prop_type == "cactus":
+                prop = Prop(
+                    entity_id=entity_id,
+                    position=Vec3(global_x, global_y, global_z),
+                    prop_type="cactus",
+                    state={
+                        "main_height": prop_desc.get("main_height", 2.5),
+                        "main_radius": prop_desc.get("main_radius", 0.18),
+                        "arms": prop_desc.get("arms", []),
                     },
                 )
             else:
