@@ -937,7 +937,7 @@ class GameRunner:
             # Wire inventory Use/Drop buttons to command registry
             self._ui_manager.set_inventory_callbacks(
                 on_use=lambda item_id: self.execute_command(f"player.use {item_id}"),
-                on_drop=lambda item_id: self.execute_command(f"player.take {item_id}"),
+                on_drop=lambda item_id: self.execute_command(f"player.drop {item_id}"),
             )
 
             # Wire dialogue callbacks
@@ -2139,6 +2139,9 @@ class GameRunner:
             if self._console.is_visible:
                 self._ui_manager.render_console()
 
+            # Notifications (rendered outside console, always visible)
+            self._ui_manager.render_notifications()
+
             # Debug overlay
             if self.flags.get("debug_overlay", False):
                 self._ui_manager.render_debug(
@@ -2245,13 +2248,23 @@ class GameRunner:
 
         Reads the raw keys that were just pressed this frame from
         ``InputManager._keys_just_pressed`` and translates them into the
-        appropriate Console method calls.
+        appropriate Console method calls.  Supports modifier keys:
+
+        - **Ctrl+Backspace** / **Ctrl+Delete** — delete word
+        - **Ctrl+Left** / **Ctrl+Right** — move by word
+        - **Shift+Left** / **Shift+Right** — extend selection
+        - **Shift+Home** / **Shift+End** — select to line boundary
+        - **Ctrl+A** — select all
+        - **Ctrl+Z** — undo
+        - **Ctrl+V** — paste (reads clipboard text from InputManager)
         """
         if not self._input_manager:
             return
 
         just = self._input_manager._keys_just_pressed
-        shift_active = "SHIFT" in self._input_manager._active_modifiers
+        mods = self._input_manager._active_modifiers
+        ctrl_active = "CTRL" in mods or "LCTRL" in mods or "RCTRL" in mods
+        shift_active = "SHIFT" in mods or "LSHIFT" in mods or "RSHIFT" in mods
         shift_map = {
             "COMMA": "<",
             "PERIOD": ">",
@@ -2275,40 +2288,72 @@ class GameRunner:
             "0": ")",
         }
 
-        # Special keys first
+        # --- Ctrl shortcuts ---
+        if ctrl_active:
+            if "A" in just:
+                self._console.handle_select_all()
+                return
+            if "Z" in just:
+                self._console.handle_undo()
+                return
+            if "V" in just:
+                clipboard = getattr(self._input_manager, "get_clipboard_text", lambda: "")()
+                if clipboard:
+                    self._console.handle_paste(clipboard)
+                return
+
+        # --- Submit ---
         if "RETURN" in just:
             self._console.submit()
             return
 
+        # --- Deletion ---
         if "BACKSPACE" in just:
-            self._console.handle_backspace()
+            if ctrl_active:
+                self._console.handle_backspace_word()
+            else:
+                self._console.handle_backspace()
         if "DELETE" in just:
-            self._console.handle_delete()
+            if ctrl_active:
+                self._console.handle_delete_word()
+            else:
+                self._console.handle_delete()
+
+        # --- Navigation ---
         if "UP" in just:
             self._console.handle_up()
         if "DOWN" in just:
             self._console.handle_down()
         if "LEFT" in just:
-            self._console.handle_left()
+            if ctrl_active:
+                self._console.handle_word_left(select=shift_active)
+            else:
+                self._console.handle_left(select=shift_active)
         if "RIGHT" in just:
-            self._console.handle_right()
+            if ctrl_active:
+                self._console.handle_word_right(select=shift_active)
+            else:
+                self._console.handle_right(select=shift_active)
+        if "HOME" in just:
+            self._console.handle_home(select=shift_active)
+        if "END" in just:
+            self._console.handle_end(select=shift_active)
+
+        # --- Autocomplete / Escape ---
         if "TAB" in just:
             self._console.handle_tab()
         if "ESCAPE" in just:
             self._console.handle_escape()
-        if "HOME" in just:
-            self._console.handle_home()
-        if "END" in just:
-            self._console.handle_end()
 
-        # Printable character input
-        for key in just:
-            if shift_active and key in shift_map:
-                char = shift_map[key]
-            else:
-                char = self._CONSOLE_CHAR_MAP.get(key)
-            if char is not None:
-                self._console.handle_char(char)
+        # --- Printable character input ---
+        if not ctrl_active:
+            for key in just:
+                if shift_active and key in shift_map:
+                    char = shift_map[key]
+                else:
+                    char = self._CONSOLE_CHAR_MAP.get(key)
+                if char is not None:
+                    self._console.handle_char(char)
 
     # -------------------------------------------------------------------------
     # Public API

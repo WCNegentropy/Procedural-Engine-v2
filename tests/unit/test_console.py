@@ -7,12 +7,22 @@ Tests cover:
 - Autocomplete functionality
 - Output buffer management
 - Command submission and execution
+- TextInputBuffer (word operations, selection, undo)
+- Notification system
 """
 import pytest
 import tempfile
 import os
+import time
 
-from procengine.commands.console import Console, ConsoleConfig, ConsoleLine
+from procengine.commands.console import (
+    Console,
+    ConsoleConfig,
+    ConsoleLine,
+    TextInputBuffer,
+    Notification,
+    NotificationType,
+)
 from procengine.commands.commands import registry, command, AccessLevel
 
 
@@ -678,3 +688,341 @@ class TestConsoleConfig:
         assert console.config.max_lines == 50
         assert console.config.visible_lines == 5
         assert console.config.echo_commands is False
+
+
+# =============================================================================
+# TextInputBuffer Tests
+# =============================================================================
+
+
+class TestTextInputBuffer:
+    """Tests for TextInputBuffer cursor, selection, word ops, and undo."""
+
+    def test_initial_state(self):
+        """Test buffer starts empty."""
+        buf = TextInputBuffer()
+        assert buf.text == ""
+        assert buf.cursor == 0
+        assert not buf.has_selection
+
+    def test_insert(self):
+        """Test inserting text."""
+        buf = TextInputBuffer()
+        buf.insert("hello")
+        assert buf.text == "hello"
+        assert buf.cursor == 5
+
+    def test_insert_at_cursor(self):
+        """Test inserting text in the middle."""
+        buf = TextInputBuffer("ac")
+        buf.cursor = 1
+        buf.insert("b")
+        assert buf.text == "abc"
+        assert buf.cursor == 2
+
+    def test_backspace(self):
+        """Test backspace removes character before cursor."""
+        buf = TextInputBuffer("abc")
+        buf.cursor = 3
+        buf.backspace()
+        assert buf.text == "ab"
+        assert buf.cursor == 2
+
+    def test_backspace_at_start(self):
+        """Test backspace at position 0 does nothing."""
+        buf = TextInputBuffer("abc")
+        buf.cursor = 0
+        buf.backspace()
+        assert buf.text == "abc"
+
+    def test_delete(self):
+        """Test delete removes character after cursor."""
+        buf = TextInputBuffer("abc")
+        buf.cursor = 1
+        buf.delete()
+        assert buf.text == "ac"
+        assert buf.cursor == 1
+
+    def test_delete_at_end(self):
+        """Test delete at end does nothing."""
+        buf = TextInputBuffer("abc")
+        buf.cursor = 3
+        buf.delete()
+        assert buf.text == "abc"
+
+    def test_move_left_right(self):
+        """Test cursor movement."""
+        buf = TextInputBuffer("hello")
+        buf.cursor = 3
+        buf.move_left()
+        assert buf.cursor == 2
+        buf.move_right()
+        assert buf.cursor == 3
+
+    def test_move_bounds(self):
+        """Test cursor stays within bounds."""
+        buf = TextInputBuffer("hi")
+        buf.cursor = 0
+        buf.move_left()
+        assert buf.cursor == 0
+        buf.cursor = 2
+        buf.move_right()
+        assert buf.cursor == 2
+
+    def test_home_end(self):
+        """Test home/end movements."""
+        buf = TextInputBuffer("hello world")
+        buf.cursor = 5
+        buf.move_home()
+        assert buf.cursor == 0
+        buf.move_end()
+        assert buf.cursor == 11
+
+    def test_word_left(self):
+        """Test word-left movement."""
+        buf = TextInputBuffer("hello world foo")
+        buf.cursor = 15
+        buf.move_word_left()
+        assert buf.cursor == 12  # before 'foo'
+        buf.move_word_left()
+        assert buf.cursor == 6  # before 'world'
+        buf.move_word_left()
+        assert buf.cursor == 0  # start
+
+    def test_word_right(self):
+        """Test word-right movement."""
+        buf = TextInputBuffer("hello world foo")
+        buf.cursor = 0
+        buf.move_word_right()
+        assert buf.cursor == 5  # after 'hello'
+        buf.move_word_right()
+        assert buf.cursor == 11  # after 'world'
+
+    def test_backspace_word(self):
+        """Test deleting a word backwards."""
+        buf = TextInputBuffer("hello world")
+        buf.cursor = 11
+        buf.backspace_word()
+        assert buf.text == "hello "
+        assert buf.cursor == 6
+
+    def test_delete_word(self):
+        """Test deleting a word forwards."""
+        buf = TextInputBuffer("hello world")
+        buf.cursor = 0
+        buf.delete_word()
+        assert buf.text == " world"
+        assert buf.cursor == 0
+
+    def test_select_all(self):
+        """Test select all."""
+        buf = TextInputBuffer("hello")
+        buf.select_all()
+        assert buf.has_selection
+        assert buf.cursor == 5
+        assert buf.selected_text == "hello"
+
+    def test_insert_replaces_selection(self):
+        """Test that insert replaces selected text."""
+        buf = TextInputBuffer("hello world")
+        buf.select_all()
+        # cursor at end, selection from 0
+        buf.cursor = 5
+        buf._selection_start = 0
+        buf.insert("bye")
+        assert buf.text == "bye world"
+        assert not buf.has_selection
+
+    def test_backspace_removes_selection(self):
+        """Test backspace with selection removes selected text."""
+        buf = TextInputBuffer("hello world")
+        # Select "world"
+        buf.cursor = 11
+        buf.move_left(select=True)
+        buf.move_left(select=True)
+        buf.move_left(select=True)
+        buf.move_left(select=True)
+        buf.move_left(select=True)
+        # Now selection covers "world"
+        buf.backspace()
+        assert buf.text == "hello "
+        assert not buf.has_selection
+
+    def test_undo(self):
+        """Test undo restores previous state."""
+        buf = TextInputBuffer()
+        buf.insert("hello")
+        buf.insert(" world")
+        buf.undo()
+        assert buf.text == "hello"
+        buf.undo()
+        assert buf.text == ""
+
+    def test_undo_empty_stack(self):
+        """Test undo with no history does nothing."""
+        buf = TextInputBuffer()
+        buf.undo()  # Should not raise
+        assert buf.text == ""
+
+    def test_clear(self):
+        """Test clear empties the buffer."""
+        buf = TextInputBuffer("hello")
+        buf.clear()
+        assert buf.text == ""
+        assert buf.cursor == 0
+        assert not buf.has_selection
+
+    def test_set_text(self):
+        """Test setting text via property replaces contents."""
+        buf = TextInputBuffer("old text")
+        buf.text = "new text"
+        assert buf.text == "new text"
+        assert buf.cursor == 8
+
+    def test_selection_with_move_left(self):
+        """Test selection via move_left with select=True."""
+        buf = TextInputBuffer("hello")
+        buf.cursor = 5
+        buf.move_left(select=True)
+        buf.move_left(select=True)
+        assert buf.has_selection
+        assert buf.cursor == 3
+        assert buf.selected_text == "lo"
+
+    def test_selected_text(self):
+        """Test getting selected text."""
+        buf = TextInputBuffer("hello world")
+        # Select "hello" using select_all + adjust
+        buf.cursor = 0
+        buf.move_right(select=True)
+        buf.move_right(select=True)
+        buf.move_right(select=True)
+        buf.move_right(select=True)
+        buf.move_right(select=True)
+        assert buf.selected_text == "hello"
+
+
+# =============================================================================
+# Notification Tests
+# =============================================================================
+
+
+class TestNotifications:
+    """Tests for the notification system."""
+
+    def test_notification_creation(self):
+        """Test creating a notification."""
+        notif = Notification(
+            text="Test notification",
+            notification_type=NotificationType.INFO,
+        )
+        assert notif.text == "Test notification"
+        assert notif.notification_type == NotificationType.INFO
+
+    def test_console_notify(self):
+        """Test console.notify adds to notification list."""
+        console = Console()
+        console.notify("Item acquired!", NotificationType.SUCCESS)
+        
+        data = console.get_render_data()
+        notifications = data.get("notifications", [])
+        assert len(notifications) >= 1
+        assert any("Item acquired!" in n.get("text", "") for n in notifications)
+
+    def test_notification_types(self):
+        """Test all notification types exist."""
+        assert NotificationType.INFO is not None
+        assert NotificationType.SUCCESS is not None
+        assert NotificationType.WARNING is not None
+        assert NotificationType.ERROR is not None
+
+    def test_console_print_warning(self):
+        """Test console.print_warning outputs with warning color."""
+        console = Console()
+        console.print_warning("Watch out!")
+        
+        lines = console.output_lines
+        assert len(lines) == 1
+        assert lines[0].text == "Watch out!"
+        assert lines[0].color == console.config.warning_color
+
+
+# =============================================================================
+# Console Word Operations Tests
+# =============================================================================
+
+
+class TestConsoleWordOperations:
+    """Tests for console word-level operations via handle_*_word methods."""
+
+    def test_handle_backspace_word(self):
+        """Test Ctrl+Backspace deletes word backwards."""
+        console = Console()
+        console.open()
+        console.set_input("hello world")
+        console.handle_backspace_word()
+        assert console.input_buffer == "hello "
+
+    def test_handle_delete_word(self):
+        """Test Ctrl+Delete deletes word forwards."""
+        console = Console()
+        console.open()
+        console.set_input("hello world")
+        # Move cursor to start
+        console.handle_home()
+        console.handle_delete_word()
+        assert console.input_buffer == " world"
+
+    def test_handle_word_left(self):
+        """Test Ctrl+Left moves cursor one word left."""
+        console = Console()
+        console.open()
+        console.set_input("hello world")
+        console.handle_word_left()
+        assert console.cursor_position == 6  # before 'world'
+
+    def test_handle_word_right(self):
+        """Test Ctrl+Right moves cursor one word right."""
+        console = Console()
+        console.open()
+        console.set_input("hello world")
+        console.handle_home()
+        console.handle_word_right()
+        assert console.cursor_position == 5  # after 'hello'
+
+    def test_handle_select_all(self):
+        """Test Ctrl+A selects all text."""
+        console = Console()
+        console.open()
+        console.set_input("hello")
+        console.handle_select_all()
+        data = console.get_render_data()
+        # After select_all, the buffer should have a selection
+        assert data["cursor_pos"] == 5
+
+    def test_handle_undo(self):
+        """Test Ctrl+Z undoes last input change."""
+        console = Console()
+        console.open()
+        console.handle_char('a')
+        console.handle_char('b')
+        console.handle_undo()
+        assert console.input_buffer == "a"
+
+    def test_handle_paste(self):
+        """Test Ctrl+V pastes text."""
+        console = Console()
+        console.open()
+        console.set_input("hello ")
+        console.handle_paste("world")
+        assert console.input_buffer == "hello world"
+
+    def test_handle_left_with_selection(self):
+        """Test Shift+Left extends selection."""
+        console = Console()
+        console.open()
+        console.set_input("hello")
+        console.handle_left(select=True)
+        console.handle_left(select=True)
+        # Cursor should be at 3 with selection from 5
+        assert console.cursor_position == 3

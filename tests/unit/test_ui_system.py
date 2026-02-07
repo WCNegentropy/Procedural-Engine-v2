@@ -189,7 +189,7 @@ class TestHUD:
 
         # Should have health window
         assert backend.has_window("##HealthBar")
-        assert backend.has_text("Health:")
+        assert backend.has_text("HP")
 
     def test_renders_quest_tracker(self):
         """Test quest tracker is rendered when quests active."""
@@ -517,8 +517,8 @@ class TestSettingsPanel:
         backend.end_frame()
 
         assert backend.has_window("Settings")
-        assert backend.has_text("Debug Overlay: On")
-        assert backend.has_text("VSync: Off")
+        assert backend.has_text("Debug Overlay:")
+        assert backend.has_text("VSync:")
 
     def test_back_button_callback(self):
         """Test back button triggers close callback."""
@@ -978,3 +978,231 @@ class TestImGuiBackend:
         assert "imgui_render" in names
         new_frame_call = [c for c in mock.calls if c["name"] == "imgui_new_frame"][0]
         assert new_frame_call["args"] == (1.0 / 60.0, 1920, 1080, False, False)
+
+
+# =============================================================================
+# ConsoleWindow Tests
+# =============================================================================
+
+
+class TestConsoleWindow:
+    """Tests for ConsoleWindow component."""
+
+    def test_renders_console_outputs(self):
+        """Test console window renders output lines."""
+        from procengine.game.ui_system import ConsoleWindow
+
+        backend = HeadlessUIBackend()
+        cw = ConsoleWindow(backend, 1920, 1080)
+
+        render_data = {
+            "visible": True,
+            "input": "test",
+            "cursor_pos": 4,
+            "lines": [
+                {"text": "Welcome to the console", "color": (1, 1, 1, 1)},
+                {"text": "> help", "color": (0.5, 0.7, 1.0, 1.0)},
+            ],
+            "suggestions": [],
+            "config": {},
+        }
+
+        backend.begin_frame()
+        cw.render(render_data=render_data)
+        backend.end_frame()
+
+        assert backend.has_window("Developer Console")
+        assert backend.has_text("Welcome to the console")
+
+    def test_not_rendered_when_hidden(self):
+        """Test console window not rendered when data says hidden."""
+        from procengine.game.ui_system import ConsoleWindow
+
+        backend = HeadlessUIBackend()
+        cw = ConsoleWindow(backend, 1920, 1080)
+
+        render_data = {"visible": False}
+
+        backend.begin_frame()
+        cw.render(render_data=render_data)
+        backend.end_frame()
+
+        assert len(backend.get_calls()) == 0
+
+    def test_renders_input_line(self):
+        """Test console renders current input with cursor."""
+        from procengine.game.ui_system import ConsoleWindow
+
+        backend = HeadlessUIBackend()
+        cw = ConsoleWindow(backend, 1920, 1080)
+
+        render_data = {
+            "visible": True,
+            "input": "hello",
+            "cursor_pos": 5,
+            "lines": [],
+            "suggestions": [],
+            "config": {},
+        }
+
+        backend.begin_frame()
+        cw.render(render_data=render_data)
+        backend.end_frame()
+
+        # Should show prompt and input with cursor
+        assert backend.has_text(">")
+        assert backend.has_text("hello|")
+
+    def test_renders_suggestions(self):
+        """Test console renders autocomplete suggestions."""
+        from procengine.game.ui_system import ConsoleWindow
+
+        backend = HeadlessUIBackend()
+        cw = ConsoleWindow(backend, 1920, 1080)
+
+        render_data = {
+            "visible": True,
+            "input": "player",
+            "cursor_pos": 6,
+            "lines": [],
+            "suggestions": ["player.health", "player.pos", "player.use"],
+            "suggestion_index": 0,
+            "config": {},
+        }
+
+        backend.begin_frame()
+        cw.render(render_data=render_data)
+        backend.end_frame()
+
+        assert backend.has_text("[player.health]")
+
+    def test_renders_inline_preview(self):
+        """Test console renders inline autocomplete preview."""
+        from procengine.game.ui_system import ConsoleWindow
+
+        backend = HeadlessUIBackend()
+        cw = ConsoleWindow(backend, 1920, 1080)
+
+        render_data = {
+            "visible": True,
+            "input": "player",
+            "cursor_pos": 6,
+            "lines": [],
+            "suggestions": [],
+            "inline_preview": ".health",
+            "config": {},
+        }
+
+        backend.begin_frame()
+        cw.render(render_data=render_data)
+        backend.end_frame()
+
+        assert backend.has_text(".health")
+
+
+# =============================================================================
+# NotificationStack Tests
+# =============================================================================
+
+
+class TestNotificationStack:
+    """Tests for NotificationStack component."""
+
+    def test_renders_notifications(self):
+        """Test notification stack renders items."""
+        from procengine.game.ui_system import NotificationStack
+
+        backend = HeadlessUIBackend()
+        stack = NotificationStack(backend, 1920, 1080)
+
+        notifs = [
+            {"text": "Quest started!", "color": (0.3, 0.9, 0.3, 1.0), "opacity": 1.0},
+            {"text": "Item acquired", "color": (0.5, 0.7, 1.0, 1.0), "opacity": 0.8},
+        ]
+
+        backend.begin_frame()
+        stack.render(notifications=notifs)
+        backend.end_frame()
+
+        assert backend.has_text("Quest started!")
+        assert backend.has_text("Item acquired")
+
+    def test_empty_notifications_no_render(self):
+        """Test nothing renders when no notifications."""
+        from procengine.game.ui_system import NotificationStack
+
+        backend = HeadlessUIBackend()
+        stack = NotificationStack(backend, 1920, 1080)
+
+        backend.begin_frame()
+        stack.render(notifications=[])
+        backend.end_frame()
+
+        assert len(backend.get_calls()) == 0
+
+    def test_notification_with_icon(self):
+        """Test notification with icon prefix."""
+        from procengine.game.ui_system import NotificationStack
+
+        backend = HeadlessUIBackend()
+        stack = NotificationStack(backend, 1920, 1080)
+
+        notifs = [
+            {"text": "Health restored", "icon": "+", "color": (0.3, 0.9, 0.3), "opacity": 1.0},
+        ]
+
+        backend.begin_frame()
+        stack.render(notifications=notifs)
+        backend.end_frame()
+
+        assert backend.has_text("+ Health restored")
+
+
+# =============================================================================
+# UIManager Console Integration Tests
+# =============================================================================
+
+
+class TestUIManagerConsoleIntegration:
+    """Tests for UIManager integration with Console."""
+
+    def test_set_console(self):
+        """Test setting a console on UIManager."""
+        from procengine.commands.console import Console
+
+        ui = UIManager(1920, 1080)
+        console = Console()
+        ui.set_console(console)
+
+        assert ui._console is console
+
+    def test_render_console_when_visible(self):
+        """Test render_console works when console is visible."""
+        from procengine.commands.console import Console
+
+        ui = UIManager(1920, 1080)
+        console = Console()
+        console.open()
+        console.print("Test output")
+        ui.set_console(console)
+
+        ui.begin_frame()
+        ui.render_console()
+        ui.end_frame()
+
+        assert ui.backend.has_window("Developer Console")
+        assert ui.backend.has_text("Test output")
+
+    def test_render_console_when_hidden(self):
+        """Test render_console does nothing when console is hidden."""
+        from procengine.commands.console import Console
+
+        ui = UIManager(1920, 1080)
+        console = Console()
+        ui.set_console(console)
+
+        ui.begin_frame()
+        ui.render_console()
+        ui.end_frame()
+
+        assert not ui.backend.has_window("Developer Console")

@@ -16,6 +16,14 @@ from procengine.commands.commands import (
     Category,
     registry,
 )
+from procengine.commands.console import (
+    Console,
+    ConsoleConfig,
+    ConsoleLine,
+    TextInputBuffer,
+    Notification,
+    NotificationType,
+)
 
 __all__ = [
     "CommandRegistry",
@@ -25,4 +33,10 @@ __all__ = [
     "AccessLevel",
     "Category",
     "registry",
+    "Console",
+    "ConsoleConfig",
+    "ConsoleLine",
+    "TextInputBuffer",
+    "Notification",
+    "NotificationType",
 ]

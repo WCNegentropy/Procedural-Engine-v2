@@ -256,6 +256,80 @@ def cmd_player_speed(speed: float) -> CommandResult:
     return CommandResult.ok(f"Movement speed set to {speed}")
 
 
+@command(
+    name="player.use",
+    description="Use an item from inventory",
+    category=Category.PLAYER,
+    access=AccessLevel.PUBLIC,
+    examples=["player.use health_potion"],
+)
+def cmd_player_use(item_id: str) -> CommandResult:
+    """Use an item from the player's inventory."""
+    ctx = registry.get_context()
+    if not ctx or not hasattr(ctx, "world"):
+        return CommandResult.error("No game context")
+
+    player = ctx.world.get_player()
+    if not player:
+        return CommandResult.error("No player")
+
+    if not player.inventory.has_item(item_id):
+        return CommandResult.error(f"No {item_id} in inventory")
+
+    # Look up item definition for effects
+    item_def = ctx.world.get_item_definition(item_id)
+    item_name = item_def.name if item_def else item_id
+
+    # Apply item effects based on type
+    if item_def and hasattr(item_def, "properties"):
+        props = item_def.properties if isinstance(item_def.properties, dict) else {}
+        heal_amount = props.get("heal", 0)
+        if heal_amount:
+            player.heal(heal_amount)
+            player.inventory.remove_item(item_id, 1)
+            return CommandResult.ok(
+                f"Used {item_name}: healed {heal_amount} HP",
+                data={"item_id": item_id, "effect": "heal", "amount": heal_amount},
+            )
+
+    # Generic use: consume one unit
+    player.inventory.remove_item(item_id, 1)
+    return CommandResult.ok(
+        f"Used {item_name}",
+        data={"item_id": item_id},
+    )
+
+
+@command(
+    name="player.drop",
+    description="Drop an item from inventory",
+    category=Category.PLAYER,
+    access=AccessLevel.PUBLIC,
+    examples=["player.drop gold 10", "player.drop health_potion"],
+)
+def cmd_player_drop(item_id: str, count: int = 1) -> CommandResult:
+    """Drop an item from the player's inventory."""
+    ctx = registry.get_context()
+    if not ctx or not hasattr(ctx, "world"):
+        return CommandResult.error("No game context")
+
+    player = ctx.world.get_player()
+    if not player:
+        return CommandResult.error("No player")
+
+    if not player.inventory.has_item(item_id):
+        return CommandResult.error(f"No {item_id} in inventory")
+
+    removed = player.inventory.remove_item(item_id, count)
+    item_def = ctx.world.get_item_definition(item_id)
+    item_name = item_def.name if item_def else item_id
+
+    return CommandResult.ok(
+        f"Dropped {removed} {item_name}",
+        data={"item_id": item_id, "count": removed},
+    )
+
+
 # =============================================================================
 # NPC Commands
 # =============================================================================
@@ -927,6 +1001,49 @@ def cmd_ui_console() -> CommandResult:
     
     # Just report that we would toggle the console
     return CommandResult.ok("Console toggled")
+
+
+@command(
+    name="ui.quest_log",
+    description="Toggle quest log",
+    category=Category.UI,
+    access=AccessLevel.PUBLIC,
+    aliases=["journal"],
+)
+def cmd_ui_quest_log() -> CommandResult:
+    """Toggle quest log panel."""
+    ctx = registry.get_context()
+    if not ctx:
+        return CommandResult.error("No game context")
+
+    if hasattr(ctx, "ui_manager") and ctx.ui_manager:
+        ql = ctx.ui_manager.quest_log
+        ql.visible = not ql.visible
+        state = "opened" if ql.visible else "closed"
+        return CommandResult.ok(f"Quest log {state}")
+
+    return CommandResult.error("Quest log UI not available")
+
+
+@command(
+    name="ui.debug",
+    description="Toggle debug overlay",
+    category=Category.UI,
+    access=AccessLevel.PUBLIC,
+    aliases=["f3"],
+)
+def cmd_ui_debug() -> CommandResult:
+    """Toggle debug overlay."""
+    ctx = registry.get_context()
+    if not ctx:
+        return CommandResult.error("No game context")
+
+    if hasattr(ctx, "_toggle_debug_overlay"):
+        ctx._toggle_debug_overlay()
+        enabled = ctx.flags.get("debug_overlay", False)
+        return CommandResult.ok(f"Debug overlay {'enabled' if enabled else 'disabled'}")
+
+    return CommandResult.error("Debug overlay not available")
 
 
 # =============================================================================

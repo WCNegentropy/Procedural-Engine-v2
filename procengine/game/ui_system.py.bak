@@ -1,23 +1,19 @@
 """UI system with Dear ImGui integration.
 
 This module provides game UI components:
-- HUD (health bar, stamina, quest tracker, interaction prompt, status bar)
-- DialogueBox for NPC conversations with animated text
-- InventoryPanel for item management with tooltips
+- HUD (health bar, minimap, quest tracker)
+- DialogueBox for NPC conversations
+- InventoryPanel for item management
 - QuestLog for tracking objectives
 - PauseMenu for game state control
-- SettingsPanel for options
 - DebugOverlay for development
-- ConsoleWindow for the developer console
-- NotificationStack for game event notifications
-- Tooltip for context-sensitive help
 
 The system abstracts Dear ImGui to allow:
 - Full rendering when ImGui is available
 - Headless mode for testing without graphics
 
 Usage:
-    from procengine.game.ui_system import UIManager
+    from ui_system import UIManager
 
     ui = UIManager(1920, 1080)
     ui.set_world(game_world)
@@ -50,104 +46,8 @@ __all__ = [
     "SettingsPanel",
     "DebugOverlay",
     "ConsoleWindow",
-    "NotificationStack",
     "ImGuiBackend",
-    "HeadlessUIBackend",
 ]
-
-
-# =============================================================================
-# Window Flags (match ImGuiWindowFlags)
-# =============================================================================
-
-_NO_DECORATION_FLAGS = 1   # No title bar, resize, etc.
-_NO_RESIZE_FLAGS = 2       # No resize
-
-
-# =============================================================================
-# UI Layout Constants
-# =============================================================================
-
-_CHAR_WIDTH_ESTIMATE = 8    # Estimated pixel width per character
-_PROMPT_PADDING = 40        # Extra padding for interaction prompts
-_PROMPT_MIN_WIDTH = 200     # Minimum prompt window width
-
-
-# =============================================================================
-# FPS Performance Thresholds
-# =============================================================================
-
-_FPS_GOOD_THRESHOLD = 55    # Above this = green (good)
-_FPS_WARNING_THRESHOLD = 30 # Above this = yellow, below = red
-
-
-# =============================================================================
-# UI Color Palette — Indie RPG theme
-# =============================================================================
-
-# Performance colors
-_COLOR_FPS_GOOD = (0.30, 0.90, 0.30)
-_COLOR_FPS_WARNING = (0.95, 0.85, 0.25)
-_COLOR_FPS_BAD = (0.95, 0.30, 0.30)
-
-# Player state colors
-_COLOR_GROUNDED = (0.30, 0.90, 0.30)
-_COLOR_AIRBORNE = (0.55, 0.55, 0.90)
-
-# HUD colors
-_COLOR_HEALTH_HIGH = (0.20, 0.80, 0.25)
-_COLOR_HEALTH_MID = (0.90, 0.85, 0.20)
-_COLOR_HEALTH_LOW = (0.90, 0.25, 0.20)
-_COLOR_HEALTH_BG = (0.25, 0.08, 0.08)
-_COLOR_XP_BAR = (0.30, 0.50, 0.90)
-
-# Interaction prompt colors
-_COLOR_NPC_PROMPT = (1.0, 0.85, 0.40)
-_COLOR_PROP_PROMPT = (0.60, 0.80, 1.0)
-_COLOR_ITEM_PROMPT = (0.55, 0.85, 1.0)
-
-# Section header
-_COLOR_SECTION_HEADER = (0.80, 0.80, 0.30)
-
-# Target
-_COLOR_TARGET = (0.90, 0.70, 0.30)
-
-# Dialogue colors
-_COLOR_NPC_NAME = (0.95, 0.75, 0.30)
-_COLOR_DIALOGUE_TEXT = (0.92, 0.92, 0.92)
-_COLOR_OPTION_NORMAL = (0.80, 0.85, 0.95)
-_COLOR_OPTION_HOVER = (1.0, 1.0, 0.60)
-_COLOR_CONTINUE = (0.60, 0.65, 0.75)
-
-# Inventory colors
-_COLOR_ITEM_SELECTED = (1.0, 1.0, 0.50)
-_COLOR_ITEM_NORMAL = (0.85, 0.85, 0.85)
-_COLOR_ITEM_COUNT = (0.65, 0.65, 0.70)
-_COLOR_ITEM_DESC = (0.70, 0.70, 0.75)
-
-# Quest colors
-_COLOR_QUEST_ACTIVE = (1.0, 0.85, 0.25)
-_COLOR_QUEST_COMPLETE = (0.45, 0.80, 0.45)
-_COLOR_QUEST_FAILED = (0.80, 0.35, 0.35)
-_COLOR_OBJ_DONE = (0.50, 0.80, 0.50)
-_COLOR_OBJ_PENDING = (0.80, 0.80, 0.80)
-
-# Console colors
-_COLOR_CONSOLE_BG = (0.08, 0.08, 0.10, 0.92)
-_COLOR_CONSOLE_PROMPT = (0.50, 0.70, 1.0)
-_COLOR_CONSOLE_INPUT = (0.75, 0.80, 1.0)
-_COLOR_CONSOLE_AC = (0.55, 0.55, 0.65)
-_COLOR_CONSOLE_AC_HL = (0.85, 0.85, 1.0)
-
-# Menu/Button colors
-_COLOR_BUTTON_TEXT = (0.92, 0.92, 0.92)
-_COLOR_TITLE = (0.95, 0.90, 0.70)
-_COLOR_SUBTITLE = (0.70, 0.70, 0.75)
-
-# Status bar
-_COLOR_STATUS_BG = (0.10, 0.10, 0.12, 0.75)
-_COLOR_STATUS_TEXT = (0.70, 0.72, 0.75)
-_COLOR_STATUS_HIGHLIGHT = (0.85, 0.85, 0.95)
 
 
 # =============================================================================
@@ -264,15 +164,6 @@ class UIBackend(ABC):
         """Set cursor position within window."""
         pass
 
-    def input_text(self, label: str, text: str, buffer_size: int = 256) -> Tuple[bool, str]:
-        """Render text input field. Returns (changed, new_text).
-
-        Default fallback for UI backends that do not support native text input.
-        The ConsoleWindow component handles input via the Console + TextInputBuffer
-        pipeline and does not rely on this method.
-        """
-        return (False, text)
-
 
 class HeadlessUIBackend(UIBackend):
     """Headless UI backend for testing.
@@ -286,7 +177,6 @@ class HeadlessUIBackend(UIBackend):
         self._in_frame: bool = False
         self._window_stack: List[str] = []
         self._button_responses: Dict[str, bool] = {}
-        self._input_text_values: Dict[str, str] = {}
 
     def begin_frame(
         self,
@@ -373,16 +263,7 @@ class HeadlessUIBackend(UIBackend):
     def set_cursor_pos(self, x: float, y: float) -> None:
         self._record("set_cursor_pos", x=x, y=y)
 
-    def input_text(self, label: str, text: str, buffer_size: int = 256) -> Tuple[bool, str]:
-        self._record("input_text", label=label, text=text)
-        new_val = self._input_text_values.get(label)
-        if new_val is not None:
-            return (True, new_val)
-        return (False, text)
-
-    # -------------------------------------------------------------------------
-    # Testing Helpers
-    # -------------------------------------------------------------------------
+    # Testing helpers
 
     def get_calls(self) -> List[Dict[str, Any]]:
         """Get all recorded calls."""
@@ -400,10 +281,6 @@ class HeadlessUIBackend(UIBackend):
     def set_button_response(self, label: str, clicked: bool) -> None:
         """Set simulated button click response."""
         self._button_responses[label] = clicked
-
-    def set_input_text_value(self, label: str, value: str) -> None:
-        """Set simulated text input value."""
-        self._input_text_values[label] = value
 
     def find_calls(self, call_type: str) -> List[Dict[str, Any]]:
         """Find all calls of a specific type."""
@@ -512,11 +389,6 @@ class ImGuiBackend(UIBackend):
     def set_cursor_pos(self, x: float, y: float) -> None:
         self._cpp.imgui_set_cursor_pos(x, y)
 
-    def input_text(self, label: str, text: str, buffer_size: int = 256) -> Tuple[bool, str]:
-        if hasattr(self._cpp, "imgui_input_text"):
-            return self._cpp.imgui_input_text(label, text, buffer_size)
-        return (False, text)
-
 
 # =============================================================================
 # UI Components
@@ -544,20 +416,8 @@ class UIComponent(ABC):
         pass
 
 
-# =============================================================================
-# HUD — Heads-Up Display
-# =============================================================================
-
-
 class HUD(UIComponent):
-    """Heads-up display showing health bar, quest tracker, and interaction prompt.
-
-    Layout:
-    - Top-left: Health bar with numeric display
-    - Top-right: Active quest tracker (max 3 quests)
-    - Bottom-center: "[E] Action Entity" interaction prompt
-    - Bottom-left: Status bar (time of day, biome)
-    """
+    """Heads-up display showing health, minimap, and quest tracker."""
 
     def __init__(
         self,
@@ -586,150 +446,98 @@ class HUD(UIComponent):
         if interaction_target:
             self._render_interaction_prompt(interaction_target)
 
-        # Status bar (bottom-left)
-        time_of_day = kwargs.get("time_of_day")
-        biome_name = kwargs.get("biome_name")
-        if time_of_day is not None or biome_name:
-            self._render_status_bar(time_of_day, biome_name)
-
     def _render_health_bar(self, player: "Player") -> None:
-        """Render health bar with color gradient."""
+        """Render health bar."""
         self._backend.begin_window(
             "##HealthBar",
             10, 10,
-            220, 70,
+            200, 60,
             flags=_NO_DECORATION_FLAGS,
         )
 
         health_fraction = player.health / player.max_health if player.max_health > 0 else 0
 
-        # Health label with numeric display
-        self._backend.text_colored(
-            f"HP  {int(player.health)} / {int(player.max_health)}",
-            *_COLOR_HEALTH_HIGH if health_fraction > 0.5
-            else _COLOR_HEALTH_MID if health_fraction > 0.25
-            else _COLOR_HEALTH_LOW,
-        )
+        # Health label
+        self._backend.text(f"Health: {int(player.health)}/{int(player.max_health)}")
 
-        # Health bar
-        self._backend.progress_bar(health_fraction, 200, 16)
+        # Health bar with color based on health level
+        if health_fraction > 0.5:
+            self._backend.text_colored("", 0.2, 0.8, 0.2)  # Green
+        elif health_fraction > 0.25:
+            self._backend.text_colored("", 0.8, 0.8, 0.2)  # Yellow
+        else:
+            self._backend.text_colored("", 0.8, 0.2, 0.2)  # Red
+
+        self._backend.progress_bar(health_fraction, 180, 20)
 
         self._backend.end_window()
 
     def _render_quest_tracker(self, quests: List["Quest"]) -> None:
-        """Render compact quest tracker in top-right corner."""
+        """Render quest tracker."""
         self._backend.begin_window(
             "Quest Tracker",
-            self._screen_width - 280, 10,
-            270, 180,
+            self._screen_width - 260, 10,
+            250, 200,
             flags=_NO_RESIZE_FLAGS,
         )
 
-        self._backend.text_colored("Active Quests", *_COLOR_QUEST_ACTIVE)
-        self._backend.separator()
-
         for quest in quests[:3]:  # Show max 3 quests
-            completed, total = quest.get_progress()
-            progress_text = f"({completed}/{total})"
-            self._backend.text_colored(
-                f"  {quest.title} {progress_text}",
-                *_COLOR_QUEST_ACTIVE,
-            )
+            self._backend.text_colored(quest.title, 1.0, 0.8, 0.2)
 
             for obj in quest.objectives:
                 if obj.is_complete():
                     self._backend.text_colored(
-                        f"    [x] {obj.description}",
-                        *_COLOR_OBJ_DONE,
+                        f"  [x] {obj.description}",
+                        0.5, 0.8, 0.5,
                     )
                 else:
                     self._backend.text(
-                        f"    [ ] {obj.description} ({obj.current_count}/{obj.required_count})"
+                        f"  [ ] {obj.description} ({obj.current_count}/{obj.required_count})"
                     )
 
-            self._backend.spacing()
+            self._backend.separator()
 
         self._backend.end_window()
 
     def _render_interaction_prompt(self, target: "InteractionTarget") -> None:
-        """Render interaction prompt at bottom-center.
-
+        """Render interaction prompt.
+        
         Parameters
         ----------
         target:
-            The interaction target with entity_name, action_text, entity_type.
+            The interaction target containing entity info and action text.
+            Expected to have: entity_name, action_text, entity_type, distance
         """
+        # Calculate prompt width based on content
+        # Format: "[E] Action Entity Name"
         prompt_text = f"[E] {target.action_text} {target.entity_name}"
         prompt_width = max(
-            _PROMPT_MIN_WIDTH,
-            len(prompt_text) * _CHAR_WIDTH_ESTIMATE + _PROMPT_PADDING,
+            _PROMPT_MIN_WIDTH, 
+            len(prompt_text) * _CHAR_WIDTH_ESTIMATE + _PROMPT_PADDING
         )
-
+        
         self._backend.begin_window(
             "##InteractionPrompt",
             (self._screen_width - prompt_width) / 2,
             self._screen_height - 100,
-            prompt_width, 45,
+            prompt_width, 50,
             flags=_NO_DECORATION_FLAGS,
         )
 
         # Color based on entity type
-        color_map = {
-            "npc": _COLOR_NPC_PROMPT,
-            "prop": _COLOR_PROP_PROMPT,
-            "item": _COLOR_ITEM_PROMPT,
-        }
-        color = color_map.get(target.entity_type, (1.0, 1.0, 1.0))
-        self._backend.text_colored(prompt_text, *color)
+        if target.entity_type == "npc":
+            self._backend.text_colored(prompt_text, *_COLOR_NPC_PROMPT)
+        elif target.entity_type == "prop":
+            self._backend.text_colored(prompt_text, *_COLOR_PROP_PROMPT)
+        else:
+            # White default
+            self._backend.text(prompt_text)
 
         self._backend.end_window()
-
-    def _render_status_bar(
-        self,
-        time_of_day: Optional[float],
-        biome_name: Optional[str],
-    ) -> None:
-        """Render status bar at bottom-left with time and biome info."""
-        parts: List[str] = []
-        if time_of_day is not None:
-            hours = int(time_of_day) % 24
-            minutes = int((time_of_day % 1) * 60)
-            period = "AM" if hours < 12 else "PM"
-            display_hour = hours % 12 or 12
-            parts.append(f"{display_hour}:{minutes:02d} {period}")
-        if biome_name:
-            parts.append(biome_name)
-
-        if not parts:
-            return
-
-        status_text = "  |  ".join(parts)
-        bar_width = max(200, len(status_text) * _CHAR_WIDTH_ESTIMATE + 30)
-
-        self._backend.begin_window(
-            "##StatusBar",
-            10, self._screen_height - 40,
-            bar_width, 30,
-            flags=_NO_DECORATION_FLAGS,
-        )
-        self._backend.text_colored(status_text, *_COLOR_STATUS_TEXT)
-        self._backend.end_window()
-
-
-# =============================================================================
-# DialogueBox
-# =============================================================================
 
 
 class DialogueBox(UIComponent):
-    """Dialogue box for NPC conversations.
-
-    Features:
-    - NPC name with gold accent
-    - Scrollable dialogue text area
-    - Numbered dialogue options styled as buttons
-    - "[SPACE] Continue..." prompt when no options
-    """
+    """Dialogue box for NPC conversations."""
 
     def __init__(
         self,
@@ -770,8 +578,8 @@ class DialogueBox(UIComponent):
         if not self._visible or not self._current_npc:
             return
 
-        box_width = min(650, self._screen_width - 40)
-        box_height = 220
+        box_width = min(600, self._screen_width - 40)
+        box_height = 200
         box_x = (self._screen_width - box_width) / 2
         box_y = self._screen_height - box_height - 20
 
@@ -782,27 +590,16 @@ class DialogueBox(UIComponent):
             flags=_NO_RESIZE_FLAGS,
         )
 
-        # NPC name header
-        self._backend.text_colored(self._current_npc.name, *_COLOR_NPC_NAME)
+        # NPC name
+        self._backend.text_colored(
+            self._current_npc.name,
+            0.9, 0.7, 0.3,
+        )
         self._backend.separator()
 
-        # Dialogue text region
+        # Dialogue text
         self._backend.spacing()
-        # Wrap long text
-        words = self._current_text.split()
-        line = ""
-        chars_per_line = int((box_width - 40) / _CHAR_WIDTH_ESTIMATE)
-        for word in words:
-            test = f"{line} {word}".strip()
-            if len(test) > chars_per_line:
-                if line:
-                    self._backend.text_colored(line, *_COLOR_DIALOGUE_TEXT)
-                line = word
-            else:
-                line = test
-        if line:
-            self._backend.text_colored(line, *_COLOR_DIALOGUE_TEXT)
-
+        self._backend.text(self._current_text)
         self._backend.spacing()
 
         # Options or continue prompt
@@ -810,14 +607,13 @@ class DialogueBox(UIComponent):
             self._backend.separator()
             for i, option in enumerate(self._current_options):
                 label = option.get("label", f"Option {i + 1}")
-                btn_label = f"  [{i + 1}] {label}  "
-                if self._backend.button(btn_label, box_width - 30, 28):
+                if self._backend.button(f"[{i + 1}] {label}", box_width - 20):
                     self._selected_option = i
                     if self._on_option_selected:
                         self._on_option_selected(i)
         else:
             self._backend.separator()
-            self._backend.text_colored("[SPACE] Continue...", *_COLOR_CONTINUE)
+            self._backend.text("[SPACE] Continue...")
 
         self._backend.end_window()
 
@@ -834,20 +630,8 @@ class DialogueBox(UIComponent):
                 self._on_option_selected(index)
 
 
-# =============================================================================
-# InventoryPanel
-# =============================================================================
-
-
 class InventoryPanel(UIComponent):
-    """Inventory panel showing player items with details and actions.
-
-    Features:
-    - Scrollable item list with counts
-    - Item selection highlighting
-    - Item description tooltip area
-    - Use / Drop / Close action buttons
-    """
+    """Inventory panel showing player items."""
 
     def __init__(
         self,
@@ -871,8 +655,8 @@ class InventoryPanel(UIComponent):
         if not self._visible or not player:
             return
 
-        panel_width = 420
-        panel_height = 520
+        panel_width = 400
+        panel_height = 500
         panel_x = (self._screen_width - panel_width) / 2
         panel_y = (self._screen_height - panel_height) / 2
 
@@ -883,77 +667,48 @@ class InventoryPanel(UIComponent):
             flags=0,
         )
 
-        self._backend.text_colored("Inventory", *_COLOR_TITLE)
-        self._backend.separator()
-
-        # Item list scrollable region
-        list_height = panel_height - 180
-        self._backend.begin_child("ItemList", panel_width - 20, list_height, border=True)
+        # Item list
+        self._backend.begin_child("ItemList", panel_width - 20, panel_height - 100, border=True)
 
         items = player.inventory.get_all_items()
         if not items:
-            self._backend.spacing()
-            self._backend.text_colored("  (Empty)", *_COLOR_SUBTITLE)
+            self._backend.text("(Empty)")
         else:
             for item_id, count in items.items():
                 item_def = self._item_definitions.get(item_id, {})
-                if isinstance(item_def, dict):
-                    item_name = item_def.get("name", item_id)
-                else:
-                    item_name = item_id
+                item_name = item_def.get("name", item_id) if isinstance(item_def, dict) else item_id
 
-                is_selected = item_id == self._selected_item
-
-                # Item entry with selection highlighting
-                if is_selected:
-                    self._backend.text_colored(
-                        f"> {item_name}", *_COLOR_ITEM_SELECTED,
-                    )
-                    self._backend.same_line()
-                    self._backend.text_colored(f"  x{count}", *_COLOR_ITEM_COUNT)
+                # Highlight selected item
+                if item_id == self._selected_item:
+                    self._backend.text_colored(f"> {item_name} x{count}", 1.0, 1.0, 0.5)
                 else:
-                    if self._backend.button(f"  {item_name}  x{count}##inv_{item_id}", panel_width - 40):
-                        self._selected_item = item_id
+                    self._backend.text(f"  {item_name} x{count}")
+
+                # Make clickable (simulated with button in headless)
+                # In real ImGui, this would be a Selectable
 
         self._backend.end_child()
 
-        # Item description area
-        if self._selected_item:
-            item_def = self._item_definitions.get(self._selected_item, {})
-            desc = ""
-            if isinstance(item_def, dict):
-                desc = item_def.get("description", "")
-            if desc:
-                self._backend.spacing()
-                self._backend.text_colored(desc, *_COLOR_ITEM_DESC)
-
-        # Action buttons row
+        # Action buttons
         self._backend.separator()
-        self._backend.spacing()
-
-        if self._backend.button("Use", 90, 30):
+        if self._backend.button("Use", 80):
             if self._selected_item and self._on_item_use:
                 self._on_item_use(self._selected_item)
 
         self._backend.same_line()
-        if self._backend.button("Drop", 90, 30):
+        if self._backend.button("Drop", 80):
             if self._selected_item and self._on_item_drop:
                 self._on_item_drop(self._selected_item)
 
         self._backend.same_line()
-        if self._backend.button("Close", 90, 30):
+        if self._backend.button("Close", 80):
             self._visible = False
 
         self._backend.end_window()
 
 
-# =============================================================================
-# QuestLog
-# =============================================================================
-
-
 class QuestLog(UIComponent):
-    """Quest log showing active and completed quests with objectives."""
+    """Quest log showing all quests."""
 
     def __init__(
         self,
@@ -978,8 +733,8 @@ class QuestLog(UIComponent):
         active_quests = active_quests or []
         completed_quests = completed_quests or []
 
-        panel_width = 520
-        panel_height = 440
+        panel_width = 500
+        panel_height = 400
         panel_x = (self._screen_width - panel_width) / 2
         panel_y = (self._screen_height - panel_height) / 2
 
@@ -990,12 +745,8 @@ class QuestLog(UIComponent):
             flags=0,
         )
 
-        self._backend.text_colored("Quest Log", *_COLOR_TITLE)
-        self._backend.separator()
-
-        # --- Active quests ---
-        self._backend.spacing()
-        self._backend.text_colored("Active Quests", *_COLOR_QUEST_ACTIVE)
+        # Active quests section
+        self._backend.text_colored("Active Quests", 1.0, 0.8, 0.2)
         self._backend.separator()
 
         if not active_quests:
@@ -1005,10 +756,9 @@ class QuestLog(UIComponent):
                 self._render_quest_entry(quest, completed=False)
 
         self._backend.spacing()
-        self._backend.spacing()
 
-        # --- Completed quests ---
-        self._backend.text_colored("Completed Quests", *_COLOR_QUEST_COMPLETE)
+        # Completed quests section
+        self._backend.text_colored("Completed Quests", 0.5, 0.8, 0.5)
         self._backend.separator()
 
         if not completed_quests:
@@ -1018,54 +768,31 @@ class QuestLog(UIComponent):
                 self._render_quest_entry(quest, completed=True)
 
         self._backend.spacing()
-        if self._backend.button("Close", 100, 28):
+        if self._backend.button("Close", 80):
             self._visible = False
 
         self._backend.end_window()
 
     def _render_quest_entry(self, quest: "Quest", completed: bool) -> None:
-        """Render a single quest entry with expandable objectives."""
+        """Render a single quest entry."""
         if completed:
-            self._backend.text_colored(f"  [x] {quest.title}", *_COLOR_QUEST_COMPLETE)
+            self._backend.text_colored(f"  [x] {quest.title}", 0.6, 0.6, 0.6)
         else:
             is_selected = quest.quest_id == self._selected_quest
-            progress = quest.get_progress()
-
             if is_selected:
-                self._backend.text_colored(
-                    f"  > {quest.title}  ({progress[0]}/{progress[1]})",
-                    *_COLOR_QUEST_ACTIVE,
-                )
-                # Show objectives when selected
+                self._backend.text_colored(f"  > {quest.title}", 1.0, 1.0, 0.5)
+
+                # Show objectives for selected quest
                 for obj in quest.objectives:
-                    if obj.is_complete():
-                        self._backend.text_colored(
-                            f"      [x] {obj.description}",
-                            *_COLOR_OBJ_DONE,
-                        )
-                    else:
-                        self._backend.text_colored(
-                            f"      [ ] {obj.description} ({obj.current_count}/{obj.required_count})",
-                            *_COLOR_OBJ_PENDING,
-                        )
+                    status = "[x]" if obj.is_complete() else "[ ]"
+                    self._backend.text(f"      {status} {obj.description}")
             else:
-                if self._backend.button(
-                    f"    {quest.title}  ({progress[0]}/{progress[1]})##q_{quest.quest_id}",
-                    0, 24,
-                ):
-                    self._selected_quest = quest.quest_id
-
-
-# =============================================================================
-# PauseMenu
-# =============================================================================
+                progress = quest.get_progress()
+                self._backend.text(f"    {quest.title} ({progress[0]}/{progress[1]})")
 
 
 class PauseMenu(UIComponent):
-    """Pause menu with game options.
-
-    Styled as a centered overlay with large buttons.
-    """
+    """Pause menu with game options."""
 
     def __init__(
         self,
@@ -1086,8 +813,8 @@ class PauseMenu(UIComponent):
         if not self._visible:
             return
 
-        menu_width = 320
-        menu_height = 340
+        menu_width = 300
+        menu_height = 300
         menu_x = (self._screen_width - menu_width) / 2
         menu_y = (self._screen_height - menu_height) / 2
 
@@ -1098,14 +825,9 @@ class PauseMenu(UIComponent):
             flags=_NO_RESIZE_FLAGS,
         )
 
-        # Title
-        self._backend.spacing()
-        self._backend.text_colored("    PAUSED", *_COLOR_TITLE)
-        self._backend.spacing()
-        self._backend.separator()
         self._backend.spacing()
 
-        button_width = menu_width - 50
+        button_width = menu_width - 40
 
         if self._backend.button("Resume", button_width, 40):
             if self._on_resume:
@@ -1130,19 +852,12 @@ class PauseMenu(UIComponent):
                 self._on_settings()
 
         self._backend.spacing()
-        self._backend.separator()
-        self._backend.spacing()
 
         if self._backend.button("Quit to Desktop", button_width, 40):
             if self._on_quit:
                 self._on_quit()
 
         self._backend.end_window()
-
-
-# =============================================================================
-# SettingsPanel
-# =============================================================================
 
 
 class SettingsPanel(UIComponent):
@@ -1181,8 +896,8 @@ class SettingsPanel(UIComponent):
         if not self._visible:
             return
 
-        panel_width = 380
-        panel_height = 340
+        panel_width = 360
+        panel_height = 320
         panel_x = (self._screen_width - panel_width) / 2
         panel_y = (self._screen_height - panel_height) / 2
 
@@ -1193,32 +908,28 @@ class SettingsPanel(UIComponent):
             flags=_NO_RESIZE_FLAGS,
         )
 
-        self._backend.text_colored("Settings", *_COLOR_TITLE)
+        self._backend.text_colored("Settings", *_COLOR_SECTION_HEADER)
         self._backend.separator()
         self._backend.spacing()
 
-        # --- Graphics section ---
         self._backend.text_colored("Graphics", *_COLOR_SECTION_HEADER)
         self._backend.spacing()
 
-        button_width = panel_width - 50
-
-        debug_label = f"Debug Overlay:  {'ON' if debug_enabled else 'OFF'}"
+        button_width = panel_width - 40
+        debug_label = f"Debug Overlay: {'On' if debug_enabled else 'Off'}"
         if self._backend.button(debug_label, button_width, 30):
             if self._on_toggle_debug:
                 self._on_toggle_debug()
 
         self._backend.spacing()
 
-        vsync_label = f"VSync:  {'ON' if vsync_enabled else 'OFF'}"
+        vsync_label = f"VSync: {'On' if vsync_enabled else 'Off'}"
         if self._backend.button(vsync_label, button_width, 30):
             if self._on_toggle_vsync:
                 self._on_toggle_vsync()
 
         self._backend.spacing()
         self._backend.separator()
-        self._backend.spacing()
-
         if self._backend.button("Back", 120, 30):
             self._visible = False
             if self._on_close:
@@ -1227,14 +938,9 @@ class SettingsPanel(UIComponent):
         self._backend.end_window()
 
 
-# =============================================================================
-# DebugOverlay
-# =============================================================================
-
-
 class DebugOverlay(UIComponent):
     """Debug overlay showing FPS, player stats, and developer tools.
-
+    
     This component provides essential development/debugging information:
     - FPS counter and frame number
     - Player position (X, Y, Z)
@@ -1242,7 +948,7 @@ class DebugOverlay(UIComponent):
     - Biome info at player location
     - Memory/performance hints
     - Reset World button for testing
-
+    
     Toggle with F3 key (configurable in InputManager).
     """
 
@@ -1257,7 +963,7 @@ class DebugOverlay(UIComponent):
         self._screen_height = screen_height
         self._on_reset_world: Optional[Callable[[], None]] = None
         self._on_toggle_physics_debug: Optional[Callable[[], None]] = None
-        self._show_advanced: bool = False
+        self._show_advanced: bool = False  # Toggle for advanced stats
 
     def set_callbacks(
         self,
@@ -1265,7 +971,7 @@ class DebugOverlay(UIComponent):
         on_toggle_physics_debug: Optional[Callable[[], None]] = None,
     ) -> None:
         """Set debug action callbacks.
-
+        
         Parameters
         ----------
         on_reset_world:
@@ -1286,11 +992,10 @@ class DebugOverlay(UIComponent):
         physics_active: bool = True,
         grounded: bool = False,
         interaction_target: Optional[str] = None,
-        chunk_info: Optional[str] = None,
         **kwargs: Any,
     ) -> None:
         """Render debug overlay.
-
+        
         Parameters
         ----------
         fps:
@@ -1309,91 +1014,75 @@ class DebugOverlay(UIComponent):
             Whether player is grounded.
         interaction_target:
             Name of entity player can interact with (if any).
-        chunk_info:
-            Optional chunk loading info string.
         """
         if not self._visible:
             return
 
-        window_width = 240
-        window_height = 220 if self._show_advanced else 180
+        # Calculate window size based on content
+        window_width = 220
+        window_height = 200 if self._show_advanced else 160
 
         self._backend.begin_window(
             "Debug",
-            self._screen_width - window_width - 10,
+            self._screen_width - window_width - 10, 
             self._screen_height - window_height - 10,
             window_width, window_height,
             flags=_NO_RESIZE_FLAGS,
         )
 
-        # === Performance ===
-        self._backend.text_colored("Performance", *_COLOR_SECTION_HEADER)
-
+        # Performance section
+        self._backend.text_colored("=== Performance ===", *_COLOR_SECTION_HEADER)
+        
+        # Color FPS based on performance
         if fps >= _FPS_GOOD_THRESHOLD:
-            self._backend.text_colored(f"  FPS: {fps:.1f}", *_COLOR_FPS_GOOD)
+            self._backend.text_colored(f"FPS: {fps:.1f}", *_COLOR_FPS_GOOD)
         elif fps >= _FPS_WARNING_THRESHOLD:
-            self._backend.text_colored(f"  FPS: {fps:.1f}", *_COLOR_FPS_WARNING)
+            self._backend.text_colored(f"FPS: {fps:.1f}", *_COLOR_FPS_WARNING)
         else:
-            self._backend.text_colored(f"  FPS: {fps:.1f}", *_COLOR_FPS_BAD)
+            self._backend.text_colored(f"FPS: {fps:.1f}", *_COLOR_FPS_BAD)
+            
+        self._backend.text(f"Frame: {frame_count}")
 
-        self._backend.text(f"  Frame: {frame_count}")
-
-        # === Player ===
+        # Player section
         self._backend.separator()
-        self._backend.text_colored("Player", *_COLOR_SECTION_HEADER)
-
+        self._backend.text_colored("=== Player ===", *_COLOR_SECTION_HEADER)
+        
         if player_pos:
-            self._backend.text(
-                f"  Pos: ({player_pos[0]:.1f}, {player_pos[1]:.1f}, {player_pos[2]:.1f})"
-            )
-
+            self._backend.text(f"Pos: ({player_pos[0]:.1f}, {player_pos[1]:.1f}, {player_pos[2]:.1f})")
+        
+        # Ground state
         ground_text = "Grounded" if grounded else "Airborne"
         ground_color = _COLOR_GROUNDED if grounded else _COLOR_AIRBORNE
-        self._backend.text_colored(f"  {ground_text}", *ground_color)
+        self._backend.text_colored(ground_text, *ground_color)
 
-        # === World ===
+        # World section
         self._backend.separator()
-        self._backend.text_colored("World", *_COLOR_SECTION_HEADER)
-        self._backend.text(f"  Entities: {entity_count}")
-
+        self._backend.text_colored("=== World ===", *_COLOR_SECTION_HEADER)
+        self._backend.text(f"Entities: {entity_count}")
+        
         if biome_name:
-            self._backend.text(f"  Biome: {biome_name}")
-
-        if chunk_info:
-            self._backend.text(f"  {chunk_info}")
-
+            self._backend.text(f"Biome: {biome_name}")
+            
         if interaction_target:
-            self._backend.text_colored(f"  Target: {interaction_target}", *_COLOR_TARGET)
+            self._backend.text_colored(f"Target: {interaction_target}", *_COLOR_TARGET)
 
-        # === Actions ===
+        # Action buttons
         self._backend.separator()
-
-        if self._backend.button("Reset World", 110, 24):
+        
+        if self._backend.button("Reset World", 100, 25):
             if self._on_reset_world:
                 self._on_reset_world()
 
         self._backend.end_window()
 
 
-# =============================================================================
-# ConsoleWindow
-# =============================================================================
-
-
 class ConsoleWindow(UIComponent):
     """Developer console window rendered via ImGui.
 
-    Displays the console output history, input line with cursor and
-    inline autocomplete preview, and suggestion list. The actual input
-    handling (character input, history navigation, autocomplete) is
-    managed by the ``Console`` object; this component only reads the
-    render data and draws it.
-
-    Layout:
-    - Top: scrollable output history with colored lines
-    - Separator
-    - Input line: "> text|cursor ghost_preview"
-    - Autocomplete bar: "[selected]  other  other"
+    Displays the console output history and current input buffer.
+    The actual input handling (character input, history navigation,
+    autocomplete) is managed by the ``Console`` object; this component
+    only reads the render data and draws it.
     """
 
     def __init__(
@@ -1413,12 +1102,13 @@ class ConsoleWindow(UIComponent):
         if not render_data.get("visible", False):
             return
 
-        console_width = min(750, self._screen_width - 40)
-        console_height = 320
+        console_width = min(700, self._screen_width - 40)
+        console_height = 300
         console_x = (self._screen_width - console_width) / 2
         console_y = 20.0
 
         config = render_data.get("config", {})
+        bg_color = config.get("background_color", (0.1, 0.1, 0.1, 0.8))
 
         self._backend.begin_window(
             "Developer Console",
@@ -1427,8 +1117,8 @@ class ConsoleWindow(UIComponent):
             flags=_NO_RESIZE_FLAGS,
         )
 
-        # --- Output history region ---
-        output_height = console_height - 90
+        # Output history region
+        output_height = console_height - 80
         self._backend.begin_child(
             "ConsoleOutput",
             console_width - 20, output_height,
@@ -1445,30 +1135,19 @@ class ConsoleWindow(UIComponent):
 
         self._backend.end_child()
 
-        # --- Separator ---
+        # Separator between output and input
         self._backend.separator()
 
-        # --- Input line with cursor and inline preview ---
+        # Input line
         input_text = render_data.get("input", "")
         cursor_pos = render_data.get("cursor_pos", len(input_text))
-        input_color = config.get("input_color", _COLOR_CONSOLE_INPUT)
-        prompt_color = config.get("prompt_color", _COLOR_CONSOLE_PROMPT)
-        ac_color = config.get("autocomplete_color", _COLOR_CONSOLE_AC)
+        input_color = config.get("input_color", (0.8, 0.8, 1.0, 1.0))
 
-        # Build display: "> text_before_cursor|text_after_cursor ghost"
-        before = input_text[:cursor_pos]
-        after = input_text[cursor_pos:]
-        inline_preview = render_data.get("inline_preview", "")
-
-        # Prompt symbol
-        self._backend.text_colored("> ", *prompt_color)
-        self._backend.same_line()
-
-        # Input text with cursor
-        if after:
-            display = f"{before}|{after}"
+        # Build display string with cursor indicator
+        if cursor_pos < len(input_text):
+            display = f"> {input_text[:cursor_pos]}|{input_text[cursor_pos:]}"
         else:
-            display = f"{before}|"
+            display = f"> {input_text}|"
 
         self._backend.text_colored(
             display,
@@ -1476,92 +1155,54 @@ class ConsoleWindow(UIComponent):
             input_color[3] if len(input_color) > 3 else 1.0,
         )
 
-        # Inline autocomplete ghost text
-        if inline_preview:
-            self._backend.same_line()
-            self._backend.text_colored(
-                inline_preview,
-                ac_color[0], ac_color[1], ac_color[2],
-                (ac_color[3] if len(ac_color) > 3 else 1.0) * 0.5,
-            )
-
-        # --- Autocomplete suggestions bar ---
+        # Autocomplete suggestions
         suggestions = render_data.get("suggestions", [])
         if suggestions:
             suggestion_idx = render_data.get("suggestion_index", 0)
-            ac_hl_color = config.get("autocomplete_highlight", _COLOR_CONSOLE_AC_HL)
+            ac_color = config.get("autocomplete_color", (0.6, 0.6, 0.6, 1.0))
             parts = []
             for i, s in enumerate(suggestions):
                 if i == suggestion_idx:
                     parts.append(f"[{s}]")
                 else:
                     parts.append(s)
-
             self._backend.text_colored(
                 "  " + "  ".join(parts),
-                ac_hl_color[0], ac_hl_color[1], ac_hl_color[2],
-                ac_hl_color[3] if len(ac_hl_color) > 3 else 1.0,
+                ac_color[0], ac_color[1], ac_color[2],
+                ac_color[3] if len(ac_color) > 3 else 1.0,
             )
 
         self._backend.end_window()
 
 
 # =============================================================================
-# NotificationStack
-# =============================================================================
-
-
-class NotificationStack(UIComponent):
-    """Notification stack rendered in the top-right area.
-
-    Displays timed notifications from the Console's notification system.
-    Each notification fades out before expiring.
-    """
-
-    def __init__(
-        self,
-        backend: UIBackend,
-        screen_width: int,
-        screen_height: int,
-    ) -> None:
-        super().__init__(backend)
-        self._screen_width = screen_width
-        self._screen_height = screen_height
-
-    def render(self, notifications: Optional[List[Dict[str, Any]]] = None, **kwargs: Any) -> None:
-        if not self._visible or not notifications:
-            return
-
-        notif_width = 300
-        notif_height = 32
-        base_x = self._screen_width - notif_width - 15
-        base_y = 220  # Below quest tracker
-
-        for i, notif in enumerate(notifications):
-            text = notif.get("text", "")
-            icon = notif.get("icon", "")
-            color = notif.get("color", (1.0, 1.0, 1.0, 1.0))
-            opacity = notif.get("opacity", 1.0)
-
-            display = f"{icon} {text}".strip() if icon else text
-            y = base_y + i * (notif_height + 4)
-
-            self._backend.begin_window(
-                f"##Notif_{i}",
-                base_x, y,
-                notif_width, notif_height,
-                flags=_NO_DECORATION_FLAGS,
-            )
-
-            r, g, b = color[0], color[1], color[2]
-            self._backend.text_colored(display, r, g, b, opacity)
-
-            self._backend.end_window()
-
-
-# =============================================================================
 # UI Manager
 # =============================================================================
+
+
+# Window flags (would be ImGuiWindowFlags in real ImGui)
+_NO_DECORATION_FLAGS = 1  # No title bar, resize, etc.
+_NO_RESIZE_FLAGS = 2  # No resize
+
+# UI Layout Constants
+_CHAR_WIDTH_ESTIMATE = 8  # Estimated pixel width per character
+_PROMPT_PADDING = 40  # Extra padding for interaction prompts
+_PROMPT_MIN_WIDTH = 200  # Minimum prompt window width
+
+# FPS Performance Thresholds
+_FPS_GOOD_THRESHOLD = 55  # Above this = green (good)
+_FPS_WARNING_THRESHOLD = 30  # Above this = yellow (warning), below = red (bad)
+
+# UI Colors (R, G, B tuples, 0.0-1.0 range)
+_COLOR_FPS_GOOD = (0.3, 0.9, 0.3)  # Green
+_COLOR_FPS_WARNING = (0.9, 0.9, 0.3)  # Yellow
+_COLOR_FPS_BAD = (0.9, 0.3, 0.3)  # Red
+_COLOR_GROUNDED = (0.3, 0.9, 0.3)  # Green
+_COLOR_AIRBORNE = (0.6, 0.6, 0.9)  # Light blue
+_COLOR_NPC_PROMPT = (1.0, 0.85, 0.4)  # Gold/yellow
+_COLOR_PROP_PROMPT = (0.6, 0.8, 1.0)  # Light blue
+_COLOR_SECTION_HEADER = (0.8, 0.8, 0.3)  # Yellow
+_COLOR_TARGET = (0.9, 0.7, 0.3)  # Orange
 
 
 class UIManager:
@@ -1601,7 +1242,6 @@ class UIManager:
         self._settings_panel = SettingsPanel(self._backend, screen_width, screen_height)
         self._debug_overlay = DebugOverlay(self._backend, screen_width, screen_height)
         self._console_window = ConsoleWindow(self._backend, screen_width, screen_height)
-        self._notification_stack = NotificationStack(self._backend, screen_width, screen_height)
 
         # Console reference (set via set_console)
         self._console: Optional[Any] = None
@@ -1658,12 +1298,12 @@ class UIManager:
     # -------------------------------------------------------------------------
 
     def render_hud(
-        self,
+        self, 
         player: Optional["Player"] = None,
         interaction_target: Optional["InteractionTarget"] = None,
     ) -> None:
         """Render HUD elements.
-
+        
         Parameters
         ----------
         player:
@@ -1683,16 +1323,10 @@ class UIManager:
                 if quest:
                     active_quests.append(quest)
 
-        # Get time of day if available
-        time_of_day = None
-        if self._world:
-            time_of_day = getattr(self._world, "_time_of_day", None)
-
         self._hud.render(
             player=player,
             active_quests=active_quests,
             interaction_target=interaction_target,
-            time_of_day=time_of_day,
         )
 
     def render_dialogue(self) -> None:
@@ -1745,13 +1379,13 @@ class UIManager:
         )
 
     def render_debug(
-        self,
-        fps: float,
+        self, 
+        fps: float, 
         frame_count: int,
         interaction_target: Optional["InteractionTarget"] = None,
     ) -> None:
         """Render debug overlay.
-
+        
         Parameters
         ----------
         fps:
@@ -1772,7 +1406,7 @@ class UIManager:
                 player_pos = (player.position.x, player.position.y, player.position.z)
                 grounded = player.grounded
             entity_count = len(self._world._entities)
-
+        
         if interaction_target:
             target_name = interaction_target.entity_name
 
@@ -1795,15 +1429,6 @@ class UIManager:
             self._console_window.visible = True
             self._console_window.render(render_data=render_data)
 
-    def render_notifications(self) -> None:
-        """Render notification stack from console's notification system."""
-        if self._console is None:
-            return
-        render_data = self._console.get_render_data()
-        notifications = render_data.get("notifications", [])
-        if notifications:
-            self._notification_stack.render(notifications=notifications)
-
     def set_console(self, console: Any) -> None:
         """Set the Console instance for rendering.
 
@@ -1825,7 +1450,7 @@ class UIManager:
         self._dialogue_npc = npc
         self._dialogue_box.set_dialogue(
             npc,
-            "Hello, traveler. What brings you here?",
+            f"Hello, traveler. What brings you here?",  # Default greeting
             options=None,
         )
         self._dialogue_box.visible = True
@@ -1891,10 +1516,6 @@ class UIManager:
         return self._console_window
 
     @property
-    def notification_stack(self) -> NotificationStack:
-        return self._notification_stack
-
-    @property
     def backend(self) -> UIBackend:
         return self._backend
 
@@ -1950,7 +1571,7 @@ class UIManager:
         on_toggle_physics_debug: Optional[Callable[[], None]] = None,
     ) -> None:
         """Set debug overlay callbacks.
-
+        
         Parameters
         ----------
         on_reset_world:
