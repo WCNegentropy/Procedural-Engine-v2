@@ -1221,11 +1221,10 @@ class GameRunner:
                     for chunk in new_chunks:
                         self._upload_chunk_mesh(chunk)
                     
-                    # Process unload queue (free GPU memory)
+                    # Process unload queue (free GPU memory + despawn entities)
                     removed_chunks = self._chunk_manager.process_unload_queue(max_per_frame=2)
                     for chunk in removed_chunks:
-                        if self._graphics_bridge:
-                            self._graphics_bridge.destroy_mesh(chunk.mesh_id)
+                        self._cleanup_chunk(chunk)
 
         elif self._state == GameState.DIALOGUE:
             # Still allow dialogue input processing
@@ -1325,11 +1324,15 @@ class GameRunner:
             self._on_render()
 
     def _render_entities(self) -> None:
-        """Render all visible entities in the game world."""
+        """Render visible entities in the game world.
+
+        In dynamic-chunk mode, only entities belonging to render-distance
+        chunks are drawn.  In static mode all entities are rendered.
+        """
         if not self._world or not self._graphics_bridge:
             return
 
-        # Render player
+        # Always render player
         player = self._world.get_player()
         if player:
             mesh_name = self._get_or_create_entity_mesh(player.entity_id, "player")
@@ -1341,40 +1344,71 @@ class GameRunner:
                 scale=1.0,
             )
 
-        # Render NPCs
-        for entity in self._world.get_entities_by_type(NPC):
-            mesh_name = self._get_or_create_entity_mesh(entity.entity_id, "npc")
-            self._graphics_bridge.draw_entity(
-                mesh_name,
-                "default",
-                entity.position,
-                rotation=0.0,
-                scale=1.0,
-            )
+        # In dynamic-chunk mode, restrict to entities in visible chunks
+        if self.config.enable_dynamic_chunks and self._chunk_manager:
+            visible_eids: set = set()
+            for chunk in self._chunk_manager.get_render_chunks():
+                visible_eids.update(chunk.entity_ids)
 
-        # Render Props (rocks, trees, etc.)
-        for entity in self._world.get_entities_by_type(Prop):
-            prop_type = entity.prop_type
-            mesh_name = self._get_or_create_entity_mesh(
-                entity.entity_id, prop_type, entity.state,
-            )
+            for eid in visible_eids:
+                entity = self._world.get_entity(eid)
+                if entity is None:
+                    continue
+                if isinstance(entity, NPC):
+                    mesh_name = self._get_or_create_entity_mesh(entity.entity_id, "npc")
+                    self._graphics_bridge.draw_entity(
+                        mesh_name,
+                        "default",
+                        entity.position,
+                        rotation=0.0,
+                        scale=1.0,
+                    )
+                elif isinstance(entity, Prop):
+                    prop_type = entity.prop_type
+                    mesh_name = self._get_or_create_entity_mesh(
+                        entity.entity_id, prop_type, entity.state,
+                    )
+                    scale = 1.0
+                    if prop_type == "rock":
+                        radius = entity.state.get("radius", 1.0)
+                        scale = radius * 2.0
+                    self._graphics_bridge.draw_entity(
+                        mesh_name,
+                        "default",
+                        entity.position,
+                        rotation=entity.rotation,
+                        scale=scale,
+                    )
+        else:
+            # Static mode: render all entities (original behavior)
+            for entity in self._world.get_entities_by_type(NPC):
+                mesh_name = self._get_or_create_entity_mesh(entity.entity_id, "npc")
+                self._graphics_bridge.draw_entity(
+                    mesh_name,
+                    "default",
+                    entity.position,
+                    rotation=0.0,
+                    scale=1.0,
+                )
 
-            # Scale based on prop type and state
-            scale = 1.0
-            if prop_type == "rock":
-                # Use radius from state for rock scale
-                radius = entity.state.get("radius", 1.0)
-                scale = radius * 2.0  # Scale based on radius
-            elif prop_type == "tree":
-                scale = 1.0  # L-system trees are naturally sized
-
-            self._graphics_bridge.draw_entity(
-                mesh_name,
-                "default",
-                entity.position,
-                rotation=entity.rotation,
-                scale=scale,
-            )
+            for entity in self._world.get_entities_by_type(Prop):
+                prop_type = entity.prop_type
+                mesh_name = self._get_or_create_entity_mesh(
+                    entity.entity_id, prop_type, entity.state,
+                )
+                scale = 1.0
+                if prop_type == "rock":
+                    radius = entity.state.get("radius", 1.0)
+                    scale = radius * 2.0
+                elif prop_type == "tree":
+                    scale = 1.0
+                self._graphics_bridge.draw_entity(
+                    mesh_name,
+                    "default",
+                    entity.position,
+                    rotation=entity.rotation,
+                    scale=scale,
+                )
 
     def _get_or_create_entity_mesh(
         self, entity_id: str, entity_type: str, entity_state: dict | None = None,
@@ -1634,9 +1668,34 @@ class GameRunner:
             # Mark loading as complete so we don't get stuck
             self._loading_complete = True
 
+    def _cleanup_chunk(self, chunk: Any) -> None:
+        """Clean up all resources associated with an unloaded chunk.
+
+        Destroys the terrain mesh, despawns all entities that were spawned
+        in the chunk, and frees their cached GPU meshes. This prevents
+        orphaned entities from accumulating as the player explores.
+
+        Parameters
+        ----------
+        chunk:
+            The Chunk object being unloaded.
+        """
+        # Destroy the terrain mesh on the GPU
+        if self._graphics_bridge:
+            self._graphics_bridge.destroy_mesh(chunk.mesh_id)
+
+        # Despawn all entities that belonged to this chunk
+        if self._world and hasattr(chunk, 'entity_ids'):
+            for eid in chunk.entity_ids:
+                self._world.destroy_entity(eid)
+                if eid in self._entity_meshes:
+                    mesh_name = self._entity_meshes.pop(eid)
+                    if self._graphics_bridge:
+                        self._graphics_bridge.destroy_mesh(mesh_name)
+
     def _upload_chunk_mesh(self, chunk: Any) -> None:
         """Upload a chunk's terrain mesh to the GPU and spawn pending props.
-        
+
         Parameters
         ----------
         chunk:
@@ -1783,12 +1842,17 @@ class GameRunner:
                 f"chunks ({pct:.0f}%)"
             )
 
-        # Check if we're done
+        # Check if we're done — require both enough chunks loaded AND
+        # all sim-distance chunks have their meshes uploaded so the player
+        # never spawns on invisible terrain.
         queue_empty = len(self._chunk_manager._load_queue) == 0
         enough_chunks = self._loading_chunks_done >= self._loading_total_chunks
 
         if queue_empty or enough_chunks:
-            self._finish_loading()
+            sim_chunks = self._chunk_manager.get_sim_chunks()
+            all_meshes_ready = all(c.is_mesh_uploaded for c in sim_chunks)
+            if all_meshes_ready:
+                self._finish_loading()
 
     def _finish_loading(self) -> None:
         """Transition from LOADING to PLAYING.

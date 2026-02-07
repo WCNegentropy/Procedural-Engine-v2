@@ -1742,8 +1742,20 @@ class GameWorld:
         self._heightfield = heightfield
 
     def physics_step(self) -> None:
-        """Run one physics step for all character entities."""
-        characters = self.get_entities_by_type(Character)
+        """Run one physics step for character entities in simulation range.
+
+        In dynamic-chunk mode only characters within sim-distance chunks
+        are stepped.  The player is always included regardless of distance.
+        In static mode all characters are stepped.
+        """
+        sim_entities = self.get_entities_in_sim_range()
+        characters = [e for e in sim_entities if isinstance(e, Character)]
+
+        # Always include the player even if outside sim-range chunks
+        player = self.get_player()
+        if player and player not in characters:
+            characters.append(player)
+
         if not characters:
             return
 
@@ -1751,7 +1763,7 @@ class GameWorld:
         bodies = []
         char_list = []
         for entity in characters:
-            if isinstance(entity, Character) and entity.active:
+            if entity.active:
                 bodies.append(entity.to_rigid_body())
                 char_list.append(entity)
 
@@ -1812,8 +1824,14 @@ class GameWorld:
         self._update_npcs(dt)
 
     def _update_npcs(self, dt: float) -> None:
-        """Update all NPC behaviors using behavior trees or fallback actions."""
-        for npc in self.get_npcs():
+        """Update NPC behaviors using behavior trees or fallback actions.
+
+        Only NPCs within simulation distance are updated when dynamic
+        chunks are active.  In static mode all NPCs are updated.
+        """
+        sim_entities = self.get_entities_in_sim_range()
+        npcs = [e for e in sim_entities if isinstance(e, NPC)]
+        for npc in npcs:
             if not npc.active:
                 continue
 

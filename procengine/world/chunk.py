@@ -306,9 +306,14 @@ class ChunkManager:
         sim_set = self._get_chunks_in_radius(new_chunk, self._sim_distance)
         unload_threshold = self._render_distance + self._unload_buffer
 
-        # Determine chunks to load
+        # Determine chunks to load, sorted closest-first so the area
+        # around the player fills in before distant chunks.
         current_coords = set(self._chunks.keys())
-        self._load_queue = [c for c in render_set if c not in current_coords]
+        px, pz = new_chunk
+        self._load_queue = sorted(
+            (c for c in render_set if c not in current_coords),
+            key=lambda c: (c[0] - px) ** 2 + (c[1] - pz) ** 2,
+        )
 
         # Determine chunks to unload (outside render + buffer)
         unload_set = self._get_chunks_outside_radius(
@@ -364,7 +369,6 @@ class ChunkManager:
             if dist_sq > radius_sq:
                 result.add(coord)
         return result
-        return result
 
     def process_load_queue(self, max_per_frame: int = 1) -> List[Chunk]:
         """Process pending chunk loads (call once per frame).
@@ -384,6 +388,9 @@ class ChunkManager:
         """
         generated: List[Chunk] = []
 
+        # Pre-calculate sim set once for the batch instead of per-chunk
+        sim_set = self._get_chunks_in_radius(self._player_chunk, self._sim_distance)
+
         for _ in range(min(max_per_frame, len(self._load_queue))):
             if not self._load_queue:
                 break
@@ -395,7 +402,6 @@ class ChunkManager:
             chunk = self._generate_chunk(coord)
 
             # Set simulation flag based on current player position
-            sim_set = self._get_chunks_in_radius(self._player_chunk, self._sim_distance)
             chunk.is_simulating = coord in sim_set
 
             self._chunks[coord] = chunk
