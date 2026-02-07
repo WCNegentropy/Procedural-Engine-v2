@@ -1581,20 +1581,18 @@ class GameRunner:
             # the LOADING state will process them progressively
             self._chunk_manager.update_player_position(spawn_x, spawn_z)
             
-            # Calculate how many chunks fill the render distance (circular area)
-            import math
-            r = self.config.render_distance
-            total_in_render = sum(
-                1 for dx in range(-r, r + 1)
-                for dz in range(-r, r + 1)
-                if dx * dx + dz * dz <= r * r
-            )
-            
-            # Set minimum loaded chunks before gameplay starts
+            # Only require sim-distance chunks before gameplay starts.
+            # The sim_distance area is the minimum viable playable zone
+            # (physics + AI active). Remaining render-distance chunks
+            # stream in during gameplay at 1 chunk/frame.
+            r = self.config.sim_distance
             min_chunks = self.config.min_loaded_chunks
             if min_chunks <= 0:
-                # Default: load ALL chunks in render distance before starting
-                min_chunks = total_in_render
+                min_chunks = sum(
+                    1 for dx in range(-r, r + 1)
+                    for dz in range(-r, r + 1)
+                    if dx * dx + dz * dz <= r * r
+                )
             
             self._loading_total_chunks = min_chunks
             self._loading_chunks_done = 0

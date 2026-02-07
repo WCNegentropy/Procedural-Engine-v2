@@ -114,8 +114,8 @@ class TestChunkManager:
         manager = ChunkManager(registry)
 
         assert manager.chunk_size == 64
-        assert manager.render_distance == 8
-        assert manager.sim_distance == 4
+        assert manager.render_distance == 6
+        assert manager.sim_distance == 3
         assert len(manager.chunks) == 0
         assert manager.player_chunk == (0, 0)
 

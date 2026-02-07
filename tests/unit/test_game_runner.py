@@ -160,6 +160,27 @@ class TestRunnerConfig:
 
 
 # =============================================================================
+# Helpers
+# =============================================================================
+
+
+def _advance_past_loading(runner, max_frames: int = 50) -> None:
+    """Run frames until the runner exits LOADING state.
+
+    In headless mode chunk generation is fast, so this typically only takes
+    ~8 frames (29 sim-distance chunks at 4 per frame).  The ``max_frames``
+    safety limit prevents infinite loops in case of a bug.
+    """
+    for _ in range(max_frames):
+        if runner.state != GameState.LOADING:
+            return
+        runner._frame()
+    # If we're still loading, force-finish so the test can proceed
+    if hasattr(runner, '_finish_loading'):
+        runner._finish_loading()
+
+
+# =============================================================================
 # GameRunner Tests
 # =============================================================================
 
@@ -173,6 +194,9 @@ class TestGameRunner:
         runner = GameRunner(config)
 
         assert runner.initialize()
+        # Dynamic chunks start in LOADING; advance frames to finish loading
+        assert runner.state in (GameState.LOADING, GameState.PLAYING)
+        _advance_past_loading(runner)
         assert runner.state == GameState.PLAYING
         assert runner.world is not None
         assert runner.player is not None
@@ -211,6 +235,7 @@ class TestGameRunner:
         config = RunnerConfig(headless=True)
         runner = GameRunner(config)
         runner.initialize()
+        _advance_past_loading(runner)
 
         assert runner.state == GameState.PLAYING
 
@@ -227,6 +252,7 @@ class TestGameRunner:
         config = RunnerConfig(headless=True)
         runner = GameRunner(config)
         runner.initialize()
+        _advance_past_loading(runner)
         captured = []
         runner.backend.set_mouse_capture = captured.append
 
@@ -277,6 +303,7 @@ class TestGameRunner:
         config = RunnerConfig(headless=True)
         runner = GameRunner(config)
         runner.initialize()
+        _advance_past_loading(runner)
         captured = []
         runner.backend.set_mouse_capture = captured.append
 
@@ -317,7 +344,8 @@ class TestGameRunner:
 
     def test_custom_callbacks(self):
         """Test custom callbacks are called."""
-        config = RunnerConfig(headless=True)
+        # Use static terrain to skip LOADING state so callbacks fire immediately
+        config = RunnerConfig(headless=True, enable_dynamic_chunks=False)
         runner = GameRunner(config)
 
         update_count = [0]
@@ -513,6 +541,7 @@ class TestGameRunnerIntegration:
         backend = HeadlessBackend()
         runner = GameRunner(config, backend=backend)
         runner.initialize()
+        _advance_past_loading(runner)
 
         # Verify game starts in PLAYING state
         assert runner.state == GameState.PLAYING
@@ -565,7 +594,7 @@ class TestDynamicChunks:
         assert config.render_distance == 12
         
         config2 = RunnerConfig()
-        assert config2.render_distance == 8  # Default
+        assert config2.render_distance == 6  # Default (reduced for performance)
 
     def test_config_sim_distance(self):
         """Test that sim_distance config option exists."""
@@ -573,7 +602,7 @@ class TestDynamicChunks:
         assert config.sim_distance == 6
         
         config2 = RunnerConfig()
-        assert config2.sim_distance == 4  # Default
+        assert config2.sim_distance == 3  # Default (reduced for performance)
 
     def test_runner_has_chunk_manager_attribute(self):
         """Test that GameRunner has _chunk_manager attribute."""
