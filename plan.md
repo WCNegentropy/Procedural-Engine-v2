@@ -2,9 +2,9 @@
 
 ## From Functional Base Engine to AI-Native Open World RPG Platform
 
-**Document Version:** 1.3
-**Date:** January 10, 2026
-**Current State:** v1.3 Alpha (Full Vulkan Graphics)
+**Document Version:** 2.0
+**Date:** February 7, 2026
+**Current State:** v2.0 Alpha (Dynamic Open World with Command Architecture)
 **Target State:** v2.0 Release Candidate (AI-Native RPG Platform)
 
 ---
@@ -15,29 +15,26 @@
 |-------|--------|----------|
 | **Phase 1: Physics Upgrade & Engine Polish** | ✅ Complete | 100% |
 | **Phase 2: Game Loop & NPC Agent Framework** | ✅ Complete | 100% |
-| **Phase 2.5: Vulkan Graphics Rendering** | ✅ Complete | 100% |
+| **Phase 2.5: Graphics, UI & Dynamic World** | ✅ Complete | 100% |
 | **Phase 3: MCP Server Integration** | 🔴 DELAYED | 0% |
-| **Phase 4: Unified Command Architecture** | 🔴 DELAYED | 0% |
+| **Phase 4: Unified Command Architecture** | ✅ Complete | 95% |
 
-**Latest Updates (January 10, 2026):**
-- ✅ Full Vulkan graphics rendering pipeline complete
-- ✅ VkPipeline creation with shader modules and descriptor layouts
-- ✅ vkCmdDraw calls with proper pipeline/descriptor binding
-- ✅ Depth prepass + forward render passes
-- ✅ VkFramebuffer management for swapchain and headless
-- ✅ Swapchain creation and recreation on resize
-- ✅ Per-frame uniform buffers (view/projection/camera)
-- ✅ Descriptor sets with uniform buffer binding
-- ✅ Push constants for per-draw transforms
-- ✅ Default shaders with diffuse lighting
-- ✅ GraphicsSystem::clear_lights() implemented
-- ✅ 426 tests passing (all non-graphics tests)
-- ✅ Save/load serialization (JSON, file I/O)
-- ✅ player_controller.py: Input abstraction, camera system, player controller
-- ✅ data_loader.py: JSON data loading for NPCs, quests, items
-- ✅ data/: Village NPCs, quests, and items JSON files
-- ✅ Game loop orchestration with physics and behavior tree ticking
-- 🔄 Next: Focus on shippable demo, Phase 3/4 DELAYED
+**Latest Updates (February 7, 2026):**
+- ✅ Dynamic chunk-based infinite world streaming (ChunkManager)
+- ✅ LOADING/PLAYING state machine with mesh-upload verification
+- ✅ Closest-first chunk load ordering for immediate visual feedback
+- ✅ Entity lifecycle tied to chunks (spawn on load, cleanup on unload)
+- ✅ Render-distance entity culling in dynamic mode
+- ✅ Simulation-distance filtering for NPC updates and physics
+- ✅ ChunkedHeightField for cross-chunk physics collision
+- ✅ Dear ImGui UI system with 8 components (HUD, dialogue, inventory, console, etc.)
+- ✅ Command registry with 51 commands across 11 categories
+- ✅ In-game console with autocomplete
+- ✅ Keybind system with configurable binds
+- ✅ Access control (PUBLIC, CONSOLE, CHEAT, DEV)
+- ✅ MCP tool generation from command registry
+- ✅ 694+ tests passing (586 unit + 108 integration)
+- 🔄 Next: Phase 3 MCP Integration, script execution for modding
 
 ---
 
@@ -229,7 +226,7 @@ Review the Vulkan backend for obvious inefficiencies:
 | Fixed `enqueue_prop_descriptor` | Consistent API | ✅ COMPLETED |
 | `NO_GRAPHICS` CMake option | Headless build support | ✅ COMPLETED |
 | Physics test suite | Unit + integration + performance | ✅ COMPLETED (67 tests) |
-| Updated documentation | README, AGENTS.md reflecting changes | ⏳ Pending |
+| Updated documentation | README, AGENTS.md reflecting changes | ✅ COMPLETED |
 
 ### 1.8 Phase 1 Exit Criteria
 
@@ -669,7 +666,7 @@ def game_loop():
 | Dialogue system | Context building, response handling, actions | ✅ COMPLETED |
 | Quest system | Definition, tracking, completion | ✅ COMPLETED |
 | Inventory system | Items, add/remove, use | ✅ COMPLETED |
-| UI framework | HUD, dialogue, inventory, pause menu | ⏳ Phase 3 (Dear ImGui) |
+| UI framework | Dear ImGui: HUD, dialogue, inventory, console, debug overlay | ✅ COMPLETED |
 | Save/load system | Serialization, file I/O | ✅ COMPLETED |
 | Game loop | Main loop orchestrating all systems | ✅ COMPLETED |
 | `data_loader.py` | JSON loading for NPCs, quests, items | ✅ COMPLETED |
@@ -685,20 +682,31 @@ def game_loop():
 - [x] Player can receive, track, and complete quests
 - [x] Inventory system works (pick up, drop, use items)
 - [x] Game can be saved and loaded
-- [ ] UI displays all necessary information (Phase 3: Dear ImGui integration)
+- [x] UI displays all necessary information (Dear ImGui: HUD, dialogue, inventory, console, debug)
 - [x] Game is playable end-to-end without AI connection
 - [x] LocalAgent provides reasonable NPC responses
 
 **Phase 2 Completion Notes (January 10, 2026):**
-- All core game systems implemented with 430+ passing tests
+- All core game systems implemented
 - Input abstraction layer ready for SDL/GLFW integration
 - Third-person camera system with terrain collision
 - Behavior trees auto-configured for NPCs on spawn
 - JSON data files for village content (6 NPCs, 6 quests, 18 items)
-- UI framework (Dear ImGui) deferred to Phase 3 graphics integration
 - Determinism fixes: All random operations now use SeedRegistry
 - Added unlock_dialogue and unlock_quest action handlers
 - Headless mode now simulates proper frame timing for physics
+
+**Phase 2.5 Completion Notes (February 7, 2026):**
+- Dear ImGui UI system with 8 components and headless testing backend
+- Dynamic chunk-based infinite world streaming via ChunkManager
+- LOADING/PLAYING state machine with mesh-upload verification before gameplay
+- Closest-first chunk load ordering for immediate visual feedback
+- Entity lifecycle tied to chunks: spawn on load, full cleanup on unload
+- Render-distance entity culling (only entities in loaded chunks are drawn)
+- Simulation-distance filtering for NPC behavior trees and physics
+- ChunkedHeightField for seamless physics across chunk boundaries
+- Vertex overlap (chunk_size+1) for seamless terrain mesh stitching
+- 694+ tests passing (586 unit + 108 integration)
 
 ---
 
@@ -940,8 +948,8 @@ Settings menu includes:
 
 ## Phase 4: Unified Command Architecture
 
-> **STATUS: DELAYED**
-> Reason: Focusing on building core game loop from Phase 2 out into a full shippable demo for Steam launch. Phase 3 and 4 will resume after demo release.
+> **STATUS: COMPLETE** (script execution still pending)
+> Core command system, console, keybinds, and access control are all implemented.
 
 **Duration:** 2-3 weeks
 **Goal:** Create a single command surface accessible via Console, GUI, MCP, keybinds, and scripts
@@ -1244,16 +1252,16 @@ Aliases: talk, say
 
 ### 4.12 Phase 4 Exit Criteria
 
-- [ ] Console opens with tilde, accepts commands
-- [ ] All game functionality accessible via commands
-- [ ] GUI buttons execute commands
-- [ ] Keybinds execute commands
-- [ ] MCP tools map to commands
-- [ ] Scripts can be executed
-- [ ] Cheat commands require cheats enabled
-- [ ] Help system documents all commands
-- [ ] Autocomplete works for commands and parameters
-- [ ] Configuration persists across sessions
+- [x] Console opens with tilde, accepts commands
+- [x] All game functionality accessible via commands (51 commands across 11 categories)
+- [ ] GUI buttons execute commands (planned)
+- [x] Keybinds execute commands
+- [x] MCP tools map to commands (auto-generated via get_mcp_tools())
+- [ ] Scripts can be executed (planned)
+- [x] Cheat commands require cheats enabled
+- [x] Help system documents all commands
+- [x] Autocomplete works for commands and parameters
+- [ ] Configuration persists across sessions (planned)
 
 ---
 

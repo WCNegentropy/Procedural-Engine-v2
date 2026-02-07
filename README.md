@@ -1,10 +1,8 @@
-# Procedural Game Engine v1.3
+# Procedural Game Engine v2
 
-**Status:** Alpha (Rendering Complete!)
+**Status:** Alpha (Dynamic Open World)
 
-Hybrid Python/C++ procedural game engine with deterministic world generation, 3D physics, complete game systems, and **fully working Vulkan graphics**. Building toward v2.0 AI-native RPG platform with MCP integration.
-
-**The game now renders!** Terrain with biome colors, player and NPC entities, and props are all visible with realistic lighting.
+Hybrid Python/C++ procedural game engine with deterministic world generation, dynamic chunk-based infinite terrain, 3D physics, complete game systems, command architecture, and **fully working Vulkan graphics**. Building toward v2.0 AI-native RPG platform with MCP integration.
 
 ---
 
@@ -19,7 +17,7 @@ cd cpp && mkdir build && cd build
 cmake .. -DNO_GRAPHICS=ON && make
 cd ../..
 
-# Run tests (348+ tests)
+# Run tests (694+ tests)
 python -m pytest -q
 ```
 
@@ -28,13 +26,24 @@ python -m pytest -q
 ## Features
 
 ### Core Engine
-- 100% procedurally generated worlds from a single 64-bit seed
+- 100% procedurally generated infinite worlds from a single 64-bit seed
 - Deterministic output: same seed always produces identical results
 - Hybrid Python/C++ architecture with pybind11 FFI
+- Dynamic chunk-based world streaming with configurable render/sim distances
 - Hot-reload infrastructure for iterative development
 - SHA-256 state verification across FFI boundary
 
-### Game Systems (Complete in v1.2)
+### Dynamic Chunk System
+- **ChunkManager** streams terrain around the player in real time
+- Configurable render distance (default 6 chunks) and simulation distance (default 3 chunks)
+- LOADING state generates initial chunks before gameplay begins; transitions to PLAYING after mesh verification
+- Load queue sorted closest-first for immediate visual feedback around the player
+- Seamless chunk stitching via vertex overlap (chunk_size + 1)
+- **ChunkedHeightField** provides physics collision across chunk boundaries
+- Entity lifecycle tied to chunks: props spawn on load, despawn on unload
+- Prop generation at half render distance for natural density falloff
+
+### Game Systems
 - **Entity System**: Player, NPC, Prop, Item hierarchy with serialization
 - **NPC Agent Framework**: LocalAgent for offline AI, ready for MCP integration
 - **Behavior Trees**: Full implementation with Selector, Sequence, Parallel, decorators
@@ -44,10 +53,29 @@ python -m pytest -q
 - **Inventory System**: Items with capacity, stacking, and persistence
 - **Input Abstraction**: Action-based input system independent of physical keys
 - **Camera System**: Third-person camera with terrain collision avoidance
-- **Player Controller**: Input → player action translation layer
+- **Player Controller**: Input to player action translation layer
 - **Data Loading**: JSON-based content loading for NPCs, quests, items
 - **Save/Load**: JSON serialization for full game state
 - **Event System**: Pub/sub for decoupled game systems
+
+### Command Architecture
+- **Command Registry**: 51 registered commands across 11 categories with typed parameters
+- **In-Game Console**: Toggle with tilde, command history, autocomplete
+- **Keybind System**: Key-to-command mapping with configurable binds
+- **Access Control**: PUBLIC, CONSOLE, CHEAT, and DEV permission levels
+- **MCP Tool Generation**: Commands auto-export as MCP tools for AI integration
+- Categories: world, terrain, props, npc, player, physics, engine, quest, ui, system
+
+### UI System (Dear ImGui)
+- **HUD**: Health bar, quest tracker, interaction prompts
+- **Dialogue Box**: NPC conversation display with response options
+- **Inventory Panel**: Grid of items with use/drop actions
+- **Quest Log**: Active and completed quest tracking
+- **Pause Menu**: Resume, save, load, settings, quit
+- **Debug Overlay**: FPS counter, player position, entity count, biome info
+- **Console Window**: Developer console with input, output history, autocomplete
+- **Settings Panel**: Debug overlay toggle, VSync toggle
+- Headless backend for testing without GPU
 
 ### Terrain Generation
 - FBM noise heightmaps (6-8 octaves Simplex)
@@ -55,7 +83,7 @@ python -m pytest -q
 - Hydraulic erosion simulation (100-200 iterations)
 - Biome classification (temperature x humidity x height)
 - River mask generation
-- 64x64 vertex chunks with GeoClipmap LOD
+- 64x64 vertex chunks with seamless stitching
 
 ### Props & Mesh
 - Rocks: SDF-based generation with sphere mesh synthesis
@@ -69,7 +97,10 @@ python -m pytest -q
 - Sequential impulse solver on XZ plane
 - Y-axis gravity with terrain collision
 - HeightField2D with bilinear interpolation
+- ChunkedHeightField for multi-chunk physics
 - Deterministic rigid body simulation
+- Simulation-distance filtering: only entities in sim-range chunks are updated
+- Player always included in physics regardless of sim range
 - Python and C++ implementations with full parity
 
 ### Materials & Graphics
@@ -78,6 +109,7 @@ python -m pytest -q
 - **Vulkan backend with full rendering pipeline**
 - **16-biome terrain color palette** with vertex colors
 - **Entity meshes**: Players, NPCs, rocks, trees, buildings
+- **Render-distance entity culling**: only entities in loaded chunks are drawn
 - Three-point lighting model (sun, sky, ground bounce)
 - Exponential fog and tone mapping
 - Virtual texture system (128KB tiles, LRU paging)
@@ -96,6 +128,7 @@ Material graph specs     --->     SPIR-V compiler, virtual textures
 Physics reference impl   --->     Physics simulation
 Hot-reload control       --->     Resource rebuild queue
 Game systems             --->     (Future: native game loop)
+Chunk management         --->     Terrain mesh upload, entity meshes
 ```
 
 ### Key Modules (procengine package)
@@ -104,13 +137,19 @@ Game systems             --->     (Future: native game loop)
 |--------|---------|
 | `procengine.core.engine` | Core engine with state snapshots, hot-reload |
 | `procengine.game.game_api` | GameWorld, entities, quests, dialogue, inventory |
+| `procengine.game.game_runner` | Main game loop, chunk orchestration, rendering |
 | `procengine.game.behavior_tree` | NPC AI with behavior trees |
+| `procengine.game.ui_system` | Dear ImGui UI (HUD, dialogue, inventory, console) |
+| `procengine.commands.commands` | Command registry with 51 commands |
+| `procengine.commands.console` | In-game console with autocomplete |
 | `procengine.physics.bodies` | RigidBody, RigidBody3D, Vec3 |
 | `procengine.physics.collision` | 2D and 3D physics simulation |
 | `procengine.world.terrain` | FBM noise, erosion, biome generation |
+| `procengine.world.chunk` | ChunkManager, ChunkedHeightField |
 | `procengine.world.props` | Rock, tree, building, creature descriptors |
 | `procengine.world.materials` | Material graph DSL and node system |
 | `procengine.world.world` | Multi-chunk world assembly |
+| `procengine.graphics.graphics_bridge` | Vulkan abstraction layer |
 
 ---
 
@@ -212,6 +251,36 @@ tree = BehaviorTree(
 
 ---
 
+## Dynamic Chunk System
+
+The engine uses a chunk-based streaming system for infinite world generation:
+
+```
+Render Distance (6 chunks)
+    Sim Distance (3 chunks)
+        Player [P]
+
+    +---+---+---+---+---+---+---+---+---+---+---+---+---+
+    | R | R | R | R | R | R | R | R | R | R | R | R | R |
+    | R | R | R | R | R | R | R | R | R | R | R | R | R |
+    | R | R | R | S | S | S | S | S | S | S | R | R | R |
+    | R | R | R | S | S | S | S | S | S | S | R | R | R |
+    | R | R | R | S | S | S | P | S | S | S | R | R | R |
+    | R | R | R | S | S | S | S | S | S | S | R | R | R |
+    | R | R | R | S | S | S | S | S | S | S | R | R | R |
+    | R | R | R | R | R | R | R | R | R | R | R | R | R |
+    | R | R | R | R | R | R | R | R | R | R | R | R | R |
+    +---+---+---+---+---+---+---+---+---+---+---+---+---+
+    R = Rendered only    S = Simulated + Rendered    P = Player
+```
+
+- **Render-distance chunks**: Terrain is visible, entities are drawn
+- **Sim-distance chunks**: Physics runs, NPCs update behavior trees
+- Chunks outside render distance are unloaded (terrain mesh destroyed, entities despawned)
+- LOADING state ensures all sim-distance chunks have meshes uploaded before gameplay starts
+
+---
+
 ## 3D Physics System
 
 The physics system uses a hybrid 2D+height approach that provides efficient 3D simulation while preserving the deterministic 2D solver:
@@ -284,10 +353,14 @@ cmake ..
 python -m pytest -q
 
 # Run specific categories
-python -m pytest tests/unit/test_game_api.py -v       # Game systems (61 tests)
-python -m pytest tests/unit/test_behavior_tree.py -v  # Behavior trees (42 tests)
-python -m pytest tests/unit/test_physics_3d.py -v     # 3D physics (49 tests)
-python -m pytest tests/unit/test_physics.py -v        # 2D physics (18 tests)
+python -m pytest tests/unit/test_game_api.py -v       # Game systems
+python -m pytest tests/unit/test_behavior_tree.py -v  # Behavior trees
+python -m pytest tests/unit/test_physics_3d.py -v     # 3D physics
+python -m pytest tests/unit/test_physics.py -v        # 2D physics
+python -m pytest tests/unit/test_chunk_system.py -v   # Dynamic chunks
+python -m pytest tests/unit/test_game_runner.py -v    # Game loop
+python -m pytest tests/unit/test_commands.py -v       # Command registry
+python -m pytest tests/unit/test_ui_system.py -v      # UI system
 python -m pytest tests/unit/test_terrain.py -v        # Terrain generation
 python -m pytest tests/unit/test_hot_reload.py -v     # Hot-reload system
 
@@ -295,7 +368,7 @@ python -m pytest tests/unit/test_hot_reload.py -v     # Hot-reload system
 python -m pytest tests/integration/ -v
 ```
 
-**Current Coverage:** 275+ tests passing
+**Current Coverage:** 694+ tests passing (586 unit + 108 integration)
 
 ---
 
@@ -310,7 +383,7 @@ This project is actively developing toward v2.0, an AI-native RPG platform.
 - [x] NO_GRAPHICS CMake option for headless builds
 - [x] Comprehensive test suite (67 physics tests)
 
-### Phase 2: Game Loop & NPC Framework (Complete!)
+### Phase 2: Game Loop & NPC Framework (Complete)
 - [x] GameWorld state management
 - [x] Entity hierarchy (Player, NPC, Prop, Item)
 - [x] NPC agent framework with LocalAgent
@@ -326,24 +399,31 @@ This project is actively developing toward v2.0, an AI-native RPG platform.
 - [x] Biome terrain coloring (16 biomes)
 - [x] Entity mesh rendering (players, NPCs, props)
 
-### Phase 2.5: Graphics Polish (Current)
+### Phase 2.5: Graphics & UI (Complete)
 - [x] Vulkan rendering pipeline complete
 - [x] Terrain with biome colors
-- [x] Entity mesh generation fixed (capsule, cylinder, box)
-- [ ] UI framework with Dear ImGui
-- [ ] Advanced prop rendering (L-system trees, metaball creatures)
+- [x] Entity mesh generation (capsule, cylinder, box, L-system trees)
+- [x] Dear ImGui UI framework (HUD, dialogue, inventory, console, debug overlay)
+- [x] Dynamic chunk-based world streaming
+- [x] Render-distance entity culling
+- [x] Simulation-distance NPC/physics filtering
+- [x] LOADING/PLAYING state machine with mesh verification
+- [x] Closest-first chunk load ordering
+- [x] Entity lifecycle tied to chunk load/unload
 
 ### Phase 3: MCP Integration (Pending)
-- MCP server for Claude/AI integration
-- AI-powered NPC dialogue via MCPAgent
-- Game Master mode for dynamic events
-- Graceful fallback to LocalAgent
+- [ ] MCP server for Claude/AI integration
+- [ ] AI-powered NPC dialogue via MCPAgent
+- [ ] Game Master mode for dynamic events
+- [ ] Graceful fallback to LocalAgent
 
-### Phase 4: Command Architecture (Pending)
-- Unified command registry
-- In-game console with autocomplete
-- Keybind system
-- Script execution for modding
+### Phase 4: Command Architecture (Complete)
+- [x] Unified command registry (51 commands)
+- [x] In-game console with autocomplete
+- [x] Keybind system
+- [x] Access control (PUBLIC, CONSOLE, CHEAT, DEV)
+- [x] MCP tool generation from commands
+- [ ] Script execution for modding (planned)
 
 See [plan.md](plan.md) for the complete development plan.
 

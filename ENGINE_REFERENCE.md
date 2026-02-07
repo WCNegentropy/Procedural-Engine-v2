@@ -1,8 +1,8 @@
 # Procedural Engine v2 -- Architecture & Development Reference
 
-> Compiled 2026-02-02. Covers the full Python/C++ hybrid engine, CI pipeline,
-> rendering stack, prop generation, and conventions discovered during the
-> fix-linux-ci / prop-rendering session.
+> Compiled 2026-02-07. Covers the full Python/C++ hybrid engine, CI pipeline,
+> rendering stack, dynamic chunk system, prop generation, command architecture,
+> and conventions discovered during development.
 
 ---
 
@@ -15,11 +15,12 @@ Procedural-Engine-v2/
 ├── setup.py                     # CMake-based C++ extension build
 ├── procengine/                  # Python package (10 subpackages)
 │   ├── __init__.py              # 39 public exports, barrel-style
-│   ├── core/                    # Engine stub + SeedRegistry
+│   ├── core/                    # Engine fundamentals
 │   │   ├── engine.py            # Determinism-tracking reference engine
 │   │   └── seed_registry.py     # Hierarchical PRNG (splitmix64 → PCG64)
 │   ├── world/                   # Content generation
 │   │   ├── terrain.py           # FBM + erosion heightmaps
+│   │   ├── chunk.py             # ChunkManager, ChunkedHeightField
 │   │   ├── props.py             # Rock/tree/building/creature descriptors
 │   │   ├── materials.py         # Material graph generation
 │   │   └── world.py             # World orchestration
@@ -29,16 +30,19 @@ Procedural-Engine-v2/
 │   │   └── heightfield.py       # HeightField, HeightField2D
 │   ├── game/                    # Runtime game systems
 │   │   ├── game_api.py          # GameWorld, Entity hierarchy, Events
-│   │   ├── game_runner.py       # Main loop, rendering, prop spawning
+│   │   ├── game_runner.py       # Main loop, chunk orchestration, rendering
 │   │   ├── player_controller.py # Camera, player input
 │   │   ├── behavior_tree.py     # BT nodes (Selector, Sequence, etc.)
 │   │   ├── data_loader.py       # JSON content loader (NPCs, quests, items)
-│   │   └── ui_system.py         # HUD, dialogue, debug overlay
+│   │   └── ui_system.py         # Dear ImGui UI (HUD, dialogue, inventory, console, debug)
 │   ├── graphics/                # Rendering abstraction
 │   │   └── graphics_bridge.py   # Mesh upload, draw calls, camera, lighting
 │   ├── agents/                  # NPC AI framework (LocalAgent → MCP)
-│   ├── commands/                # Command registry
+│   ├── commands/                # Command system
+│   │   ├── commands.py          # Command registry (51 commands)
+│   │   ├── console.py           # In-game console with autocomplete
 │   │   └── handlers/            # Game command implementations
+│   │       └── game_commands.py
 │   └── utils/                   # Utilities (seed_sweeper)
 ├── cpp/                         # C++ pybind11 extension
 │   ├── CMakeLists.txt           # CMake build (Vulkan, shaderc, OpenSSL)
@@ -48,12 +52,12 @@ Procedural-Engine-v2/
 │   └── graphics.h / graphics.cpp # Vulkan rendering backend
 ├── tests/
 │   ├── conftest.py              # sys.path setup for both Python-only and C++ tests
-│   ├── unit/                    # 478 Python-only tests
-│   └── integration/             # C++ module integration tests
+│   ├── unit/                    # 586 Python-only tests (22 files)
+│   └── integration/             # 108 C++ module tests (10 files)
 ├── data/                        # Game content JSON files
-│   ├── npcs/                    # NPC definitions
-│   ├── quests/                  # Quest definitions
-│   └── items/                   # Item definitions
+│   ├── npcs/                    # NPC definitions (6 village NPCs)
+│   ├── quests/                  # Quest definitions (6 quests)
+│   └── items/                   # Item definitions (18 items)
 ├── Legacy/                      # Pre-restructure code (DO NOT import from)
 └── .github/workflows/ci.yml     # Cross-platform CI/CD
 ```
@@ -79,16 +83,12 @@ All imports within the active codebase **must** use the fully-qualified `proceng
 # CORRECT
 from procengine.physics import Vec3, HeightField2D
 from procengine.game.game_api import GameWorld, Entity
+from procengine.world.chunk import ChunkManager, ChunkedHeightField
 
 # WRONG -- causes "No module named 'physics'" at runtime
 from physics import Vec3           # bare module name
 from game.game_api import Entity   # relative without procengine prefix
 ```
-
-**Why this matters**: Bare imports (`from physics import ...`) work only if the
-module root is on `sys.path`. The `procengine` restructuring moved everything
-under a namespace package; bare imports fail at runtime and were the cause of
-the game crash fixed in this session.
 
 ### Lazy/Runtime Imports
 
@@ -191,7 +191,7 @@ the rest of the pipeline.
 
 ### Artifact Chain
 
-Platform builds produce native modules → `build-standalone` downloads them →
+Platform builds produce native modules -> `build-standalone` downloads them ->
 PyInstaller packages everything into distributable archives (tar.gz / zip).
 Artifacts retained for 7 days.
 
@@ -216,6 +216,7 @@ The bridge abstracts Vulkan into a simple mesh/pipeline/draw API:
 | `upload_entity_mesh()` | Entity type + state → C++ mesh → GPU upload |
 | `draw_mesh()` | Queue draw call with transform matrix |
 | `draw_entity()` | Convenience: position/rotation/scale → transform → draw |
+| `destroy_mesh()` | Free GPU resources for a mesh |
 | `begin_frame()` / `end_frame()` | Frame lifecycle |
 
 ### Windowed Rendering (SDL2 + Vulkan)
@@ -229,7 +230,7 @@ Falls back to headless mode at any failure point.
 
 ### Transform Matrices
 
-Column-major 4x4 matrices (16 floats). Composition order: **Scale → Rotate → Translate**.
+Column-major 4x4 matrices (16 floats). Composition order: **Scale -> Rotate -> Translate**.
 
 ```python
 # Matrix utilities in graphics_bridge.py
@@ -256,15 +257,107 @@ Colors are applied via `mesh.set_uniform_color()` before GPU upload.
 
 ---
 
-## 6. Prop Generation Pipeline
+## 6. Dynamic Chunk System
+
+### Overview
+
+The engine uses a chunk-based streaming system for infinite procedural worlds.
+Chunks are generated, loaded, and unloaded dynamically as the player moves.
+
+```
+ChunkManager (procengine/world/chunk.py)
+  ├── Chunk generation (terrain, biomes, props)
+  ├── Load queue (sorted closest-first)
+  ├── Unload queue (outside render_distance + unload_buffer)
+  ├── Prop queue (props generated at half render distance)
+  └── ChunkedHeightField (physics across chunk boundaries)
+
+GameRunner (procengine/game/game_runner.py)
+  ├── LOADING state → progressive chunk generation
+  ├── PLAYING state → dynamic load/unload around player
+  ├── Entity lifecycle tied to chunks
+  └── Render-distance entity culling
+```
+
+### ChunkManager Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `chunk_size` | 64 | World units per chunk side |
+| `render_distance` | 6 | Chunk radius for terrain rendering |
+| `sim_distance` | 3 | Chunk radius for physics/AI simulation |
+| `unload_buffer` | 2 | Extra chunks kept before unloading |
+
+### Chunk Class
+
+Each `Chunk` stores:
+- `coord`: (x, z) tuple in chunk space
+- `heightmap`, `biome_map`, `river_map`, `slope_map`: numpy arrays (chunk_size+1 for vertex overlap)
+- `mesh_id`: GPU mesh identifier
+- `entity_ids`: set of entity IDs spawned in this chunk
+- `is_loaded`, `is_mesh_uploaded`, `is_simulating`, `has_props`: state flags
+
+### State Machine (GameRunner)
+
+```
+LOADING → PLAYING
+```
+
+**LOADING state**:
+- Generates chunks at `loading_chunks_per_frame` rate (default 4)
+- Transitions to PLAYING when:
+  - Load queue is empty OR minimum chunk count reached
+  - AND all sim-distance chunks have `is_mesh_uploaded == True`
+- Prevents player from spawning on invisible terrain
+
+**PLAYING state**:
+- `update_player_position()` recalculates which chunks to load/unload
+- Load queue sorted by squared distance to player (closest-first)
+- Process 1 chunk/frame for loading, 2 chunks/frame for unloading
+- Props generated when chunks enter prop range (half render distance)
+
+### Entity Lifecycle
+
+- **On chunk load**: Terrain generated via `_generate_chunk()`, props spawned via `_spawn_chunk_props()`, entity IDs stored in `chunk.entity_ids`
+- **On chunk unload**: `_cleanup_chunk()` destroys terrain mesh, despawns all chunk entities from GameWorld, and removes cached entity meshes from `_entity_meshes`
+- No orphaned entities: every entity is tied to a chunk and fully cleaned up on unload
+
+### Render/Sim Distance Filtering
+
+| System | Filter | Fallback (static mode) |
+|--------|--------|----------------------|
+| Entity rendering | Only entities in render-distance chunks drawn | All entities drawn |
+| NPC behavior trees | Only NPCs in sim-distance chunks updated | All NPCs updated |
+| Physics step | Only characters in sim-distance chunks simulated | All characters simulated |
+| Player | Always rendered and always included in physics | Same |
+
+### ChunkedHeightField
+
+Provides seamless physics collision across chunk boundaries:
+
+```python
+chunked_hf = ChunkedHeightField(chunk_manager)
+height = chunked_hf.sample(world_x, world_z)          # point sample
+height = chunked_hf.sample_interpolated(world_x, world_z)  # bilinear
+normal = chunked_hf.get_normal(world_x, world_z)      # surface normal
+```
+
+Automatically routes queries to the correct chunk based on world coordinates.
+
+---
+
+## 7. Prop Generation Pipeline
 
 ### Overview
 
 ```
-props.py (descriptors) → game_runner._setup_props() (spawning)
+props.py (descriptors) → game_runner._spawn_chunk_props() (spawning)
     → graphics_bridge.upload_entity_mesh() (mesh creation)
     → C++ generate_*_mesh() (geometry)
 ```
+
+In dynamic mode, props are spawned per-chunk when chunks enter prop range.
+Entity IDs are tracked in `chunk.entity_ids` for cleanup on unload.
 
 ### Rock Pipeline
 
@@ -284,7 +377,7 @@ props.py (descriptors) → game_runner._setup_props() (spawning)
 - Noise uses bilinear interpolation over a coarse grid (5x7 + 10x14 octaves)
   on the sphere surface with smoothstep blending
 - Normals recomputed from displaced geometry
-- Default `noise_scale = 0.15` (15% of radius, ±)
+- Default `noise_scale = 0.15` (15% of radius, +/-)
 
 **Render scale** (`game_runner.py`): `scale = radius * 2.0`
 
@@ -306,17 +399,12 @@ wide. Fixed to use absolute values `uniform(0.3, 1.2)`.
 ```
 
 **Mesh generation** (`cpp/props.cpp`):
-1. Evaluate L-system string (axiom → rules, N iterations)
+1. Evaluate L-system string (axiom -> rules, N iterations)
 2. Generate tree skeleton via turtle graphics (F=forward, +/-=rotate, [/]=push/pop)
 3. Sweep-mesh each skeleton segment as a tapered cylinder
 4. `segment_length=1.0`, `base_radius=0.1`, `taper=0.85`
 
 **Render scale** (`game_runner.py`): `scale = 1.0` (L-system trees are naturally sized)
-
-**Important**: Trees previously used `generate_cylinder_mesh()` as a placeholder.
-Now properly use `create_tree_from_dict()` + `generate_tree_mesh()`. The entity
-state (L-system params) must be passed through `_get_or_create_entity_mesh()`
-→ `upload_entity_mesh()`.
 
 ### Entity State Threading
 
@@ -339,7 +427,7 @@ mesh_name = self._get_or_create_entity_mesh(
 
 ---
 
-## 7. Physics Module
+## 8. Physics Module
 
 ### Structure
 
@@ -349,6 +437,25 @@ mesh_name = self._get_or_create_entity_mesh(
 - `step_physics(bodies, dt)` -- 2D collision step
 - `step_physics_3d(bodies, dt)` -- 3D collision step
 - `HeightField2D` -- Terrain collision with bilinear interpolation
+- `ChunkedHeightField` -- Multi-chunk terrain collision
+
+### Sim-Distance Filtering
+
+In dynamic-chunk mode, `physics_step()` and `_update_npcs()` in `game_api.py`
+use `get_entities_in_sim_range()` to process only entities within sim-distance
+chunks. The player is always included in physics regardless of sim range.
+
+```python
+# game_api.py
+def physics_step(self) -> None:
+    sim_entities = self.get_entities_in_sim_range()
+    characters = [e for e in sim_entities if isinstance(e, Character)]
+    # Player always included
+    player = self.get_player()
+    if player and player not in characters:
+        characters.append(player)
+    ...
+```
 
 ### Import Convention
 
@@ -362,11 +469,11 @@ from procengine.physics import Vec3  # MUST use full path
 
 ---
 
-## 8. Entity System
+## 9. Entity System
 
 ### Hierarchy
 
-`Entity` → `Player`, `NPC`, `Prop`, `Item`
+`Entity` -> `Character` -> `Player`, `NPC`; `Entity` -> `Prop`, `Item`
 
 ### Prop Entity
 
@@ -382,10 +489,72 @@ Prop(
 - `entity.prop_type` controls which mesh generator is used
 - `entity.state` is an arbitrary dict passed to `upload_entity_mesh()`
 - `entity.rotation` is Y-axis rotation in radians
+- In dynamic mode, entities are tracked via `chunk.entity_ids` and cleaned up on chunk unload
 
 ---
 
-## 9. Determinism System
+## 10. Command System
+
+### Architecture (`procengine/commands/`)
+
+The command system provides a unified control surface for console, GUI,
+keybinds, and future MCP integration.
+
+| Component | File | Description |
+|-----------|------|-------------|
+| `CommandRegistry` | commands.py | 51 commands with typed params, validation, access control |
+| `Console` | console.py | In-game console with history and autocomplete |
+| `game_commands` | handlers/game_commands.py | Game-specific command implementations |
+
+### Access Levels
+
+| Level | Description |
+|-------|-------------|
+| PUBLIC | Always available |
+| CONSOLE | Requires console open |
+| CHEAT | Requires `system.cheats 1` |
+| DEV | Requires `system.dev 1` |
+
+### Categories
+
+world, terrain, props, npc, player, physics, engine, quest, ui, system
+
+### MCP Tool Generation
+
+Commands auto-export as MCP tools via `registry.get_mcp_tools()`, enabling
+AI agents to use the same command surface as the in-game console.
+
+---
+
+## 11. UI System
+
+### Architecture (`procengine/game/ui_system.py`)
+
+The UI system uses Dear ImGui with an abstraction layer for testing:
+
+| Component | Description |
+|-----------|-------------|
+| `UIBackend` | Abstract interface for UI rendering |
+| `ImGuiBackend` | Real Dear ImGui via procengine_cpp C++ bindings |
+| `HeadlessUIBackend` | Testing backend (records UI calls without rendering) |
+| `UIManager` | Orchestrates all UI components |
+
+### Components
+
+| Component | Purpose |
+|-----------|---------|
+| HUD | Health bar, quest tracker, interaction prompts |
+| DialogueBox | NPC conversation with response options |
+| InventoryPanel | Player inventory with use/drop actions |
+| QuestLog | Active and completed quest tracking |
+| PauseMenu | Resume, save, load, settings, quit |
+| SettingsPanel | Debug overlay toggle, VSync toggle |
+| DebugOverlay | FPS, player position, entity count, biome info |
+| ConsoleWindow | Developer console with input, output, autocomplete |
+
+---
+
+## 12. Determinism System
 
 ### Seed Flow
 
@@ -404,6 +573,7 @@ World seed (64-bit integer)
 | `"props_tree"` | Tree descriptor generation |
 | `"tree_positions"` | Tree placement on terrain |
 | `"terrain"` | Heightmap generation |
+| `"chunk_<x>_<z>"` | Per-chunk terrain generation |
 
 ### Determinism Contract
 
@@ -413,7 +583,7 @@ adding a single `rng.random()` call) will change all downstream results.
 
 ---
 
-## 10. C++ Pybind11 Bindings
+## 13. C++ Pybind11 Bindings
 
 ### Module: `procengine_cpp`
 
@@ -424,19 +594,19 @@ adding a single `rng.random()` call) will change all downstream results.
 - `LSystemRules` -- axiom (string), rules (dict<char, string>)
 
 **Mesh generators**:
-- `generate_rock_mesh(desc, segments=16, rings=12)` → Mesh
-- `generate_tree_mesh(desc, segments_per_ring=8)` → Mesh
-- `generate_capsule_mesh(radius, height, segments, rings)` → Mesh
-- `generate_cylinder_mesh(radius, height, segments)` → Mesh
-- `generate_box_mesh(size, center)` → Mesh
-- `generate_cone_mesh(radius, height, segments)` → Mesh
-- `generate_terrain_mesh(heightmap, cell_size, height_scale)` → Mesh
-- `generate_terrain_mesh_with_biomes(heightmap, biome_map, cell_size, height_scale)` → Mesh
+- `generate_rock_mesh(desc, segments=16, rings=12)` -> Mesh
+- `generate_tree_mesh(desc, segments_per_ring=8)` -> Mesh
+- `generate_capsule_mesh(radius, height, segments, rings)` -> Mesh
+- `generate_cylinder_mesh(radius, height, segments)` -> Mesh
+- `generate_box_mesh(size, center)` -> Mesh
+- `generate_cone_mesh(radius, height, segments)` -> Mesh
+- `generate_terrain_mesh(heightmap, cell_size, height_scale)` -> Mesh
+- `generate_terrain_mesh_with_biomes(heightmap, biome_map, cell_size, height_scale)` -> Mesh
 
-**Convenience constructors** (dict → descriptor):
-- `create_rock_from_dict(d)` → RockDescriptor
-- `create_tree_from_dict(d)` → TreeDescriptor
-- `create_creature_from_dict(d)` → CreatureDescriptor
+**Convenience constructors** (dict -> descriptor):
+- `create_rock_from_dict(d)` -> RockDescriptor
+- `create_tree_from_dict(d)` -> TreeDescriptor
+- `create_creature_from_dict(d)` -> CreatureDescriptor
 
 **Graphics system**:
 - `GraphicsSystem` -- Vulkan instance, surface, swapchain management
@@ -445,12 +615,13 @@ adding a single `rng.random()` call) will change all downstream results.
 
 ---
 
-## 11. Testing
+## 14. Testing
 
 ### Test Organization
 
-- **Unit tests** (`tests/unit/`): 478 tests, Python-only, no C++ required
-- **Integration tests** (`tests/integration/`): Require built `procengine_cpp`
+- **Unit tests** (`tests/unit/`): 586 tests across 22 files, Python-only, no C++ required
+- **Integration tests** (`tests/integration/`): 108 tests across 10 files, require built `procengine_cpp`
+- **Total**: 694+ tests
 - **conftest.py**: Adds project root, procengine/, build/, build/Release/ to sys.path
 
 ### Running Tests
@@ -464,6 +635,9 @@ python -m pytest tests/integration/ -v
 
 # Specific test
 python -m pytest tests/unit/test_props.py -v
+
+# Chunk system + game runner (most relevant for runtime changes)
+python -m pytest tests/unit/test_chunk_system.py tests/unit/test_game_runner.py -x -q
 ```
 
 ### Test Conventions
@@ -472,10 +646,11 @@ python -m pytest tests/unit/test_props.py -v
 - Determinism tests compare two runs with same seed
 - Structure tests validate descriptor shapes, ranges, and types
 - All imports in tests must use `from procengine.* import ...`
+- `_advance_past_loading()` helper in game_runner tests to skip LOADING state
 
 ---
 
-## 12. Common Pitfalls & Lessons Learned
+## 15. Common Pitfalls & Lessons Learned
 
 ### 1. Bare Module Imports
 
@@ -509,9 +684,24 @@ blending. Multiple octaves (70/30 blend) provide natural variation at two scales
 "Run integration tests" (6 specific files with `continue-on-error`).
 **Rule**: All three platforms should run the same test step.
 
+### 6. Orphaned Entities on Chunk Unload
+
+**Problem**: When chunks unloaded, only the terrain mesh was destroyed. Entity
+objects accumulated in GameWorld forever, causing a memory leak that grew
+unbounded as the player explored.
+**Fix**: `_cleanup_chunk()` in game_runner.py now destroys all chunk entities,
+removes their cached meshes, and destroys the terrain mesh on unload.
+
+### 7. Entity Distance Filtering
+
+**Problem**: `_render_entities()` drew ALL entities regardless of distance.
+`_update_npcs()` and `physics_step()` processed ALL entities.
+**Fix**: In dynamic mode, rendering filters by render-distance chunks, and
+NPC/physics updates filter by sim-distance chunks. Player is always included.
+
 ---
 
-## 13. Adding New Prop Types
+## 16. Adding New Prop Types
 
 To add a new procedural prop type (e.g., "bush"):
 
@@ -531,8 +721,9 @@ To add a new procedural prop type (e.g., "bush"):
 4. **Graphics bridge** -- Add `elif entity_type == "bush":` case in
    `upload_entity_mesh()` that builds the descriptor from `entity_state`
 
-5. **Game runner** -- Generate descriptors in `_setup_props()`, spawn as
-   `Prop(prop_type="bush", state={...})`, set render scale in `_render_scene()`
+5. **Game runner** -- In dynamic mode, include bush descriptors in
+   `_spawn_chunk_props()`. Entity will be tracked in `chunk.entity_ids`
+   and automatically cleaned up on chunk unload.
 
 6. **Color** -- Add `"bush": (r, g, b)` to `ENTITY_COLORS` in `graphics_bridge.py`
 
@@ -541,19 +732,25 @@ To add a new procedural prop type (e.g., "bush"):
 
 ---
 
-## 14. Key File Quick Reference
+## 17. Key File Quick Reference
 
 | Task | File(s) |
 |------|---------|
 | Add/modify prop descriptor | `procengine/world/props.py` |
 | Change prop mesh generation | `cpp/props.cpp`, `cpp/props.h` |
 | Update pybind11 bindings | `cpp/engine.cpp` |
-| Change prop rendering/scale | `procengine/game/game_runner.py` (~line 1063) |
-| Change entity mesh creation | `procengine/graphics/graphics_bridge.py` (~line 506) |
+| Change entity rendering/scale | `procengine/game/game_runner.py` |
+| Change entity mesh creation | `procengine/graphics/graphics_bridge.py` |
 | Change entity colors | `procengine/graphics/graphics_bridge.py` (ENTITY_COLORS) |
-| Spawn props on terrain | `procengine/game/game_runner.py` (_setup_props ~line 1263) |
+| Spawn props on terrain | `procengine/game/game_runner.py` (`_spawn_chunk_props`) |
+| Chunk load/unload logic | `procengine/world/chunk.py` (ChunkManager) |
+| Chunk entity cleanup | `procengine/game/game_runner.py` (`_cleanup_chunk`) |
 | Physics bodies/collision | `procengine/physics/` |
+| Sim-distance filtering | `procengine/game/game_api.py` (physics_step, _update_npcs) |
 | Terrain heightmap gen | `procengine/world/terrain.py` |
+| Cross-chunk physics | `procengine/world/chunk.py` (ChunkedHeightField) |
+| Command definitions | `procengine/commands/commands.py`, `handlers/game_commands.py` |
+| UI components | `procengine/game/ui_system.py` |
 | CI workflow | `.github/workflows/ci.yml` |
 | Test configuration | `tests/conftest.py` |
 | Build configuration | `pyproject.toml`, `setup.py`, `cpp/CMakeLists.txt` |

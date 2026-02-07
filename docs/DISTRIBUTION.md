@@ -14,6 +14,7 @@ procengine/                 # Core Python package
 │   └── seed_registry.py    # Deterministic sub-seeding
 ├── world/                  # World generation
 │   ├── terrain.py          # Heightmap, biomes, erosion
+│   ├── chunk.py            # ChunkManager, ChunkedHeightField
 │   ├── props.py            # Rock, tree, building generators
 │   ├── materials.py        # Material graph DSL
 │   └── world.py            # Multi-chunk assembly
@@ -26,8 +27,8 @@ procengine/                 # Core Python package
 │   ├── behavior_tree.py    # NPC behavior trees
 │   ├── player_controller.py # Input & camera system
 │   ├── data_loader.py      # JSON data loading
-│   ├── game_runner.py      # Main game loop
-│   └── ui_system.py        # UI with headless support
+│   ├── game_runner.py      # Main game loop, chunk orchestration
+│   └── ui_system.py        # Dear ImGui UI (HUD, dialogue, inventory, console)
 ├── commands/               # Command system
 │   ├── commands.py         # Command registry
 │   ├── console.py          # In-game console
@@ -276,7 +277,7 @@ The full CI/CD workflows are in `.github/workflows/`:
 
 ## Version Information
 
-- **Engine Version**: 1.3.0
+- **Engine Version**: 2.0.0-alpha
 - **Python**: 3.10-3.12
 - **PyInstaller**: 6.0+
 - **Vulkan**: 1.2+
