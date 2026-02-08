@@ -11,6 +11,7 @@
 #include "physics.h"
 #include "props.h"
 #include "materials.h"
+#include "game_manager.h"
 #ifndef NO_GRAPHICS
 #include "graphics.h"
 #include "imgui.h"
@@ -300,6 +301,72 @@ PYBIND11_MODULE(procengine_cpp, m) {
     py::arg("offset_x") = 0.0f,
     py::arg("offset_z") = 0.0f,
     "Generate terrain maps from a seed with world-space offsets for seamless chunk tiling");
+
+    // --- GameManager bindings ---
+    py::class_<game_manager::ChunkCoord>(m, "ChunkCoord")
+        .def(py::init<int, int>())
+        .def_readwrite("x", &game_manager::ChunkCoord::x)
+        .def_readwrite("z", &game_manager::ChunkCoord::z);
+
+    py::class_<game_manager::FrameDirective>(m, "FrameDirective")
+        .def(py::init<>())
+        .def_readonly("max_chunk_loads", &game_manager::FrameDirective::max_chunk_loads)
+        .def_readonly("lod_bias", &game_manager::FrameDirective::lod_bias)
+        .def_readonly("skip_physics_step", &game_manager::FrameDirective::skip_physics_step)
+        .def_readonly("recommended_render_distance", &game_manager::FrameDirective::recommended_render_distance)
+        .def_readonly("recommended_sim_distance", &game_manager::FrameDirective::recommended_sim_distance)
+        .def_readonly("recommended_erosion_iters", &game_manager::FrameDirective::recommended_erosion_iters);
+
+    py::class_<game_manager::PerformanceMetrics>(m, "PerformanceMetrics")
+        .def_readonly("avg_frame_ms", &game_manager::PerformanceMetrics::avg_frame_ms)
+        .def_readonly("worst_frame_ms", &game_manager::PerformanceMetrics::worst_frame_ms)
+        .def_readonly("active_chunks", &game_manager::PerformanceMetrics::active_chunks)
+        .def_readonly("queued_chunks", &game_manager::PerformanceMetrics::queued_chunks)
+        .def_readonly("ready_chunks", &game_manager::PerformanceMetrics::ready_chunks);
+
+    py::class_<game_manager::ChunkResult>(m, "ChunkResult")
+        .def_readonly("coord", &game_manager::ChunkResult::coord)
+        .def_property_readonly("height", [](const game_manager::ChunkResult& r) {
+            uint32_t s = r.maps.size;
+            auto arr = py::array_t<float>({s, s});
+            std::memcpy(arr.mutable_data(), r.maps.height.data(), s*s*sizeof(float));
+            return arr;
+        })
+        .def_property_readonly("biome", [](const game_manager::ChunkResult& r) {
+            uint32_t s = r.maps.size;
+            auto arr = py::array_t<uint8_t>({s, s});
+            std::memcpy(arr.mutable_data(), r.maps.biome.data(), s*s*sizeof(uint8_t));
+            return arr;
+        })
+        .def_property_readonly("river", [](const game_manager::ChunkResult& r) {
+            uint32_t s = r.maps.size;
+            auto arr = py::array_t<uint8_t>({s, s});
+            std::memcpy(arr.mutable_data(), r.maps.river.data(), s*s*sizeof(uint8_t));
+            return arr;
+        })
+        .def_property_readonly("slope", [](const game_manager::ChunkResult& r) {
+            uint32_t s = r.maps.size;
+            if (r.maps.slope.empty()) return py::array_t<float>();
+            auto arr = py::array_t<float>({s, s});
+            std::memcpy(arr.mutable_data(), r.maps.slope.data(), s*s*sizeof(float));
+            return arr;
+        });
+
+    py::class_<game_manager::GameManager>(m, "GameManager")
+        .def(py::init<uint64_t, int>(),
+             py::arg("seed"), py::arg("worker_count") = 0)
+        .def("sync_frame", &game_manager::GameManager::sync_frame,
+             py::arg("dt"), py::arg("player_x"), py::arg("player_z"),
+             py::arg("render_distance"), py::arg("sim_distance"),
+             py::arg("chunk_size"))
+        .def("collect_ready_chunks", &game_manager::GameManager::collect_ready_chunks,
+             py::arg("max_count") = 16)
+        .def("get_metrics", &game_manager::GameManager::get_metrics)
+        .def("set_frame_budget_ms", &game_manager::GameManager::set_frame_budget_ms)
+        .def("set_terrain_config", &game_manager::GameManager::set_terrain_config)
+        .def("mark_chunk_uploaded", &game_manager::GameManager::mark_chunk_uploaded)
+        .def("get_chunks_to_unload", &game_manager::GameManager::get_chunks_to_unload,
+             py::arg("pcx"), py::arg("pcz"), py::arg("unload_radius"));
 
     // Physics bindings
     py::class_<physics::Vec2>(m, "Vec2")
