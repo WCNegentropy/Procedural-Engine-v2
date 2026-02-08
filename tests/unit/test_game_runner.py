@@ -712,3 +712,60 @@ class TestDynamicChunks:
         spawn_chunk = runner._chunk_manager.get_chunk_at_world(16.0, 16.0)
         assert spawn_chunk is not None
         assert spawn_chunk.is_loaded
+
+    def test_loading_not_premature_with_cpp_manager(self):
+        """queue_empty should be False when C++ GameManager is active.
+
+        When the C++ GameManager manages the chunk work queue, the Python
+        ``_load_queue`` is always empty. The loading completion check must
+        not treat this as "queue finished" — it should rely on
+        ``enough_chunks`` instead.
+        """
+        config = RunnerConfig(
+            headless=True,
+            enable_dynamic_chunks=True,
+            chunk_size=32,
+            render_distance=1,
+        )
+        runner = GameRunner(config)
+        runner.initialize()
+
+        # Regardless of whether C++ is available, the guard logic should
+        # not allow ``queue_empty`` to short-circuit to True on the C++ path.
+        if runner._game_manager.available:
+            # Simulate being in LOADING with zero chunks done but empty
+            # Python load queue — this used to incorrectly set queue_empty=True.
+            runner._loading_chunks_done = 0
+            runner._loading_total_chunks = 10
+            runner._loading_complete = False
+            runner._state = GameState.LOADING
+
+            # Run one loading tick
+            runner._update_loading(1 / 60)
+
+            # Loading should NOT have finished prematurely
+            assert not runner._loading_complete
+
+        runner.shutdown()
+
+    def test_loading_uses_python_queue_when_cpp_unavailable(self):
+        """Python fallback path should check _load_queue for completion."""
+        config = RunnerConfig(
+            headless=True,
+            enable_dynamic_chunks=True,
+            chunk_size=32,
+            render_distance=1,
+        )
+        runner = GameRunner(config)
+        runner.initialize()
+
+        if not runner._game_manager.available:
+            # With Python fallback, queue_empty comes from _load_queue.
+            # Run enough frames for loading to complete normally.
+            for _ in range(200):
+                runner._update_loading(1 / 60)
+                if runner._loading_complete:
+                    break
+            assert runner._loading_complete
+
+        runner.shutdown()

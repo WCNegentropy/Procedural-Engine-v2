@@ -2066,7 +2066,11 @@ class GameRunner:
         # Check if we're done — require both enough chunks loaded AND
         # all sim-distance chunks have their meshes uploaded so the player
         # never spawns on invisible terrain.
-        queue_empty = len(self._chunk_manager._load_queue) == 0
+        if self._game_manager.available:
+            # C++ manages its own queue — don't check Python's (always empty)
+            queue_empty = False
+        else:
+            queue_empty = len(self._chunk_manager._load_queue) == 0
         enough_chunks = self._loading_chunks_done >= self._loading_total_chunks
 
         if queue_empty or enough_chunks:

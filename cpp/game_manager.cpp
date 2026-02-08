@@ -93,8 +93,18 @@ FrameDirective GameManager::sync_frame(float dt, float player_x, float player_z,
     int pcz = (int)std::floor(player_z / chunk_size);
 
     // 4. Determine chunks to generate (not already in registry)
+    // Collect missing chunks, then sort by distance so the closest
+    // chunks are generated first (spiral fill around the player).
     int rd = render_distance;
     int rd_sq = rd * rd;
+
+    struct PendingChunk {
+        ChunkCoord coord;
+        float offset_x, offset_z;
+        int dist_sq;
+    };
+    std::vector<PendingChunk> pending;
+
     {
         std::lock_guard<std::mutex> lock(registry_mutex_);
         for (int dx = -rd; dx <= rd; ++dx) {
@@ -103,12 +113,25 @@ FrameDirective GameManager::sync_frame(float dt, float player_x, float player_z,
                 ChunkCoord c{pcx + dx, pcz + dz};
                 if (chunk_registry_.find(c) == chunk_registry_.end()) {
                     chunk_registry_[c] = ChunkState::Queued;
-                    float ox = c.x * (float)chunk_size;
-                    float oz = c.z * (float)chunk_size;
-                    enqueue_generation(c, ox, oz);
+                    pending.push_back({
+                        c,
+                        c.x * (float)chunk_size,
+                        c.z * (float)chunk_size,
+                        dx*dx + dz*dz
+                    });
                 }
             }
         }
+    }
+
+    // Sort closest-first (matches Python ChunkManager spiral behavior)
+    std::sort(pending.begin(), pending.end(),
+              [](const PendingChunk& a, const PendingChunk& b) {
+                  return a.dist_sq < b.dist_sq;
+              });
+
+    for (auto& p : pending) {
+        enqueue_generation(p.coord, p.offset_x, p.offset_z);
     }
 
     // 5. Build FrameDirective based on pressure
