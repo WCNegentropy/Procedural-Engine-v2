@@ -66,6 +66,9 @@ from procengine.game.behavior_tree import (
 )
 from procengine.game.game_runner import GameRunner, RunnerConfig
 
+# Managers
+from procengine.managers.game_manager import GameManagerBridge, ManagerConfig
+
 # Utility
 from procengine.utils.seed_sweeper import generate_seed_batch
 
@@ -127,6 +130,9 @@ __all__ = [
     # Game Runner
     "GameRunner",
     "RunnerConfig",
+    # Managers
+    "GameManagerBridge",
+    "ManagerConfig",
     # Utils
     "generate_seed_batch",
 ]

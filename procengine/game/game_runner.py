@@ -773,6 +773,20 @@ class GameRunner:
         # Chunk management (for dynamic chunks mode)
         self._chunk_manager: Optional[Any] = None
 
+        # C++ GameManager for async chunk gen + dynamic tuning
+        from procengine.managers.game_manager import GameManagerBridge, ManagerConfig
+        self._game_manager = GameManagerBridge(
+            seed=self.config.world_seed,
+            config=ManagerConfig(
+                terrain_octaves=6,
+                terrain_macro_points=8,
+                terrain_erosion_iters=0,
+            ),
+        )
+
+        # LOD bias from GameManager directive (used by prop generation)
+        self._current_lod_bias: float = 0.0
+
         # World loading state (progressive loading before gameplay starts)
         self._loading_total_chunks: int = 0  # Total chunks needed before PLAYING
         self._loading_chunks_done: int = 0  # Chunks loaded so far
@@ -1225,24 +1239,50 @@ class GameRunner:
             if player and self._player_controller:
                 self._player_controller.update(player, self._world, dt)
 
-            # Update world (physics, NPCs, etc.)
-            self._world.step(dt)
+            # === GameManager-driven frame ===
+            if self._game_manager.available and self.config.enable_dynamic_chunks and player:
+                directive = self._game_manager.sync_frame(
+                    dt, player.position.x, player.position.z,
+                    self.config.render_distance, self.config.sim_distance,
+                    self.config.chunk_size,
+                )
+                # Apply dynamic tuning from C++
+                self._chunk_manager.render_distance = directive.recommended_render_distance
+                self._chunk_manager.sim_distance = directive.recommended_sim_distance
 
-            # Process dynamic chunks if enabled
-            if self.config.enable_dynamic_chunks and self._chunk_manager:
-                if player:
-                    # Update player position for chunk loading
+                # Collect async-generated chunks from C++ thread pool
+                ready = self._game_manager.collect_ready_chunks(directive.max_chunk_loads)
+                for result in ready:
+                    self._upload_async_chunk_result(result)
+
+                # Unload distant chunks (C++ determines which)
+                if self._chunk_manager:
+                    unload_radius = self.config.render_distance + 2
+                    pcx = int(player.position.x // self.config.chunk_size)
+                    pcz = int(player.position.z // self.config.chunk_size)
+                    for coord_obj in self._game_manager.get_chunks_to_unload(
+                        pcx, pcz, unload_radius
+                    ):
+                        coord = (coord_obj.x, coord_obj.z)
+                        if coord in self._chunk_manager.chunks:
+                            chunk = self._chunk_manager.chunks.pop(coord)
+                            self._cleanup_chunk(chunk)
+
+                # Physics gating
+                if not directive.skip_physics_step:
+                    self._world.step(dt)
+                # Store LOD bias for prop generation
+                self._current_lod_bias = directive.lod_bias
+            else:
+                # Fallback: original synchronous path
+                self._world.step(dt)
+                if self.config.enable_dynamic_chunks and self._chunk_manager and player:
                     self._chunk_manager.update_player_position(
                         player.position.x, player.position.z
                     )
-                    
-                    # Process load queue (generate new chunks)
-                    # Process 1 chunk per frame to avoid stutter
                     new_chunks = self._chunk_manager.process_load_queue(max_per_frame=1)
                     for chunk in new_chunks:
                         self._upload_chunk_mesh(chunk)
-                    
-                    # Process unload queue (free GPU memory + despawn entities)
                     removed_chunks = self._chunk_manager.process_unload_queue(max_per_frame=2)
                     for chunk in removed_chunks:
                         self._cleanup_chunk(chunk)
@@ -1743,6 +1783,43 @@ class GameRunner:
             
             self._spawn_chunk_props(chunk, world_x, world_z)
 
+    def _upload_async_chunk_result(self, result: Any) -> None:
+        """Upload a chunk that was generated asynchronously by the C++ GameManager.
+
+        Creates a Chunk dataclass from the async result and delegates to
+        the standard ``_upload_chunk_mesh`` pipeline.
+
+        Parameters
+        ----------
+        result:
+            A C++ ChunkResult object with coord, height, biome, and river
+            arrays.
+        """
+        import numpy as np
+        from procengine.world.chunk import Chunk
+
+        coord = (result.coord.x, result.coord.z)
+        chunk = Chunk(
+            coords=coord,
+            heightmap=np.array(result.height, dtype=np.float32).reshape(
+                self.config.chunk_size, self.config.chunk_size
+            ),
+            biome_map=np.array(result.biome, dtype=np.uint8).reshape(
+                self.config.chunk_size, self.config.chunk_size
+            ),
+            river_map=np.array(result.river, dtype=np.uint8).reshape(
+                self.config.chunk_size, self.config.chunk_size
+            ),
+            is_loaded=True,
+        )
+        # Register in ChunkManager
+        if self._chunk_manager:
+            self._chunk_manager.chunks[coord] = chunk
+        # Upload mesh to GPU
+        self._upload_chunk_mesh(chunk)
+        # Notify C++ that the chunk is now uploaded
+        self._game_manager.mark_chunk_uploaded(coord[0], coord[1])
+
     def _spawn_chunk_props(self, chunk: Any, world_x: float, world_z: float) -> None:
         """Spawn props from a chunk's pending_props list as game entities.
 
@@ -1925,16 +2002,32 @@ class GameRunner:
             self._state = GameState.PLAYING
             return
 
-        # Generate several chunks per frame during loading (more aggressive
-        # than the 1-per-frame used during gameplay)
-        batch = self.config.loading_chunks_per_frame
-        new_chunks = self._chunk_manager.process_load_queue(max_per_frame=batch)
-        for chunk in new_chunks:
-            self._upload_chunk_mesh(chunk)
-            self._loading_chunks_done += 1
+        if self._game_manager.available:
+            # Async path: C++ workers are generating; we just collect
+            player = self._world.get_player() if self._world else None
+            px = player.position.x if player else 0.0
+            pz = player.position.z if player else 0.0
+            self._game_manager.sync_frame(
+                dt, px, pz,
+                self.config.render_distance, self.config.sim_distance,
+                self.config.chunk_size,
+            )
+            ready = self._game_manager.collect_ready_chunks(
+                self.config.loading_chunks_per_frame
+            )
+            for result in ready:
+                self._upload_async_chunk_result(result)
+                self._loading_chunks_done += 1
+        else:
+            # Fallback: original synchronous loading
+            batch = self.config.loading_chunks_per_frame
+            new_chunks = self._chunk_manager.process_load_queue(max_per_frame=batch)
+            for chunk in new_chunks:
+                self._upload_chunk_mesh(chunk)
+                self._loading_chunks_done += 1
 
         # Log progress periodically
-        if new_chunks and self._loading_chunks_done % 10 == 0:
+        if self._loading_chunks_done > 0 and self._loading_chunks_done % 10 == 0:
             pct = (
                 self._loading_chunks_done / max(self._loading_total_chunks, 1) * 100
             )

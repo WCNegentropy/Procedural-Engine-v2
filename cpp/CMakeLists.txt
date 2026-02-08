@@ -289,6 +289,7 @@ set(MODULE_SOURCES
     physics.cpp
     props.cpp
     materials.cpp
+    game_manager.cpp
 )
 
 if(NOT NO_GRAPHICS)
