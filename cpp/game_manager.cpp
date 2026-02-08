@@ -34,15 +34,16 @@ void GameManager::worker_loop() {
             item = work_queue_.front();
             work_queue_.pop();
         }
-        // Each worker gets its own SeedRegistry from the global seed
-        // combined with chunk coordinates for determinism.
-        // Large primes used for spatial hashing to avoid seed collisions.
-        uint64_t chunk_seed = seed_ ^ ((uint64_t)(unsigned int)item.coord.x * 73856093ULL)
-                                    ^ ((uint64_t)(unsigned int)item.coord.z * 19349669ULL);
-        SeedRegistry reg(chunk_seed);
+        // Use the global seed for all chunks so they share the same noise
+        // permutation table.  This mirrors the Python ChunkManager which
+        // uses a single ``_terrain_registry`` for seamless chunk boundaries.
+        // Spatial positioning is handled entirely via offset_x / offset_z.
+        SeedRegistry reg(seed_);
 
         terrain::TerrainConfig cfg = base_terrain_config_;
-        cfg.size = chunk_size_;
+        // Request size + 1 vertices for overlap stitching, matching the
+        // Python ChunkManager._generate_chunk() which uses gen_size = chunk_size + 1.
+        cfg.size = chunk_size_ + 1;
         cfg.offset_x = item.offset_x;
         cfg.offset_z = item.offset_z;
 
@@ -168,10 +169,20 @@ PerformanceMetrics GameManager::get_metrics() const {
     pm.avg_frame_ms = count > 0 ? sum / (float)count : 0.0f;
     pm.worst_frame_ms = worst;
 
-    // Note: these counts are approximate (no lock in const method)
-    pm.active_chunks = 0;
-    pm.queued_chunks = 0;
-    pm.ready_chunks = 0;
+    // Approximate counts — no lock in const method, acceptable for display
+    int active = 0, queued = 0, ready = 0;
+    for (const auto& kv : chunk_registry_) {
+        switch (kv.second) {
+            case ChunkState::Uploaded:    ++active; break;
+            case ChunkState::Queued:
+            case ChunkState::Generating:  ++queued; break;
+            case ChunkState::Ready:       ++ready;  break;
+            default: break;
+        }
+    }
+    pm.active_chunks = active;
+    pm.queued_chunks = queued;
+    pm.ready_chunks = ready;
     pm.worker_threads_active = (int)workers_.size();
     pm.gpu_upload_budget_ms = 0.0f;
     return pm;

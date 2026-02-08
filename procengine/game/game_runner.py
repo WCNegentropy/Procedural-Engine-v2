@@ -1787,30 +1787,57 @@ class GameRunner:
         """Upload a chunk that was generated asynchronously by the C++ GameManager.
 
         Creates a Chunk dataclass from the async result and delegates to
-        the standard ``_upload_chunk_mesh`` pipeline.
+        the standard ``_upload_chunk_mesh`` pipeline.  Also generates props
+        so that async chunks behave identically to synchronous ones.
 
         Parameters
         ----------
         result:
-            A C++ ChunkResult object with coord, height, biome, and river
-            arrays.
+            A C++ ChunkResult object with coord, height, biome, river, and
+            slope arrays.
         """
         import numpy as np
         from procengine.world.chunk import Chunk
 
         coord = (result.coord.x, result.coord.z)
+
+        # C++ now generates with size+1 for vertex overlap (matching Python
+        # ChunkManager._generate_chunk).
+        gen_size = self.config.chunk_size + 1
+
+        height = np.array(result.height, dtype=np.float32).reshape(gen_size, gen_size)
+        biome = np.array(result.biome, dtype=np.uint8).reshape(gen_size, gen_size)
+        river = np.array(result.river, dtype=np.uint8).reshape(gen_size, gen_size)
+
+        slope_arr = np.array(result.slope, dtype=np.float32)
+        slope = slope_arr.reshape(gen_size, gen_size) if slope_arr.size > 0 else None
+
+        # Generate props using the same logic as ChunkManager._generate_chunk
+        prop_descriptors = []
+        has_props = False
+        if self._chunk_manager:
+            from procengine.world.props import generate_chunk_props
+            chunk_name = f"chunk_{coord[0]}_{coord[1]}"
+            chunk_registry = self._chunk_manager._registry.spawn(chunk_name)
+
+            prop_descriptors = generate_chunk_props(
+                chunk_registry,
+                self.config.chunk_size,
+                height[:self.config.chunk_size, :self.config.chunk_size],
+                slope[:self.config.chunk_size, :self.config.chunk_size] if slope is not None else None,
+                biome[:self.config.chunk_size, :self.config.chunk_size],
+            )
+            has_props = True
+
         chunk = Chunk(
             coords=coord,
-            heightmap=np.array(result.height, dtype=np.float32).reshape(
-                self.config.chunk_size, self.config.chunk_size
-            ),
-            biome_map=np.array(result.biome, dtype=np.uint8).reshape(
-                self.config.chunk_size, self.config.chunk_size
-            ),
-            river_map=np.array(result.river, dtype=np.uint8).reshape(
-                self.config.chunk_size, self.config.chunk_size
-            ),
+            heightmap=height,
+            biome_map=biome,
+            river_map=river,
+            slope_map=slope,
+            pending_props=prop_descriptors,
             is_loaded=True,
+            has_props=has_props,
         )
         # Register in ChunkManager
         if self._chunk_manager:

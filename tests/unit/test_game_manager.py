@@ -61,3 +61,40 @@ class TestFrameDirectiveDefaults:
         assert d.recommended_render_distance == 6
         assert d.recommended_sim_distance == 3
         assert d.recommended_erosion_iters == 0.0
+
+
+class TestChunkManagerDistanceSetters:
+    """Verify that ChunkManager render_distance/sim_distance setters work."""
+
+    def test_render_distance_setter(self):
+        from procengine.core.seed_registry import SeedRegistry
+        from procengine.world.chunk import ChunkManager
+
+        mgr = ChunkManager(SeedRegistry(42), render_distance=6, sim_distance=3)
+        mgr.render_distance = 4
+        assert mgr.render_distance == 4
+
+    def test_sim_distance_setter(self):
+        from procengine.core.seed_registry import SeedRegistry
+        from procengine.world.chunk import ChunkManager
+
+        mgr = ChunkManager(SeedRegistry(42), render_distance=6, sim_distance=3)
+        mgr.sim_distance = 2
+        assert mgr.sim_distance == 2
+
+    def test_sim_distance_clamped_to_render(self):
+        from procengine.core.seed_registry import SeedRegistry
+        from procengine.world.chunk import ChunkManager
+
+        mgr = ChunkManager(SeedRegistry(42), render_distance=4, sim_distance=3)
+        # sim_distance should be clamped to render_distance
+        mgr.sim_distance = 10
+        assert mgr.sim_distance == 4
+
+    def test_render_distance_min_one(self):
+        from procengine.core.seed_registry import SeedRegistry
+        from procengine.world.chunk import ChunkManager
+
+        mgr = ChunkManager(SeedRegistry(42), render_distance=6, sim_distance=3)
+        mgr.render_distance = 0
+        assert mgr.render_distance == 1

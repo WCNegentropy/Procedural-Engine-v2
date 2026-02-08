@@ -358,9 +358,11 @@ PYBIND11_MODULE(procengine_cpp, m) {
         .def("sync_frame", &game_manager::GameManager::sync_frame,
              py::arg("dt"), py::arg("player_x"), py::arg("player_z"),
              py::arg("render_distance"), py::arg("sim_distance"),
-             py::arg("chunk_size"))
+             py::arg("chunk_size"),
+             py::call_guard<py::gil_scoped_release>())
         .def("collect_ready_chunks", &game_manager::GameManager::collect_ready_chunks,
-             py::arg("max_count") = 16)
+             py::arg("max_count") = 16,
+             py::call_guard<py::gil_scoped_release>())
         .def("get_metrics", &game_manager::GameManager::get_metrics)
         .def("set_frame_budget_ms", &game_manager::GameManager::set_frame_budget_ms)
         .def("set_terrain_config", &game_manager::GameManager::set_terrain_config)
