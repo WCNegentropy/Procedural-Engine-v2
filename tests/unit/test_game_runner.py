@@ -747,3 +747,25 @@ class TestDynamicChunks:
             assert not runner._loading_complete
 
         runner.shutdown()
+
+    def test_loading_uses_python_queue_when_cpp_unavailable(self):
+        """Python fallback path should check _load_queue for completion."""
+        config = RunnerConfig(
+            headless=True,
+            enable_dynamic_chunks=True,
+            chunk_size=32,
+            render_distance=1,
+        )
+        runner = GameRunner(config)
+        runner.initialize()
+
+        if not runner._game_manager.available:
+            # With Python fallback, queue_empty comes from _load_queue.
+            # Run enough frames for loading to complete normally.
+            for _ in range(200):
+                runner._update_loading(1 / 60)
+                if runner._loading_complete:
+                    break
+            assert runner._loading_complete
+
+        runner.shutdown()
