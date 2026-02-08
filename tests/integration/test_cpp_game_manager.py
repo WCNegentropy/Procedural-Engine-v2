@@ -116,11 +116,10 @@ def test_metrics_chunk_counts():
     time.sleep(1.0)
     _ = mgr.collect_ready_chunks(100)
     metrics = mgr.get_metrics()
-    # After generation and collection, some chunks should be in Ready state
-    # (or Queued/Uploaded depending on timing).  At minimum, the counts
-    # shouldn't all be zero for non-trivial workloads.
+    # After sync_frame enqueues chunks within render_distance=2, the
+    # registry should contain entries (Queued, Ready, or Uploaded).
     total = metrics.active_chunks + metrics.queued_chunks + metrics.ready_chunks
-    assert total >= 0  # Non-negative counts
+    assert total > 0, "Expected non-zero chunk counts after generation"
     assert metrics.worker_threads_active >= 1
 
 
