@@ -35,7 +35,8 @@ void GameManager::worker_loop() {
             work_queue_.pop();
         }
         // Each worker gets its own SeedRegistry from the global seed
-        // combined with chunk coordinates for determinism
+        // combined with chunk coordinates for determinism.
+        // Large primes used for spatial hashing to avoid seed collisions.
         uint64_t chunk_seed = seed_ ^ ((uint64_t)(unsigned int)item.coord.x * 73856093ULL)
                                     ^ ((uint64_t)(unsigned int)item.coord.z * 19349669ULL);
         SeedRegistry reg(chunk_seed);
