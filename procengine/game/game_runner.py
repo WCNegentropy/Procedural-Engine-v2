@@ -2128,8 +2128,9 @@ class GameRunner:
                     npc.position.x, npc.position.z
                 )
                 if chunk and chunk.heightmap is not None:
-                    local_x = int(npc.position.x) % self.config.chunk_size
-                    local_z = int(npc.position.z) % self.config.chunk_size
+                    wx, wz = self._chunk_manager.chunk_to_world(chunk.coords)
+                    local_x = int(npc.position.x - wx)
+                    local_z = int(npc.position.z - wz)
                     local_x = min(max(local_x, 0), self.config.chunk_size - 1)
                     local_z = min(max(local_z, 0), self.config.chunk_size - 1)
                     terrain_y = float(chunk.heightmap[local_z, local_x]) * self.HEIGHT_SCALE
