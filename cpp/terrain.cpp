@@ -146,6 +146,75 @@ std::vector<float> generate_fbm(SeedRegistry& registry, uint32_t size, uint32_t 
     return height;
 }
 
+std::vector<float> generate_continent_noise(SeedRegistry& registry, uint32_t size,
+                                             float offset_x, float offset_z,
+                                             float base_frequency) {
+    SimplexNoise noise(registry);
+    std::vector<float> height(size * size, 0.0f);
+    float amplitude = 1.0f;
+    float frequency = base_frequency;
+    float total_amplitude = 0.0f;
+
+    for (int oct = 0; oct < 3; ++oct) {  // Only 3 octaves for broad features
+        auto layer = noise.grid(size, frequency, offset_x, offset_z);
+        for (size_t i = 0; i < height.size(); ++i)
+            height[i] += layer[i] * amplitude;
+        total_amplitude += amplitude;
+        amplitude *= 0.45f;   // Matches Python's 0.45 decay
+        frequency *= 2.0f;
+    }
+
+    if (total_amplitude > 0.0f) {
+        float scale = 1.0f / total_amplitude;
+        for (auto& h : height) {
+            h = (h * scale) * 0.5f + 0.5f;
+            h = std::clamp(h, 0.0f, 1.0f);
+        }
+    }
+
+    // Cubic remap matching Python: steepen coastlines
+    for (auto& h : height) {
+        h = std::clamp(h * 1.1f - 0.05f, 0.0f, 1.0f);
+        h = std::pow(h, 1.5f);  // Power curve: deeper oceans, flatter plateaus
+    }
+
+    return height;
+}
+
+std::vector<float> generate_ridged_noise(SeedRegistry& registry, uint32_t size,
+                                          uint32_t octaves, float offset_x,
+                                          float offset_z, float base_frequency) {
+    SimplexNoise noise(registry);
+    std::vector<float> height(size * size, 0.0f);
+    std::vector<float> prev(size * size, 1.0f);  // Weight by previous octave
+    float amplitude = 1.0f;
+    float frequency = base_frequency;
+    float total_amplitude = 0.0f;
+
+    for (uint32_t oct = 0; oct < octaves; ++oct) {
+        auto raw = noise.grid(size, frequency, offset_x, offset_z);
+        for (size_t i = 0; i < height.size(); ++i) {
+            float ridged = 1.0f - std::abs(raw[i]);
+            ridged = ridged * ridged;       // Sharpen ridges
+            ridged *= prev[i];              // Detail cascading
+            height[i] += ridged * amplitude;
+            prev[i] = ridged;
+        }
+        total_amplitude += amplitude;
+        amplitude *= 0.5f;
+        frequency *= 2.0f;
+    }
+
+    if (total_amplitude > 0.0f) {
+        float inv = 1.0f / total_amplitude;
+        for (auto& h : height) {
+            h *= inv;
+            h = std::clamp(h, 0.0f, 1.0f);
+        }
+    }
+    return height;
+}
+
 // Helper: Hash integer cell coordinates to a float [0, 1]
 // This ensures deterministic, globally consistent feature point positions
 static float hash_coords(int x, int y, uint64_t seed) {
@@ -420,7 +489,7 @@ TerrainMaps generate_terrain_maps(SeedRegistry& registry, const TerrainConfig& c
     uint64_t macro_seed = 0;
     float macro_freq = 0.0f;
     if (config.macro_points > 0) {
-        macro_seed = registry.get_subseed("macro");
+        macro_seed = registry.get_subseed("terrain_macro");
         // Convert "points" count to frequency for global Voronoi
         // Using sqrt(points)/size approximates similar point density
         macro_freq = std::sqrt(static_cast<float>(config.macro_points)) / static_cast<float>(config.size);
@@ -434,18 +503,43 @@ TerrainMaps generate_terrain_maps(SeedRegistry& registry, const TerrainConfig& c
         float padded_off_x = config.offset_x - 1.0f;
         float padded_off_z = config.offset_z - 1.0f;
 
-        // Generate padded heightmap
-        uint64_t height_seed = registry.get_subseed("height");
-        SeedRegistry height_reg(height_seed);
-        auto height_padded = generate_fbm(height_reg, padded_size, config.octaves,
-                                          padded_off_x, padded_off_z, config.base_frequency);
+        // 1. Continent mask — broad landmasses (freq * 0.25)
+        uint64_t continent_seed = registry.get_subseed("terrain_continent_slope");
+        SeedRegistry continent_reg(continent_seed);
+        auto continent = generate_continent_noise(continent_reg, padded_size,
+                                                   padded_off_x, padded_off_z,
+                                                   config.base_frequency * 0.25f);
 
-        // Apply macro plates to padded data
+        // 2. Detail FBM — fine surface variation
+        uint64_t height_seed = registry.get_subseed("terrain_height_slope");
+        SeedRegistry height_reg(height_seed);
+        auto detail = generate_fbm(height_reg, padded_size, config.octaves,
+                                    padded_off_x, padded_off_z, config.base_frequency);
+
+        // 3. Ridged noise — mountain ranges
+        uint64_t ridge_seed = registry.get_subseed("terrain_ridge_slope");
+        SeedRegistry ridge_reg(ridge_seed);
+        auto ridges = generate_ridged_noise(ridge_reg, padded_size,
+                                             std::min(config.octaves, 5u),
+                                             padded_off_x, padded_off_z,
+                                             config.base_frequency * 0.5f);
+
+        // 4. Weighted blend: continent 55% + detail 20% + ridges 25%
+        std::vector<float> height_padded(padded_size * padded_size);
+        for (size_t i = 0; i < height_padded.size(); ++i) {
+            height_padded[i] = std::clamp(
+                continent[i] * 0.55f + detail[i] * 0.20f + ridges[i] * 0.25f,
+                0.0f, 1.0f);
+        }
+
+        // 5. Optional macro plates (gentle overlay, not 50/50 average)
         if (config.macro_points > 0) {
             auto macro_padded = generate_global_voronoi_ridged(macro_seed, padded_size,
                                                                padded_off_x, padded_off_z, macro_freq);
             for (size_t i = 0; i < height_padded.size(); ++i) {
-                height_padded[i] = std::clamp((height_padded[i] + macro_padded[i]) * 0.5f, 0.0f, 1.0f);
+                height_padded[i] = std::clamp(
+                    height_padded[i] * 0.8f + macro_padded[i] * 0.2f,
+                    0.0f, 1.0f);
             }
         }
 
@@ -459,7 +553,7 @@ TerrainMaps generate_terrain_maps(SeedRegistry& registry, const TerrainConfig& c
 
         // Apply erosion to cropped height if requested
         if (config.erosion_iters > 0) {
-            uint64_t erosion_seed = registry.get_subseed("erosion");
+            uint64_t erosion_seed = registry.get_subseed("terrain_erosion");
             SeedRegistry erosion_reg(erosion_seed);
             apply_hydraulic_erosion(maps.height, config.size, erosion_reg, config.erosion_iters);
         }
@@ -476,22 +570,49 @@ TerrainMaps generate_terrain_maps(SeedRegistry& registry, const TerrainConfig& c
         }
     } else {
         // No slope needed - generate height directly without ghost buffer
-        uint64_t height_seed = registry.get_subseed("height");
+
+        // 1. Continent mask — broad landmasses (freq * 0.25)
+        uint64_t continent_seed = registry.get_subseed("terrain_continent");
+        SeedRegistry continent_reg(continent_seed);
+        auto continent = generate_continent_noise(continent_reg, config.size,
+                                                   config.offset_x, config.offset_z,
+                                                   config.base_frequency * 0.25f);
+
+        // 2. Detail FBM — fine surface variation
+        uint64_t height_seed = registry.get_subseed("terrain_height");
         SeedRegistry height_reg(height_seed);
-        maps.height = generate_fbm(height_reg, config.size, config.octaves,
+        auto detail = generate_fbm(height_reg, config.size, config.octaves,
                                     config.offset_x, config.offset_z, config.base_frequency);
 
-        // Apply macro plates
+        // 3. Ridged noise — mountain ranges
+        uint64_t ridge_seed = registry.get_subseed("terrain_ridge");
+        SeedRegistry ridge_reg(ridge_seed);
+        auto ridges = generate_ridged_noise(ridge_reg, config.size,
+                                             std::min(config.octaves, 5u),
+                                             config.offset_x, config.offset_z,
+                                             config.base_frequency * 0.5f);
+
+        // 4. Weighted blend: continent 55% + detail 20% + ridges 25%
+        maps.height.resize(config.size * config.size);
+        for (size_t i = 0; i < maps.height.size(); ++i) {
+            maps.height[i] = std::clamp(
+                continent[i] * 0.55f + detail[i] * 0.20f + ridges[i] * 0.25f,
+                0.0f, 1.0f);
+        }
+
+        // 5. Optional macro plates (gentle overlay, not 50/50 average)
         if (config.macro_points > 0) {
             auto macro = generate_global_voronoi_ridged(macro_seed, config.size,
                                                          config.offset_x, config.offset_z, macro_freq);
             for (size_t i = 0; i < maps.height.size(); ++i) {
-                maps.height[i] = std::clamp((maps.height[i] + macro[i]) * 0.5f, 0.0f, 1.0f);
+                maps.height[i] = std::clamp(
+                    maps.height[i] * 0.8f + macro[i] * 0.2f,
+                    0.0f, 1.0f);
             }
         }
 
         if (config.erosion_iters > 0) {
-            uint64_t erosion_seed = registry.get_subseed("erosion");
+            uint64_t erosion_seed = registry.get_subseed("terrain_erosion");
             SeedRegistry erosion_reg(erosion_seed);
             apply_hydraulic_erosion(maps.height, config.size, erosion_reg, config.erosion_iters);
         }
@@ -499,12 +620,12 @@ TerrainMaps generate_terrain_maps(SeedRegistry& registry, const TerrainConfig& c
 
     // Generate other maps (temperature, humidity, biome, river) - no ghost buffer needed
     float biome_freq = config.base_frequency * 0.5f;
-    uint64_t temp_seed = registry.get_subseed("temperature");
+    uint64_t temp_seed = registry.get_subseed("terrain_temp");
     SeedRegistry temp_reg(temp_seed);
     auto temperature = generate_fbm(temp_reg, config.size, 2, 
                                      config.offset_x, config.offset_z, biome_freq);
 
-    uint64_t humid_seed = registry.get_subseed("humidity");
+    uint64_t humid_seed = registry.get_subseed("terrain_humidity");
     SeedRegistry humid_reg(humid_seed);
     auto humidity = generate_fbm(humid_reg, config.size, 2, 
                                   config.offset_x, config.offset_z, biome_freq);
@@ -512,7 +633,7 @@ TerrainMaps generate_terrain_maps(SeedRegistry& registry, const TerrainConfig& c
     maps.biome = generate_biome_map(temperature, humidity, maps.height, config.size);
 
     // Generate seamless rivers using coherent noise
-    uint64_t river_seed = registry.get_subseed("river");
+    uint64_t river_seed = registry.get_subseed("terrain_river");
     SeedRegistry river_reg(river_seed);
     maps.river = generate_river_mask(river_reg, config.size, config.offset_x, config.offset_z, config.base_frequency);
 

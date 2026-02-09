@@ -171,3 +171,59 @@ def test_engine_generate_terrain_determinism() -> None:
     assert np.allclose(h1, h2), "Same seed engines should produce same terrain"
     assert np.array_equal(b1, b2)
     assert np.array_equal(r1, r2)
+
+
+def test_terrain_has_ocean_coverage() -> None:
+    """Terrain should have meaningful ocean coverage (heights below SEA_LEVEL=0.35).
+
+    The continent noise layer with its cubic remap should produce a bimodal
+    height distribution with both ocean basins and landmasses, not just
+    uniform heights around 0.5.
+    """
+    SEA_LEVEL = 0.35
+    # Use a large map to get statistically meaningful coverage
+    height, biome, _ = procengine_cpp.generate_terrain_standalone(42, size=128, macro_points=0)
+    ocean_fraction = np.mean(height < SEA_LEVEL)
+    # With the continent layer's power curve, we expect 20-60% ocean
+    assert ocean_fraction > 0.05, (
+        f"Ocean coverage is only {ocean_fraction:.1%}; "
+        "continent noise layer may be missing"
+    )
+
+
+def test_terrain_height_distribution_not_uniform() -> None:
+    """Height distribution should be bimodal (oceans + land), not a uniform bell curve.
+
+    Without the continent layer, raw FBM produces heights clustered around 0.5.
+    The continent layer's cubic remap (h^1.5) should flatten ocean floors and
+    create steeper coastlines, spreading the distribution.
+    """
+    height, _, _ = procengine_cpp.generate_terrain_standalone(123, size=128, macro_points=0)
+    # Check that height std deviation is reasonable (not too narrow)
+    std = np.std(height)
+    assert std > 0.05, (
+        f"Height std dev is only {std:.3f}; expected > 0.05 with continent noise"
+    )
+
+
+def test_terrain_macro_blend_is_gentle() -> None:
+    """Macro plates should gently overlay (80/20 blend), not dominate (50/50).
+
+    Compare terrain with and without macro plates. The difference should be
+    moderate, not a dramatic 50/50 average that replaces the original terrain.
+    """
+    seed = 444
+    h_no_macro, _, _ = procengine_cpp.generate_terrain_standalone(
+        seed, size=64, macro_points=0
+    )
+    h_with_macro, _, _ = procengine_cpp.generate_terrain_standalone(
+        seed, size=64, macro_points=8
+    )
+    diff = np.abs(h_with_macro - h_no_macro)
+    mean_diff = np.mean(diff)
+    # With 80/20 blend, the max theoretical change per pixel is 0.2
+    # Mean diff should be moderate, not extreme
+    assert mean_diff < 0.20, (
+        f"Mean height difference with macro is {mean_diff:.3f}; "
+        "macro blend may be too aggressive (should be 80/20, not 50/50)"
+    )

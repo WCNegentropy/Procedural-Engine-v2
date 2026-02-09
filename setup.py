@@ -31,6 +31,11 @@ class CMakeBuild(build_ext):
             f"-DCMAKE_BUILD_TYPE=Release",
         ]
 
+        # Check for CI environment or explicit headless mode
+        if os.environ.get("CI") or os.environ.get("NO_GRAPHICS"):
+            cmake_args.append("-DNO_GRAPHICS=ON")
+            print("Building in headless mode (NO_GRAPHICS=ON)")
+
         # Platform-specific configuration
         if sys.platform.startswith("darwin"):
             # macOS: use Homebrew OpenSSL
