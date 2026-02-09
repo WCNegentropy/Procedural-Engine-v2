@@ -335,6 +335,38 @@ class ChunkManager:
                     if coord not in self._props_queue:
                         self._props_queue.append(coord)
 
+    def sync_player_chunk(self, world_x: float, world_z: float) -> None:
+        """Update player chunk tracking without modifying load/unload queues.
+
+        Used when an external system (C++ GameManager) handles chunk
+        generation and lifecycle.  This keeps sim/render distance filtering
+        consistent so that ``get_render_chunks()`` and ``get_sim_chunks()``
+        return the correct set of chunks.
+
+        Parameters
+        ----------
+        world_x : float
+            Player's world X coordinate.
+        world_z : float
+            Player's world Z coordinate.
+        """
+        new_chunk = self.world_to_chunk(world_x, world_z)
+        self._player_chunk = new_chunk
+
+        sim_set = self._get_chunks_in_radius(new_chunk, self._sim_distance)
+        for coord, chunk in self._chunks.items():
+            chunk.is_simulating = coord in sim_set
+
+        # Check for loaded chunks that entered prop range but lack props
+        prop_radius_sq = self._prop_distance ** 2
+        for coord, chunk in self._chunks.items():
+            if not chunk.has_props:
+                dx = coord[0] - new_chunk[0]
+                dz = coord[1] - new_chunk[1]
+                if dx * dx + dz * dz <= prop_radius_sq:
+                    if coord not in self._props_queue:
+                        self._props_queue.append(coord)
+
     def _get_chunks_in_radius(
         self, center: ChunkCoord, radius: int
     ) -> Set[ChunkCoord]:

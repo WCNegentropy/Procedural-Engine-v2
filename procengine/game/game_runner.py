@@ -1241,6 +1241,14 @@ class GameRunner:
 
             # === GameManager-driven frame ===
             if self._game_manager.available and self.config.enable_dynamic_chunks and player:
+                # Keep ChunkManager's player position in sync so
+                # get_render_chunks() / get_sim_chunks() return the correct
+                # set.  This does NOT modify load/unload queues (C++ handles
+                # those), but it DOES update _player_chunk and sim flags.
+                self._chunk_manager.sync_player_chunk(
+                    player.position.x, player.position.z
+                )
+
                 directive = self._game_manager.sync_frame(
                     dt, player.position.x, player.position.z,
                     self.config.render_distance, self.config.sim_distance,
@@ -1254,6 +1262,13 @@ class GameRunner:
                 ready = self._game_manager.collect_ready_chunks(directive.max_chunk_loads)
                 for result in ready:
                     self._upload_async_chunk_result(result)
+
+                # Generate props for chunks that entered prop range
+                if self._chunk_manager:
+                    prop_chunks = self._chunk_manager.process_prop_queue(max_per_frame=1)
+                    for chunk in prop_chunks:
+                        world_x, world_z = self._chunk_manager.chunk_to_world(chunk.coords)
+                        self._spawn_chunk_props(chunk, world_x, world_z)
 
                 # Unload distant chunks (C++ determines which)
                 if self._chunk_manager:
@@ -2104,6 +2119,22 @@ class GameRunner:
                 player.grounded = True
                 self._terrain_heightmap = chunk.heightmap * self.HEIGHT_SCALE
                 print(f"Player spawned at terrain height: {terrain_y + 2.0}")
+
+        # Adjust NPC Y-positions to terrain height so they stand on the
+        # surface instead of at their JSON-defined y=0 positions.
+        if self._world and self._chunk_manager:
+            for npc in self._world.get_npcs():
+                chunk = self._chunk_manager.get_chunk_at_world(
+                    npc.position.x, npc.position.z
+                )
+                if chunk and chunk.heightmap is not None:
+                    local_x = int(npc.position.x) % self.config.chunk_size
+                    local_z = int(npc.position.z) % self.config.chunk_size
+                    local_x = min(max(local_x, 0), self.config.chunk_size - 1)
+                    local_z = min(max(local_z, 0), self.config.chunk_size - 1)
+                    terrain_y = float(chunk.heightmap[local_z, local_x]) * self.HEIGHT_SCALE
+                    npc.position = Vec3(npc.position.x, terrain_y + 1.0, npc.position.z)
+                    self._world._update_entity_chunk(npc.entity_id, npc.position)
 
         # Set initial camera
         if self._graphics_bridge and self._player_controller:

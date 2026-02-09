@@ -324,6 +324,67 @@ class TestChunkManager:
         assert "player_chunk" in stats
         assert stats["active_chunks"] == 5  # circular: center + 4 cardinal
 
+    def test_sync_player_chunk_updates_position(self):
+        """Test that sync_player_chunk updates _player_chunk without modifying queues."""
+        registry = SeedRegistry(42)
+        manager = ChunkManager(registry, chunk_size=64, render_distance=2, sim_distance=1)
+
+        # Load some chunks at origin
+        manager.update_player_position(32.0, 32.0)
+        while manager.get_load_queue_size() > 0:
+            manager.process_load_queue(max_per_frame=50)
+        assert manager.player_chunk == (0, 0)
+
+        # Move player to a different chunk using sync_player_chunk
+        manager.sync_player_chunk(200.0, 200.0)
+
+        # Player chunk should be updated
+        assert manager.player_chunk == (3, 3)
+
+        # Load/unload queues should NOT have been modified
+        assert manager.get_load_queue_size() == 0
+        assert manager.get_unload_queue_size() == 0
+
+    def test_sync_player_chunk_updates_sim_flags(self):
+        """Test that sync_player_chunk correctly sets sim flags on chunks."""
+        registry = SeedRegistry(42)
+        manager = ChunkManager(registry, chunk_size=64, render_distance=3, sim_distance=1)
+
+        # Load chunks at origin
+        manager.update_player_position(32.0, 32.0)
+        while manager.get_load_queue_size() > 0:
+            manager.process_load_queue(max_per_frame=100)
+
+        # Verify chunks near origin are simulating
+        origin_chunk = manager.chunks.get((0, 0))
+        assert origin_chunk is not None
+        assert origin_chunk.is_simulating is True
+
+        # Now sync player to a far chunk — origin should lose sim flag
+        manager.sync_player_chunk(200.0, 200.0)  # chunk (3, 3)
+
+        assert origin_chunk.is_simulating is False
+        assert manager.player_chunk == (3, 3)
+
+    def test_sync_player_chunk_queues_props(self):
+        """Test that sync_player_chunk adds propless chunks to prop queue."""
+        registry = SeedRegistry(42)
+        manager = ChunkManager(registry, chunk_size=64, render_distance=2, sim_distance=1)
+
+        # Load chunks at origin
+        manager.update_player_position(32.0, 32.0)
+        while manager.get_load_queue_size() > 0:
+            manager.process_load_queue(max_per_frame=50)
+
+        # Mark all chunks as NOT having props
+        for chunk in manager.chunks.values():
+            chunk.has_props = False
+
+        # Sync player position — should queue propless chunks in prop range
+        manager.sync_player_chunk(32.0, 32.0)
+
+        assert len(manager._props_queue) > 0
+
 
 # =============================================================================
 # Deterministic Chunk Generation Tests
