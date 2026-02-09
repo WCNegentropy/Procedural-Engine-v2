@@ -122,6 +122,42 @@ std::vector<float> generate_fbm(SeedRegistry& registry, uint32_t size, uint32_t 
                                  float base_frequency = DEFAULT_BASE_FREQUENCY);
 
 /**
+ * Generate continent-scale noise for broad landmasses and ocean basins.
+ *
+ * Uses only 3 octaves at very low frequency with a cubic remap to create
+ * large features spanning many chunks.  Matches Python _continent_noise().
+ *
+ * @param registry SeedRegistry for deterministic RNG
+ * @param size Map dimensions
+ * @param offset_x World-space X offset for seamless chunk tiling
+ * @param offset_z World-space Z offset for seamless chunk tiling
+ * @param base_frequency Base frequency (default 0.003 = continent-scale features)
+ * @return Normalized [0,1] heightmap (row-major)
+ */
+std::vector<float> generate_continent_noise(SeedRegistry& registry, uint32_t size,
+                                             float offset_x = 0.0f, float offset_z = 0.0f,
+                                             float base_frequency = 0.003f);
+
+/**
+ * Generate ridged multi-fractal noise for mountain ranges.
+ *
+ * Takes the absolute value of simplex noise, inverts it, and layers
+ * multiple octaves with detail cascading.  Matches Python _ridged_noise().
+ *
+ * @param registry SeedRegistry for deterministic RNG
+ * @param size Map dimensions
+ * @param octaves Number of noise layers (capped at 5 typical)
+ * @param offset_x World-space X offset for seamless chunk tiling
+ * @param offset_z World-space Z offset for seamless chunk tiling
+ * @param base_frequency Base frequency for noise
+ * @return Normalized [0,1] heightmap (row-major)
+ */
+std::vector<float> generate_ridged_noise(SeedRegistry& registry, uint32_t size,
+                                          uint32_t octaves = 5,
+                                          float offset_x = 0.0f, float offset_z = 0.0f,
+                                          float base_frequency = 0.005f);
+
+/**
  * Generate Voronoi ridged noise for macro terrain plates.
  *
  * @deprecated Use generate_global_voronoi_ridged for seamless chunk boundaries.
