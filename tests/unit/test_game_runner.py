@@ -793,7 +793,7 @@ class TestDynamicChunks:
         uploaded_results = []
         cleaned_chunks = []
 
-        class FakeGameManager:
+        class MockGameManager:
             available = True
 
             def __init__(self) -> None:
@@ -816,10 +816,10 @@ class TestDynamicChunks:
                 return [SimpleNamespace(x=old_chunk.coords[0], z=old_chunk.coords[1])]
 
             def mark_chunk_uploaded(self, x, z):
-                return None
+                pass
 
-        fake_manager = FakeGameManager()
-        runner._game_manager = fake_manager
+        mock_manager = MockGameManager()
+        runner._game_manager = mock_manager
         runner._upload_async_chunk_result = uploaded_results.append
         runner._cleanup_chunk = cleaned_chunks.append
 
@@ -828,7 +828,7 @@ class TestDynamicChunks:
 
         runner._update(1 / 60)
 
-        assert fake_manager.last_collect_limit == 1
+        assert mock_manager.last_collect_limit == 1
         assert len(uploaded_results) == 1
         assert uploaded_results[0].coord.x == 2
         assert old_chunk.coords not in runner._chunk_manager.chunks
