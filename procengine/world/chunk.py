@@ -197,7 +197,7 @@ class ChunkManager:
         self._unload_queue: List[ChunkCoord] = []
 
         # FIX: Prop generation distance (defaults to half render distance)
-        self._prop_distance = max(1, render_distance // 2)
+        self._prop_distance = self._calculate_prop_distance(render_distance)
         self._props_queue: List[ChunkCoord] = []
 
         # Global terrain registry for consistent terrain across all chunks.
@@ -229,7 +229,7 @@ class ChunkManager:
         """Set the render distance (triggers chunk updates on next update)."""
         self._render_distance = max(1, value)
         self._sim_distance = min(self._sim_distance, self._render_distance)
-        self._prop_distance = max(1, self._render_distance // 2)
+        self._prop_distance = self._calculate_prop_distance(self._render_distance)
 
     @property
     def sim_distance(self) -> int:
@@ -358,6 +358,10 @@ class ChunkManager:
         dx = coord[0] - self._player_chunk[0]
         dz = coord[1] - self._player_chunk[1]
         return dx * dx + dz * dz <= self._prop_distance ** 2
+
+    def _calculate_prop_distance(self, render_distance: int) -> int:
+        """Derive prop generation radius from the render distance."""
+        return max(1, render_distance // 2)
 
     def _queue_chunks_for_props(self, center: ChunkCoord) -> None:
         """Queue loaded chunks that entered prop range without props."""

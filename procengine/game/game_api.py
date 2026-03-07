@@ -1974,6 +1974,8 @@ class GameWorld:
         self._time = data.get("time", 0.0)
         self._time_of_day = data.get("time_of_day", 12.0)
         self._flags = data.get("flags", {})
+        # Reset collections up front so repeated loads replace state instead
+        # of leaking stale entities, quests, or chunk index entries.
         self._entities = {}
         self._player = None
         self._quests = {}
