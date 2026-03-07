@@ -1427,12 +1427,14 @@ class GameRunner:
 
         # In dynamic-chunk mode, restrict to entities in visible chunks
         if self.config.enable_dynamic_chunks and self._chunk_manager:
-            visible_eids: set = set()
+            visible_entities: Dict[str, Any] = {}
             for chunk in self._chunk_manager.get_render_chunks():
-                visible_eids.update(chunk.entity_ids)
+                for entity in self._world.get_entities_in_chunk(chunk.coords):
+                    if entity.entity_id == "player":
+                        continue
+                    visible_entities[entity.entity_id] = entity
 
-            for eid in visible_eids:
-                entity = self._world.get_entity(eid)
+            for entity in visible_entities.values():
                 if entity is None:
                     continue
                 if isinstance(entity, NPC):
@@ -1791,6 +1793,13 @@ class GameRunner:
             chunk.is_mesh_uploaded = True
         else:
             print(f"Warning: Failed to upload chunk mesh {chunk.mesh_id}")
+
+        if self._world and hasattr(chunk, "entity_ids"):
+            chunk.entity_ids.update(
+                entity.entity_id
+                for entity in self._world.get_entities_in_chunk(chunk.coords)
+                if entity.entity_id != "player"
+            )
         
         # Spawn pending props as entities
         if self._world and hasattr(chunk, 'pending_props') and chunk.pending_props:
@@ -1840,14 +1849,15 @@ class GameRunner:
             chunk_name = f"chunk_{coord[0]}_{coord[1]}"
             chunk_registry = self._chunk_manager._registry.spawn(chunk_name)
 
-            prop_descriptors = generate_chunk_props(
-                chunk_registry,
-                self.config.chunk_size,
-                height[:self.config.chunk_size, :self.config.chunk_size],
-                slope[:self.config.chunk_size, :self.config.chunk_size] if slope is not None else None,
-                biome[:self.config.chunk_size, :self.config.chunk_size],
-            )
-            has_props = True
+            if self._chunk_manager.is_chunk_in_prop_range(coord):
+                prop_descriptors = generate_chunk_props(
+                    chunk_registry,
+                    self.config.chunk_size,
+                    height[:self.config.chunk_size, :self.config.chunk_size],
+                    slope[:self.config.chunk_size, :self.config.chunk_size] if slope is not None else None,
+                    biome[:self.config.chunk_size, :self.config.chunk_size],
+                )
+                has_props = True
 
         chunk = Chunk(
             coords=coord,
@@ -2010,6 +2020,10 @@ class GameRunner:
                 )
             else:
                 # Generic prop fallback
+                print(
+                    f"Warning: Unknown chunk prop type '{prop_type}' in chunk {chunk.coords}; "
+                    "spawning generic prop"
+                )
                 prop = Prop(
                     entity_id=entity_id,
                     position=Vec3(global_x, global_y, global_z),

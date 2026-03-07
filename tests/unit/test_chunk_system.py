@@ -598,14 +598,26 @@ class TestChunkEdgeCases:
     def test_render_distance_change(self):
         """Test changing render distance dynamically."""
         registry = SeedRegistry(42)
-        manager = ChunkManager(registry, chunk_size=64, render_distance=1)
+        manager = ChunkManager(registry, chunk_size=64, render_distance=1, sim_distance=1)
 
         manager.render_distance = 2
         assert manager.render_distance == 2
+        assert manager._prop_distance == 1
 
         # Should accept minimum of 1
         manager.render_distance = 0
         assert manager.render_distance == 1
+        assert manager._prop_distance == 1
+
+    def test_render_distance_change_clamps_sim_distance(self):
+        """Test that shrinking render distance clamps sim distance too."""
+        registry = SeedRegistry(42)
+        manager = ChunkManager(registry, chunk_size=64, render_distance=4, sim_distance=3)
+
+        manager.render_distance = 2
+
+        assert manager.render_distance == 2
+        assert manager.sim_distance == 2
 
     def test_sim_distance_capped_by_render(self):
         """Test that sim distance cannot exceed render distance."""

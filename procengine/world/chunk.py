@@ -228,6 +228,8 @@ class ChunkManager:
     def render_distance(self, value: int) -> None:
         """Set the render distance (triggers chunk updates on next update)."""
         self._render_distance = max(1, value)
+        self._sim_distance = min(self._sim_distance, self._render_distance)
+        self._prop_distance = max(1, self._render_distance // 2)
 
     @property
     def sim_distance(self) -> int:
@@ -325,15 +327,7 @@ class ChunkManager:
         for coord, chunk in self._chunks.items():
             chunk.is_simulating = coord in sim_set
 
-        # FIX: Check for loaded chunks that entered prop range but lack props
-        prop_radius_sq = self._prop_distance ** 2
-        for coord, chunk in self._chunks.items():
-            if not chunk.has_props:
-                dx = coord[0] - new_chunk[0]
-                dz = coord[1] - new_chunk[1]
-                if dx * dx + dz * dz <= prop_radius_sq:
-                    if coord not in self._props_queue:
-                        self._props_queue.append(coord)
+        self._queue_chunks_for_props(new_chunk)
 
     def sync_player_chunk(self, world_x: float, world_z: float) -> None:
         """Update player chunk tracking without modifying load/unload queues.
@@ -357,15 +351,24 @@ class ChunkManager:
         for coord, chunk in self._chunks.items():
             chunk.is_simulating = coord in sim_set
 
-        # Check for loaded chunks that entered prop range but lack props
+        self._queue_chunks_for_props(new_chunk)
+
+    def is_chunk_in_prop_range(self, coord: ChunkCoord) -> bool:
+        """Return whether a chunk is close enough for prop generation."""
+        dx = coord[0] - self._player_chunk[0]
+        dz = coord[1] - self._player_chunk[1]
+        return dx * dx + dz * dz <= self._prop_distance ** 2
+
+    def _queue_chunks_for_props(self, center: ChunkCoord) -> None:
+        """Queue loaded chunks that entered prop range without props."""
         prop_radius_sq = self._prop_distance ** 2
         for coord, chunk in self._chunks.items():
-            if not chunk.has_props:
-                dx = coord[0] - new_chunk[0]
-                dz = coord[1] - new_chunk[1]
-                if dx * dx + dz * dz <= prop_radius_sq:
-                    if coord not in self._props_queue:
-                        self._props_queue.append(coord)
+            if chunk.has_props:
+                continue
+            dx = coord[0] - center[0]
+            dz = coord[1] - center[1]
+            if dx * dx + dz * dz <= prop_radius_sq and coord not in self._props_queue:
+                self._props_queue.append(coord)
 
     def _get_chunks_in_radius(
         self, center: ChunkCoord, radius: int
@@ -584,13 +587,10 @@ class ChunkManager:
         height, biome, river, slope = maps
 
         # FIX: Check if chunk is within prop generation range
-        player_x, player_y = self._player_chunk
-        dist_sq = (coord[0] - player_x) ** 2 + (coord[1] - player_y) ** 2
-
         prop_descriptors: List[Dict[str, Any]] = []
         has_props = False
         # Only generate props if within prop_distance
-        if dist_sq <= self._prop_distance ** 2:
+        if self.is_chunk_in_prop_range(coord):
             from procengine.world.props import generate_chunk_props
 
             # Slice the maps to original size for props.
