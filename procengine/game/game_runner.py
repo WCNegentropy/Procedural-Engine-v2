@@ -1259,7 +1259,12 @@ class GameRunner:
                 self._chunk_manager.sim_distance = directive.recommended_sim_distance
 
                 # Collect async-generated chunks from C++ thread pool
-                ready = self._game_manager.collect_ready_chunks(directive.max_chunk_loads)
+                # Always allow at least one ready chunk to be uploaded so the
+                # streaming frontier can keep moving forward under sustained
+                # frame pressure. Otherwise a zero-budget directive can starve
+                # dynamic terrain streaming after the initial load completes.
+                ready_budget = max(1, directive.max_chunk_loads)
+                ready = self._game_manager.collect_ready_chunks(ready_budget)
                 for result in ready:
                     self._upload_async_chunk_result(result)
 

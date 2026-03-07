@@ -1,4 +1,6 @@
 """Tests for game_runner module."""
+from types import SimpleNamespace
+
 import pytest
 
 from procengine.game.game_runner import (
@@ -767,5 +769,69 @@ class TestDynamicChunks:
                 if runner._loading_complete:
                     break
             assert runner._loading_complete
+
+        runner.shutdown()
+
+    def test_cpp_manager_path_keeps_streaming_when_budget_hits_zero(self):
+        """C++ manager path should still upload and unload chunks under pressure."""
+        from procengine.world.chunk import Chunk
+
+        config = RunnerConfig(
+            headless=True,
+            enable_dynamic_chunks=True,
+            chunk_size=32,
+            render_distance=1,
+        )
+        runner = GameRunner(config)
+        runner.initialize()
+        _advance_past_loading(runner)
+
+        old_chunk = Chunk(coords=(-3, 0), is_loaded=True, is_mesh_uploaded=True)
+        runner._chunk_manager.chunks[old_chunk.coords] = old_chunk
+        runner._state = GameState.PLAYING
+
+        uploaded_results = []
+        cleaned_chunks = []
+
+        class FakeGameManager:
+            available = True
+
+            def __init__(self) -> None:
+                self.last_collect_limit = None
+
+            def sync_frame(self, *args):
+                return SimpleNamespace(
+                    max_chunk_loads=0,
+                    recommended_render_distance=runner.config.render_distance,
+                    recommended_sim_distance=runner.config.sim_distance,
+                    skip_physics_step=False,
+                    lod_bias=0.0,
+                )
+
+            def collect_ready_chunks(self, max_count):
+                self.last_collect_limit = max_count
+                return [SimpleNamespace(coord=SimpleNamespace(x=2, z=0))]
+
+            def get_chunks_to_unload(self, *args):
+                return [SimpleNamespace(x=old_chunk.coords[0], z=old_chunk.coords[1])]
+
+            def mark_chunk_uploaded(self, x, z):
+                return None
+
+        fake_manager = FakeGameManager()
+        runner._game_manager = fake_manager
+        runner._upload_async_chunk_result = uploaded_results.append
+        runner._cleanup_chunk = cleaned_chunks.append
+
+        runner.player.position.x = runner.config.chunk_size * 2.5
+        runner.player.position.z = runner.config.chunk_size * 0.5
+
+        runner._update(1 / 60)
+
+        assert fake_manager.last_collect_limit == 1
+        assert len(uploaded_results) == 1
+        assert uploaded_results[0].coord.x == 2
+        assert old_chunk.coords not in runner._chunk_manager.chunks
+        assert cleaned_chunks == [old_chunk]
 
         runner.shutdown()
