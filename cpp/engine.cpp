@@ -263,7 +263,7 @@ PYBIND11_MODULE(procengine_cpp, m) {
     m.def("generate_terrain_standalone", [](uint64_t seed, uint32_t size, uint32_t octaves,
                                              uint32_t macro_points, uint32_t erosion_iters,
                                              bool return_slope,
-                                             float offset_x, float offset_z) {
+                                             float offset_x, float offset_z) -> py::tuple {
         SeedRegistry reg(seed);
         terrain::TerrainConfig config;
         config.size = size;
