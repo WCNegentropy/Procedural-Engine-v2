@@ -833,6 +833,17 @@ class TestGameWorldSaveLoad:
         finally:
             path.unlink()
 
+    def test_save_and_load_rebuilds_spatial_indices(self):
+        world1 = GameWorld(GameConfig(chunk_size=32))
+        world1.create_player(name="TestHero", position=Vec3(10, 5, 10))
+        world1.spawn_entity(NPC(entity_id="npc1", name="Guard", position=Vec3(40, 0, 12)))
+
+        world2 = GameWorld(GameConfig(chunk_size=32))
+        world2.load_from_dict(world1.save_to_dict())
+
+        chunk_entities = world2.get_entities_in_chunk((1, 0))
+        assert [entity.entity_id for entity in chunk_entities] == ["npc1"]
+
 
 class TestEventIntegration:
     """Test event emission during gameplay."""

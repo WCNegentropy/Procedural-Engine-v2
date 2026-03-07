@@ -30,25 +30,36 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
-from procengine.physics import Vec3, HeightField2D
-from procengine.game.game_api import GameWorld, GameConfig, Player, NPC, Prop, Event, EventType
+from procengine.commands.commands import CommandResult
+from procengine.commands.commands import registry as command_registry
+from procengine.commands.console import Console
+from procengine.game.game_api import (
+    NPC,
+    Entity,
+    Event,
+    EventType,
+    GameConfig,
+    GameWorld,
+    Player,
+    Prop,
+)
 from procengine.game.player_controller import (
-    InputManager,
+    Camera,
+    CameraController,
     InputAction,
+    InputManager,
     InputState,
     PlayerController,
-    CameraController,
-    Camera,
 )
 from procengine.graphics.graphics_bridge import GraphicsBridge
-from procengine.commands.commands import registry as command_registry, CommandResult
-from procengine.commands.console import Console
+from procengine.physics import HeightField2D, Vec3
 
 if TYPE_CHECKING:
-    from procengine.game.ui_system import UIManager
     import numpy as np
+
+    from procengine.game.ui_system import UIManager
 
 __all__ = [
     "RunnerConfig",
@@ -492,6 +503,7 @@ def create_sdl2_backend() -> Optional[WindowBackend]:
                 creating the Vulkan instance for SDL2 surface support.
                 """
                 import ctypes
+
                 from sdl2 import vulkan as sdl_vulkan
                 
                 if not self._window:
@@ -535,6 +547,7 @@ def create_sdl2_backend() -> Optional[WindowBackend]:
                     The VkSurfaceKHR handle as an integer, or None on failure.
                 """
                 import ctypes
+
                 from sdl2 import vulkan as sdl_vulkan
                 
                 if not self._window:
@@ -1021,7 +1034,9 @@ class GameRunner:
     def _init_commands(self) -> None:
         """Initialize the command system."""
         # Import game commands to register them
-        from procengine.commands.handlers import game_commands  # noqa: F401 - imported for side effects
+        from procengine.commands.handlers import (
+            game_commands,  # noqa: F401 - imported for side effects
+        )
 
         # Set the command registry context to this runner
         command_registry.set_context(self)
@@ -1427,12 +1442,14 @@ class GameRunner:
 
         # In dynamic-chunk mode, restrict to entities in visible chunks
         if self.config.enable_dynamic_chunks and self._chunk_manager:
-            visible_eids: set = set()
+            visible_entities: Dict[str, Entity] = {}
             for chunk in self._chunk_manager.get_render_chunks():
-                visible_eids.update(chunk.entity_ids)
+                for entity in self._world.get_entities_in_chunk(chunk.coords):
+                    if entity.entity_id == "player":
+                        continue
+                    visible_entities[entity.entity_id] = entity
 
-            for eid in visible_eids:
-                entity = self._world.get_entity(eid)
+            for entity in visible_entities.values():
                 if entity is None:
                     continue
                 if isinstance(entity, NPC):
@@ -1528,6 +1545,7 @@ class GameRunner:
 
         try:
             import numpy as np
+
             import procengine_cpp as cpp
 
             size = self.config.chunk_size
@@ -1654,8 +1672,8 @@ class GameRunner:
         the player on the terrain.
         """
         try:
-            from procengine.world.chunk import ChunkManager, ChunkedHeightField
             from procengine.core.seed_registry import SeedRegistry
+            from procengine.world.chunk import ChunkedHeightField, ChunkManager
             
             print(f"Initializing Infinite World (Chunk Size: {self.config.chunk_size})")
             
@@ -1791,6 +1809,13 @@ class GameRunner:
             chunk.is_mesh_uploaded = True
         else:
             print(f"Warning: Failed to upload chunk mesh {chunk.mesh_id}")
+
+        if self._world and hasattr(chunk, "entity_ids"):
+            chunk.entity_ids.update(
+                entity.entity_id
+                for entity in self._world.get_entities_in_chunk(chunk.coords)
+                if entity.entity_id != "player"
+            )
         
         # Spawn pending props as entities
         if self._world and hasattr(chunk, 'pending_props') and chunk.pending_props:
@@ -1817,6 +1842,7 @@ class GameRunner:
             slope arrays.
         """
         import numpy as np
+
         from procengine.world.chunk import Chunk
 
         coord = (result.coord.x, result.coord.z)
@@ -1840,14 +1866,15 @@ class GameRunner:
             chunk_name = f"chunk_{coord[0]}_{coord[1]}"
             chunk_registry = self._chunk_manager._registry.spawn(chunk_name)
 
-            prop_descriptors = generate_chunk_props(
-                chunk_registry,
-                self.config.chunk_size,
-                height[:self.config.chunk_size, :self.config.chunk_size],
-                slope[:self.config.chunk_size, :self.config.chunk_size] if slope is not None else None,
-                biome[:self.config.chunk_size, :self.config.chunk_size],
-            )
-            has_props = True
+            if self._chunk_manager.is_chunk_in_prop_range(coord):
+                prop_descriptors = generate_chunk_props(
+                    chunk_registry,
+                    self.config.chunk_size,
+                    height[:self.config.chunk_size, :self.config.chunk_size],
+                    slope[:self.config.chunk_size, :self.config.chunk_size] if slope is not None else None,
+                    biome[:self.config.chunk_size, :self.config.chunk_size],
+                )
+                has_props = True
 
         chunk = Chunk(
             coords=coord,
@@ -2010,6 +2037,10 @@ class GameRunner:
                 )
             else:
                 # Generic prop fallback
+                print(
+                    f"Warning: Unknown chunk prop type '{prop_type}' in chunk {chunk.coords}; "
+                    "spawning generic prop"
+                )
                 prop = Prop(
                     entity_id=entity_id,
                     position=Vec3(global_x, global_y, global_z),
@@ -2242,6 +2273,7 @@ class GameRunner:
 
         try:
             import numpy as np
+
             from procengine.core.seed_registry import SeedRegistry
             from procengine.world.props import (
                 generate_rock_descriptors,

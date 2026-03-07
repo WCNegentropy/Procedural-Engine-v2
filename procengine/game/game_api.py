@@ -15,21 +15,21 @@ from __future__ import annotations
 import json
 import uuid
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TypeVar, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple  # noqa: UP035
 
-from procengine.physics import Vec3, RigidBody3D, HeightField2D, step_physics_3d
 from procengine.core.seed_registry import SeedRegistry
 from procengine.game.behavior_tree import (
     BehaviorTree,
     NodeStatus,
-    Blackboard,
+    create_guard_behavior,
     create_idle_behavior,
     create_patrol_behavior,
-    create_guard_behavior,
 )
+from procengine.physics import HeightField2D, RigidBody3D, Vec3, step_physics_3d
 
 if TYPE_CHECKING:
     import numpy as np
@@ -1286,6 +1286,7 @@ class GameWorld:
             chunk_coord = self._entity_to_chunk.pop(entity_id, None)
             if chunk_coord is None:
                 chunk_coord = self._position_to_chunk(entity.position)
+            self._sync_loaded_chunk_membership(entity_id, chunk_coord, None)
             if chunk_coord in self._entity_chunks:
                 self._entity_chunks[chunk_coord].discard(entity_id)
                 if not self._entity_chunks[chunk_coord]:
@@ -1333,6 +1334,7 @@ class GameWorld:
             A ChunkManager instance (from procengine.world.chunk).
         """
         self._chunk_manager = manager
+        self._sync_loaded_chunk_entities()
 
     def get_chunk_manager(self) -> Optional[Any]:
         """Get the chunk manager if set.
@@ -1394,6 +1396,57 @@ class GameWorld:
 
         # Update reverse mapping
         self._entity_to_chunk[entity_id] = new_chunk
+        self._sync_loaded_chunk_membership(
+            entity_id,
+            old_chunk if old_chunk != new_chunk else None,
+            new_chunk,
+        )
+
+    def _sync_loaded_chunk_membership(
+        self,
+        entity_id: EntityId,
+        old_chunk: Optional[Tuple[int, int]],
+        new_chunk: Optional[Tuple[int, int]],
+    ) -> None:
+        """Mirror world chunk membership into loaded Chunk objects."""
+        if self._chunk_manager is None or entity_id == "player":
+            return
+
+        if old_chunk is not None:
+            old_loaded_chunk = self._chunk_manager.chunks.get(old_chunk)
+            if old_loaded_chunk is not None:
+                old_loaded_chunk.entity_ids.discard(entity_id)
+
+        if new_chunk is not None:
+            new_loaded_chunk = self._chunk_manager.chunks.get(new_chunk)
+            if new_loaded_chunk is not None:
+                new_loaded_chunk.entity_ids.add(entity_id)
+
+    def _sync_loaded_chunk_entities(self) -> None:
+        """Populate loaded chunks from the current world spatial index."""
+        if self._chunk_manager is None:
+            return
+
+        for chunk in self._chunk_manager.chunks.values():
+            chunk.entity_ids.clear()
+
+        for entity in self._entities.values():
+            if entity.entity_id == "player":
+                continue
+            chunk_coord = self._entity_to_chunk.get(entity.entity_id)
+            if chunk_coord is None:
+                continue
+            chunk = self._chunk_manager.chunks.get(chunk_coord)
+            if chunk is not None:
+                chunk.entity_ids.add(entity.entity_id)
+
+    def _rebuild_spatial_indices(self) -> None:
+        """Rebuild chunk-based entity lookup tables from loaded entities."""
+        self._entity_chunks.clear()
+        self._entity_to_chunk.clear()
+
+        for entity in self._entities.values():
+            self._update_entity_chunk(entity.entity_id, entity.position)
 
     def get_entities_in_chunk(self, chunk_coord: Tuple[int, int]) -> List[Entity]:
         """Get all entities in a specific chunk.
@@ -1921,6 +1974,13 @@ class GameWorld:
         self._time = data.get("time", 0.0)
         self._time_of_day = data.get("time_of_day", 12.0)
         self._flags = data.get("flags", {})
+        # Reset collections up front so repeated loads replace state instead
+        # of leaking stale entities, quests, or chunk index entries.
+        self._entities = {}
+        self._player = None
+        self._quests = {}
+        self._entity_chunks = {}
+        self._entity_to_chunk = {}
 
         # Load player
         if data.get("player"):
@@ -1946,6 +2006,8 @@ class GameWorld:
         # Load quests
         for qid, qdata in data.get("quests", {}).items():
             self._quests[qid] = Quest.from_dict(qdata)
+
+        self._rebuild_spatial_indices()
 
     def load_from_file(self, path: Path) -> None:
         """Load game world from a JSON file."""

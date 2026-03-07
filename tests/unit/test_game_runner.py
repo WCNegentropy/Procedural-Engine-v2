@@ -835,3 +835,76 @@ class TestDynamicChunks:
         assert cleaned_chunks == [old_chunk]
 
         runner.shutdown()
+
+    def test_dynamic_render_uses_world_chunk_index_for_npcs(self):
+        """NPC rendering should not depend on chunk.entity_ids being prefilled."""
+        from procengine.game.game_api import NPC
+
+        config = RunnerConfig(
+            headless=True,
+            enable_dynamic_chunks=True,
+            chunk_size=32,
+            render_distance=1,
+        )
+        runner = GameRunner(config)
+        runner.initialize()
+        original_graphics_bridge = runner._graphics_bridge
+
+        class FakeGraphicsBridge:
+            def __init__(self) -> None:
+                self.draw_calls = []
+
+            def upload_entity_mesh(self, mesh_name, entity_type, entity_state=None):
+                return True
+
+            def draw_entity(self, mesh_name, material, position, rotation=0.0, scale=1.0):
+                self.draw_calls.append(mesh_name)
+
+        runner._graphics_bridge = FakeGraphicsBridge()
+
+        npc = NPC(entity_id="visible_npc", name="Villager", position=Vec3(16, 0, 16))
+        runner.world.spawn_entity(npc)
+
+        chunk = runner._chunk_manager.get_chunk_at_world(16.0, 16.0)
+        assert chunk is not None
+        chunk.entity_ids.clear()
+
+        runner._render_entities()
+
+        assert "npc_visible_npc" in runner._graphics_bridge.draw_calls
+        runner._graphics_bridge = original_graphics_bridge
+        runner.shutdown()
+
+    def test_async_chunk_outside_prop_range_skips_props(self):
+        """Async chunks should match sync prop-distance behavior."""
+        import numpy as np
+
+        config = RunnerConfig(
+            headless=True,
+            enable_dynamic_chunks=True,
+            chunk_size=32,
+            render_distance=4,
+        )
+        runner = GameRunner(config)
+        runner.initialize()
+
+        gen_size = config.chunk_size + 1
+        result = SimpleNamespace(
+            coord=SimpleNamespace(x=3, z=0),
+            height=np.zeros(gen_size * gen_size, dtype=np.float32),
+            biome=np.zeros(gen_size * gen_size, dtype=np.uint8),
+            river=np.zeros(gen_size * gen_size, dtype=np.uint8),
+            slope=np.zeros(gen_size * gen_size, dtype=np.float32),
+        )
+        runner._game_manager = SimpleNamespace(mark_chunk_uploaded=lambda x, z: None)
+        uploaded_chunks = []
+        runner._upload_chunk_mesh = uploaded_chunks.append
+
+        runner._upload_async_chunk_result(result)
+
+        assert len(uploaded_chunks) == 1
+        chunk = uploaded_chunks[0]
+        assert chunk.coords == (3, 0)
+        assert chunk.has_props is False
+        assert chunk.pending_props == []
+        runner.shutdown()
