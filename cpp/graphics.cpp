@@ -2151,7 +2151,19 @@ void RenderContext::update_camera_uniforms() {
     uniforms.time[1] = 1.0f / 60.0f;  // Delta time
     uniforms.time[2] = static_cast<float>(frame_number_);  // Frame
     uniforms.time[3] = 0.0f;
-    
+
+    // Fog parameters — dead zone of ~1.5 chunks (96 units), then gentle ramp
+    uniforms.fog_params[0] = 96.0f;    // fog_start: distance before fog begins
+    uniforms.fog_params[1] = 0.0018f;  // fog_density: exponential coefficient
+    uniforms.fog_params[2] = 0.65f;    // fog_max: maximum fog opacity
+    uniforms.fog_params[3] = 0.0f;
+
+    // Fog color (consistent across clear color and shader)
+    uniforms.fog_color[0] = 0.35f;
+    uniforms.fog_color[1] = 0.45f;
+    uniforms.fog_color[2] = 0.65f;
+    uniforms.fog_color[3] = 1.0f;
+
     // Update the current frame's uniform buffer
     device_->update_buffer(frame_uniform_buffers_[current_frame_], &uniforms, sizeof(uniforms));
 }
@@ -2200,7 +2212,7 @@ void RenderContext::record_draw_commands() {
     render_pass_info.renderArea.extent = {width_, height_};
 
     std::array<VkClearValue, 2> clear_values{};
-    clear_values[0].color = {{0.4f, 0.5f, 0.7f, 1.0f}};  // Match fog color for smooth fading
+    clear_values[0].color = {{0.35f, 0.45f, 0.65f, 1.0f}};  // Match fog color for seamless horizon
     clear_values[1].depthStencil = {1.0f, 0};
 
     render_pass_info.clearValueCount = static_cast<uint32_t>(clear_values.size());
@@ -2566,6 +2578,8 @@ layout(binding = 0) uniform FrameUniforms {
     mat4 viewProjection;
     vec4 cameraPos;
     vec4 time;
+    vec4 fogParams;
+    vec4 fogColor;
 } frame;
 
 layout(push_constant) uniform PushConstants {
@@ -2603,6 +2617,8 @@ layout(binding = 0) uniform FrameUniforms {
     mat4 viewProjection;
     vec4 cameraPos;
     vec4 time;
+    vec4 fogParams;   // x=fog_start, y=fog_density, z=fog_max, w=unused
+    vec4 fogColor;    // RGB fog color
 } frame;
 
 layout(push_constant) uniform PushConstants {
@@ -2612,51 +2628,47 @@ layout(push_constant) uniform PushConstants {
 
 void main() {
     vec3 normal = normalize(fragNormal);
-    
+
     // Sun light from upper-right
     vec3 sunDir = normalize(vec3(0.5, 0.8, 0.3));
     vec3 sunColor = vec3(1.0, 0.95, 0.85);
-    
+
     // Sky light from above (ambient fill)
     vec3 skyDir = vec3(0.0, 1.0, 0.0);
     vec3 skyColor = vec3(0.4, 0.5, 0.7);
-    
+
     // Ground bounce from below
     vec3 groundColor = vec3(0.2, 0.15, 0.1);
-    
+
     // Diffuse lighting
     float sunDiffuse = max(dot(normal, sunDir), 0.0);
     float skyDiffuse = max(dot(normal, skyDir), 0.0);
     float groundDiffuse = max(dot(normal, -skyDir), 0.0) * 0.3;
-    
+
     // Combine lighting
     vec3 lighting = sunColor * sunDiffuse
                   + skyColor * skyDiffuse * 0.15
                   + groundColor * groundDiffuse;
-    
+
     // Add ambient minimum
     lighting += vec3(0.05);
-    
+
     // Apply vertex color (biome/material color)
     vec3 albedo = fragColor.rgb;
     float luminance = dot(albedo, vec3(0.2126, 0.7152, 0.0722));
     albedo = clamp(mix(vec3(luminance), albedo, 1.3), 0.0, 1.0);
     vec3 finalColor = albedo * lighting;
-    
-    // Simple fog based on distance
+
+    // Distance fog with dead zone around the camera
     float dist = length(fragWorldPos - frame.cameraPos.xyz);
-    float fogFactor = 1.0 - exp(-dist * 0.0027);
-    fogFactor = clamp(fogFactor, 0.0, 0.6);
-    vec3 fogColor = vec3(0.3, 0.35, 0.5);
-    finalColor = mix(finalColor, fogColor, fogFactor);
-    
-    // Tone mapping disabled: Reinhard compression makes non-HDR colors look washed out
-    // (A value of 1.0 gets compressed to 0.5, losing saturation)
-    // finalColor = finalColor / (finalColor + vec3(1.0));
-    
+    float fogDist = max(dist - frame.fogParams.x, 0.0);
+    float fogFactor = 1.0 - exp(-fogDist * frame.fogParams.y);
+    fogFactor = clamp(fogFactor, 0.0, frame.fogParams.z);
+    finalColor = mix(finalColor, frame.fogColor.rgb, fogFactor);
+
     // Gamma correction
     finalColor = pow(finalColor, vec3(1.0 / 2.2));
-    
+
     outColor = vec4(finalColor, fragColor.a);
 }
 )";
