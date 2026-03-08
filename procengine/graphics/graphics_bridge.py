@@ -723,7 +723,11 @@ class GraphicsBridge:
                     # Fallback to simple box if no BSP descriptor
                     mesh = cpp.generate_box_mesh(cpp.Vec3(3, 2, 3))
             else:
-                # Default small box
+                logger.warning(
+                    "Unknown entity type '%s' — generating default box. State keys: %s",
+                    entity_type,
+                    sorted((entity_state or {}).keys()),
+                )
                 mesh = cpp.generate_box_mesh(cpp.Vec3(0.5, 0.5, 0.5))
 
             # Set entity-specific uniform color for the mesh

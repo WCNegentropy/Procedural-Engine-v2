@@ -2626,26 +2626,28 @@ void main() {
     
     // Diffuse lighting
     float sunDiffuse = max(dot(normal, sunDir), 0.0);
-    float skyDiffuse = max(dot(normal, skyDir), 0.0) * 0.5 + 0.5; // Hemisphere
+    float skyDiffuse = max(dot(normal, skyDir), 0.0);
     float groundDiffuse = max(dot(normal, -skyDir), 0.0) * 0.3;
     
-    // Combine lighting (boosted sun for deeper contrast)
-    vec3 lighting = sunColor * sunDiffuse * 1.2 
-                  + skyColor * skyDiffuse * 0.25 
+    // Combine lighting
+    vec3 lighting = sunColor * sunDiffuse
+                  + skyColor * skyDiffuse * 0.15
                   + groundColor * groundDiffuse;
     
     // Add ambient minimum
-    lighting += vec3(0.15);
+    lighting += vec3(0.05);
     
     // Apply vertex color (biome/material color)
     vec3 albedo = fragColor.rgb;
+    float luminance = dot(albedo, vec3(0.2126, 0.7152, 0.0722));
+    albedo = clamp(mix(vec3(luminance), albedo, 1.3), 0.0, 1.0);
     vec3 finalColor = albedo * lighting;
     
     // Simple fog based on distance
     float dist = length(fragWorldPos - frame.cameraPos.xyz);
     float fogFactor = 1.0 - exp(-dist * 0.0027);
-    fogFactor = clamp(fogFactor, 0.0, 0.75);
-    vec3 fogColor = vec3(0.4, 0.5, 0.7);  // Deeper sky blue to avoid washed-out look
+    fogFactor = clamp(fogFactor, 0.0, 0.6);
+    vec3 fogColor = vec3(0.3, 0.35, 0.5);
     finalColor = mix(finalColor, fogColor, fogFactor);
     
     // Tone mapping disabled: Reinhard compression makes non-HDR colors look washed out

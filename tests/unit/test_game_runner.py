@@ -908,3 +908,42 @@ class TestDynamicChunks:
         assert chunk.has_props is False
         assert chunk.pending_props == []
         runner.shutdown()
+
+    def test_spawn_chunk_props_applies_flower_and_creature_height_offsets(self):
+        """Flower patches and creatures should spawn slightly above terrain."""
+        runner = GameRunner(RunnerConfig(headless=True))
+
+        spawned_entities = []
+
+        class FakeWorld:
+            def spawn_entity(self, entity):
+                spawned_entities.append(entity)
+                return entity.entity_id
+
+        chunk = SimpleNamespace(
+            coords=(2, 3),
+            pending_props=[
+                {
+                    "type": "flower_patch",
+                    "position": [1.0, 0.5, 2.0],
+                    "stem_count": 4,
+                    "patch_radius": 0.3,
+                    "color_seed": 9,
+                },
+                {
+                    "type": "creature",
+                    "position": [3.0, 0.5, 4.0],
+                    "skeleton": [{"start": [0, 0, 0], "end": [0, 1, 0]}],
+                    "metaballs": [{"center": [0.5, 0.5, 0.5], "radius": 0.4}],
+                },
+            ],
+            entity_ids=set(),
+        )
+        runner._world = FakeWorld()
+
+        runner._spawn_chunk_props(chunk, world_x=10.0, world_z=20.0)
+
+        assert [entity.prop_type for entity in spawned_entities] == ["flower_patch", "creature"]
+        assert spawned_entities[0].position.y == pytest.approx(0.5 * runner.HEIGHT_SCALE + 0.05)
+        assert spawned_entities[1].position.y == pytest.approx(0.5 * runner.HEIGHT_SCALE + 0.15)
+        assert chunk.pending_props == []

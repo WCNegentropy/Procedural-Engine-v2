@@ -410,11 +410,11 @@ uniform float uAmbientStrength;
 
     if (options.include_pbr_lighting) {
         ss << "    // Calculate lighting\n";
+        ss << "    float luminance = dot(finalMaterial.albedo, vec3(0.2126, 0.7152, 0.0722));\n";
+        ss << "    finalMaterial.albedo = clamp(mix(vec3(luminance), finalMaterial.albedo, 1.3), 0.0, 1.0);\n";
         ss << "    vec3 ambient = uAmbientStrength * finalMaterial.albedo * finalMaterial.ao;\n";
         ss << "    vec3 Lo = calculatePBR(finalMaterial, N, V, L, uLightColor);\n";
         ss << "    vec3 color = ambient + Lo;\n\n";
-        ss << "    // HDR tonemapping\n";
-        ss << "    color = color / (color + vec3(1.0));\n";
         ss << "    // Gamma correction\n";
         ss << "    color = pow(color, vec3(1.0/2.2));\n\n";
         ss << "    fragColor = vec4(color, 1.0);\n";

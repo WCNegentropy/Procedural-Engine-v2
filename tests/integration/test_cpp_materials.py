@@ -599,6 +599,30 @@ class TestShaderOutput:
         assert "#version" in fs
         assert "void main()" in fs or "void main(void)" in fs
 
+    def test_fragment_shader_uses_gamma_without_reinhard_tonemapping(self):
+        """The material compiler should avoid non-HDR Reinhard compression."""
+        graph = {
+            "nodes": {
+                "base_color": {
+                    "type": "pbr_const",
+                    "albedo": [0.8, 0.5, 0.3],
+                    "roughness": 0.7,
+                    "metallic": 0.0,
+                }
+            },
+            "output": "base_color",
+        }
+
+        shader = cpp.compile_material_from_dict(graph)
+
+        fs = shader.fragment_source
+        assert "pow(color, vec3(1.0/2.2))" in fs
+        assert "color = color / (color + vec3(1.0));" not in fs
+        assert (
+            "finalMaterial.albedo = clamp(mix(vec3(luminance), finalMaterial.albedo, 1.3), 0.0, 1.0);"
+            in fs
+        )
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

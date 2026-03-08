@@ -1988,8 +1988,10 @@ class GameRunner:
         if not self._world or not hasattr(chunk, 'pending_props'):
             return
 
-        # Vertical offset to lift rocks slightly above terrain to prevent clipping
+        # Vertical offsets to prevent prop bases from clipping into the terrain
         ROCK_Y_OFFSET = 0.1
+        FLOWER_PATCH_Y_OFFSET = 0.05
+        CREATURE_Y_OFFSET = 0.15
 
         prop_count = 0
         for idx, prop_desc in enumerate(chunk.pending_props):
@@ -2084,7 +2086,7 @@ class GameRunner:
             elif prop_type == "flower_patch":
                 prop = Prop(
                     entity_id=entity_id,
-                    position=Vec3(global_x, global_y, global_z),
+                    position=Vec3(global_x, global_y + FLOWER_PATCH_Y_OFFSET, global_z),
                     prop_type="flower_patch",
                     state={
                         "stem_count": prop_desc.get("stem_count", 6),
@@ -2117,7 +2119,7 @@ class GameRunner:
             elif prop_type == "creature":
                 prop = Prop(
                     entity_id=entity_id,
-                    position=Vec3(global_x, global_y, global_z),
+                    position=Vec3(global_x, global_y + CREATURE_Y_OFFSET, global_z),
                     prop_type="creature",
                     state={
                         "skeleton": prop_desc.get("skeleton", []),
