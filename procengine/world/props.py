@@ -880,4 +880,43 @@ def generate_chunk_props(
                 "color_seed": color_seed,
             })
 
+    # -----------------------------------------------------------------
+    # Creature spawning (rare, biome-dependent)
+    # -----------------------------------------------------------------
+    creature_attempts = 2
+    for _ in range(creature_attempts):
+        pos_x, pos_z = _random_pos()
+        if not is_valid_position(int(pos_x), int(pos_z)):
+            continue
+        biome = get_biome(int(pos_x), int(pos_z))
+        terrain_y = get_terrain_height(int(pos_x), int(pos_z))
+
+        # Creatures don't spawn in water/ice biomes
+        if biome in BARREN_BIOMES:
+            continue
+        # Low spawn chance to keep creatures rare
+        if rng.random() > 0.15:
+            continue
+
+        bone_count = int(rng.integers(3, 6))
+        skeleton = []
+        for _ in range(bone_count):
+            skeleton.append({
+                "length": float(rng.uniform(0.5, 2.0)),
+                "angle": float(rng.uniform(-45.0, 45.0)),
+            })
+        metaball_count = int(rng.integers(3, 7))
+        metaballs = []
+        for _ in range(metaball_count):
+            metaballs.append({
+                "center": rng.random(3).tolist(),
+                "radius": float(rng.uniform(0.1, 0.5)),
+            })
+        descriptors.append({
+            "type": "creature",
+            "position": [pos_x, terrain_y, pos_z],
+            "skeleton": skeleton,
+            "metaballs": metaballs,
+        })
+
     return descriptors

@@ -140,6 +140,13 @@ class Chunk:
         ox, oz = self.world_origin(chunk_size)
         return ox <= x < ox + chunk_size and oz <= z < oz + chunk_size
 
+    def get_dominant_biome(self) -> int:
+        """Return the most common biome ID in this chunk, or -1 if no biome map."""
+        if self.biome_map is None:
+            return -1
+        counts = np.bincount(self.biome_map.flatten())
+        return int(np.argmax(counts))
+
 
 class ChunkManager:
     """Manages dynamic loading/unloading of world chunks around the player.

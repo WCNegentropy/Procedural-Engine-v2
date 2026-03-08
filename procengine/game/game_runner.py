@@ -91,6 +91,43 @@ def _prop_render_scale(prop_type: str, state: dict | None) -> float:
 
 
 # =============================================================================
+# Biome-to-pipeline name mapping for material system
+# =============================================================================
+
+from procengine.world.props import (
+    BIOME_BEACH,
+    BIOME_DESERT,
+    BIOME_FOREST,
+    BIOME_GLACIER,
+    BIOME_JUNGLE,
+    BIOME_MESA,
+    BIOME_MOUNTAIN,
+    BIOME_PLAINS,
+    BIOME_SAVANNA,
+    BIOME_SNOWY_MOUNTAIN,
+    BIOME_SWAMP,
+    BIOME_TAIGA,
+    BIOME_TUNDRA,
+)
+
+BIOME_PIPELINE_NAMES: Dict[int, str] = {
+    BIOME_FOREST: "mat_forest",
+    BIOME_DESERT: "mat_desert",
+    BIOME_TUNDRA: "mat_tundra",
+    BIOME_JUNGLE: "mat_jungle",
+    BIOME_SWAMP: "mat_swamp",
+    BIOME_PLAINS: "mat_plains",
+    BIOME_MOUNTAIN: "mat_mountain",
+    BIOME_BEACH: "mat_beach",
+    BIOME_TAIGA: "mat_taiga",
+    BIOME_MESA: "mat_mesa",
+    BIOME_SAVANNA: "mat_savanna",
+    BIOME_SNOWY_MOUNTAIN: "mat_snowy_mountain",
+    BIOME_GLACIER: "mat_glacier",
+}
+
+
+# =============================================================================
 # Configuration
 # =============================================================================
 
@@ -800,6 +837,9 @@ class GameRunner:
         # LOD bias from GameManager directive (used by prop generation)
         self._current_lod_bias: float = 0.0
 
+        # Biome material pipelines availability flag
+        self._biome_pipelines_available: bool = False
+
         # World loading state (progressive loading before gameplay starts)
         self._loading_total_chunks: int = 0  # Total chunks needed before PLAYING
         self._loading_chunks_done: int = 0  # Chunks loaded so far
@@ -1085,6 +1125,31 @@ class GameRunner:
             import traceback
             traceback.print_exc()
 
+        # Create biome-specific material pipelines
+        self._biome_pipelines_available = False
+        try:
+            import procengine_cpp as cpp
+            from procengine.world.materials import generate_material_graph
+
+            biome_registry = self._seed_registry.spawn("biome_materials")
+            for biome_id, pipeline_name in BIOME_PIPELINE_NAMES.items():
+                mat_registry = biome_registry.spawn(f"biome_{biome_id}")
+                graph = generate_material_graph(mat_registry)
+                compiled = cpp.compile_material_from_dict(graph)
+                if compiled.valid:
+                    success = self._graphics_bridge.create_material_pipeline(
+                        pipeline_name, compiled.vertex_source, compiled.fragment_source
+                    )
+                    if success:
+                        print(f"Created material pipeline: {pipeline_name}")
+                else:
+                    print(f"Warning: Material compile failed for {pipeline_name}: "
+                          f"{compiled.error_message}")
+            self._biome_pipelines_available = True
+        except (ImportError, Exception) as e:
+            print(f"Warning: Could not create biome material pipelines: {e}")
+            self._biome_pipelines_available = False
+
         # Add default sun light
         self._graphics_bridge.add_light(
             position=(100.0, 200.0, 100.0),
@@ -1357,8 +1422,14 @@ class GameRunner:
                                 chunk.coords
                             )
                             transform = create_translation_matrix(world_x, 0, world_z)
+                            pipeline_name = "default"
+                            if self._biome_pipelines_available:
+                                dominant = chunk.get_dominant_biome()
+                                candidate = BIOME_PIPELINE_NAMES.get(dominant, "default")
+                                if candidate in self._graphics_bridge._pipelines:
+                                    pipeline_name = candidate
                             self._graphics_bridge.draw_mesh(
-                                chunk.mesh_id, "default", transform
+                                chunk.mesh_id, pipeline_name, transform
                             )
                 # Render the loading progress UI on top
                 self._render_loading_screen()
@@ -1386,10 +1457,18 @@ class GameRunner:
                         # Chunk (1, 0) needs to be drawn at world x=64, z=0 (if chunk_size=64)
                         world_x, world_z = self._chunk_manager.chunk_to_world(chunk.coords)
                         transform = create_translation_matrix(world_x, 0, world_z)
-                        
+
+                        # Select biome-specific pipeline with fallback to default
+                        pipeline_name = "default"
+                        if self._biome_pipelines_available:
+                            dominant = chunk.get_dominant_biome()
+                            candidate = BIOME_PIPELINE_NAMES.get(dominant, "default")
+                            if candidate in self._graphics_bridge._pipelines:
+                                pipeline_name = candidate
+
                         self._graphics_bridge.draw_mesh(
                             chunk.mesh_id,
-                            "default",
+                            pipeline_name,
                             transform,
                         )
             else:
@@ -2033,6 +2112,16 @@ class GameRunner:
                         "main_height": prop_desc.get("main_height", 2.5),
                         "main_radius": prop_desc.get("main_radius", 0.18),
                         "arms": prop_desc.get("arms", []),
+                    },
+                )
+            elif prop_type == "creature":
+                prop = Prop(
+                    entity_id=entity_id,
+                    position=Vec3(global_x, global_y, global_z),
+                    prop_type="creature",
+                    state={
+                        "skeleton": prop_desc.get("skeleton", []),
+                        "metaballs": prop_desc.get("metaballs", []),
                     },
                 )
             else:

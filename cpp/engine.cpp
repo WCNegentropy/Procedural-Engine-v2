@@ -746,6 +746,125 @@ PYBIND11_MODULE(procengine_cpp, m) {
           py::arg("threshold") = 1.0f,
           "Generate creature mesh using marching cubes");
 
+    // Bush mesh generation
+    py::class_<props::BushDescriptor>(m, "BushDescriptor")
+        .def(py::init<>())
+        .def_readwrite("position", &props::BushDescriptor::position)
+        .def_readwrite("radius", &props::BushDescriptor::radius)
+        .def_readwrite("noise_seed", &props::BushDescriptor::noise_seed)
+        .def_readwrite("leaf_density", &props::BushDescriptor::leaf_density);
+
+    m.def("generate_bush_mesh", &props::generate_bush_mesh,
+          py::arg("desc"),
+          py::arg("segments") = 12,
+          py::arg("rings") = 8,
+          "Generate a noise-displaced sphere mesh for a bush");
+
+    // Pine tree mesh generation
+    py::class_<props::PineTreeDescriptor>(m, "PineTreeDescriptor")
+        .def(py::init<>())
+        .def_readwrite("position", &props::PineTreeDescriptor::position)
+        .def_readwrite("trunk_height", &props::PineTreeDescriptor::trunk_height)
+        .def_readwrite("trunk_radius", &props::PineTreeDescriptor::trunk_radius)
+        .def_readwrite("canopy_layers", &props::PineTreeDescriptor::canopy_layers)
+        .def_readwrite("canopy_radius", &props::PineTreeDescriptor::canopy_radius);
+
+    m.def("generate_pine_tree_mesh", &props::generate_pine_tree_mesh,
+          py::arg("desc"),
+          py::arg("trunk_segments") = 8,
+          py::arg("cone_segments") = 12,
+          "Generate pine tree mesh (trunk cylinder + cone canopy layers)");
+
+    // Dead tree mesh generation
+    py::class_<props::DeadTreeDescriptor>(m, "DeadTreeDescriptor")
+        .def(py::init<>())
+        .def_readwrite("lsystem", &props::DeadTreeDescriptor::lsystem)
+        .def_readwrite("angle", &props::DeadTreeDescriptor::angle)
+        .def_readwrite("iterations", &props::DeadTreeDescriptor::iterations);
+
+    m.def("generate_dead_tree_mesh", &props::generate_dead_tree_mesh,
+          py::arg("desc"),
+          py::arg("segments_per_ring") = 6,
+          "Generate dead tree mesh from L-system (thinner, no leaves)");
+
+    // Fallen log mesh generation
+    py::class_<props::FallenLogDescriptor>(m, "FallenLogDescriptor")
+        .def(py::init<>())
+        .def_readwrite("position", &props::FallenLogDescriptor::position)
+        .def_readwrite("length", &props::FallenLogDescriptor::length)
+        .def_readwrite("radius", &props::FallenLogDescriptor::radius)
+        .def_readwrite("rotation_y", &props::FallenLogDescriptor::rotation_y);
+
+    m.def("generate_fallen_log_mesh", &props::generate_fallen_log_mesh,
+          py::arg("desc"),
+          py::arg("segments") = 8,
+          "Generate fallen log mesh (horizontal cylinder)");
+
+    // Boulder cluster mesh generation
+    py::class_<props::SubRock>(m, "SubRock")
+        .def(py::init<>())
+        .def_readwrite("offset", &props::SubRock::offset)
+        .def_readwrite("radius", &props::SubRock::radius)
+        .def_readwrite("noise_seed", &props::SubRock::noise_seed);
+
+    py::class_<props::BoulderClusterDescriptor>(m, "BoulderClusterDescriptor")
+        .def(py::init<>())
+        .def_readwrite("position", &props::BoulderClusterDescriptor::position)
+        .def_readwrite("sub_rocks", &props::BoulderClusterDescriptor::sub_rocks);
+
+    m.def("generate_boulder_cluster_mesh", &props::generate_boulder_cluster_mesh,
+          py::arg("desc"),
+          py::arg("segments_per_rock") = 10,
+          py::arg("rings_per_rock") = 8,
+          "Generate boulder cluster mesh (multiple rocks packed together)");
+
+    // Flower patch mesh generation
+    py::class_<props::FlowerPatchDescriptor>(m, "FlowerPatchDescriptor")
+        .def(py::init<>())
+        .def_readwrite("position", &props::FlowerPatchDescriptor::position)
+        .def_readwrite("stem_count", &props::FlowerPatchDescriptor::stem_count)
+        .def_readwrite("patch_radius", &props::FlowerPatchDescriptor::patch_radius)
+        .def_readwrite("color_seed", &props::FlowerPatchDescriptor::color_seed);
+
+    m.def("generate_flower_patch_mesh", &props::generate_flower_patch_mesh,
+          py::arg("desc"),
+          py::arg("stem_segments") = 4,
+          "Generate flower patch mesh (cluster of stems with spheres)");
+
+    // Mushroom mesh generation
+    py::class_<props::MushroomDescriptor>(m, "MushroomDescriptor")
+        .def(py::init<>())
+        .def_readwrite("position", &props::MushroomDescriptor::position)
+        .def_readwrite("cap_radius", &props::MushroomDescriptor::cap_radius)
+        .def_readwrite("stem_height", &props::MushroomDescriptor::stem_height)
+        .def_readwrite("stem_radius", &props::MushroomDescriptor::stem_radius);
+
+    m.def("generate_mushroom_mesh", &props::generate_mushroom_mesh,
+          py::arg("desc"),
+          py::arg("cap_segments") = 12,
+          py::arg("cap_rings") = 6,
+          py::arg("stem_segments") = 8,
+          "Generate mushroom mesh (cap + stem)");
+
+    // Cactus mesh generation
+    py::class_<props::CactusArm>(m, "CactusArm")
+        .def(py::init<>())
+        .def_readwrite("attach_height", &props::CactusArm::attach_height)
+        .def_readwrite("length", &props::CactusArm::length)
+        .def_readwrite("angle", &props::CactusArm::angle);
+
+    py::class_<props::CactusDescriptor>(m, "CactusDescriptor")
+        .def(py::init<>())
+        .def_readwrite("position", &props::CactusDescriptor::position)
+        .def_readwrite("main_height", &props::CactusDescriptor::main_height)
+        .def_readwrite("main_radius", &props::CactusDescriptor::main_radius)
+        .def_readwrite("arms", &props::CactusDescriptor::arms);
+
+    m.def("generate_cactus_mesh", &props::generate_cactus_mesh,
+          py::arg("desc"),
+          py::arg("segments") = 8,
+          "Generate cactus mesh (main column + arms)");
+
     // LOD generation
     m.def("generate_lod", &props::generate_lod,
           py::arg("mesh"), py::arg("target_ratio"),
@@ -942,6 +1061,39 @@ PYBIND11_MODULE(procengine_cpp, m) {
         }
         return desc;
     }, "Create CreatureDescriptor from Python dict");
+
+    m.def("create_dead_tree_from_dict", [](py::dict d) {
+        props::DeadTreeDescriptor desc;
+        try {
+            if (!d.contains("axiom")) {
+                throw std::runtime_error("Missing required key 'axiom'");
+            }
+            if (!d.contains("rules")) {
+                throw std::runtime_error("Missing required key 'rules'");
+            }
+            if (!d.contains("angle")) {
+                throw std::runtime_error("Missing required key 'angle'");
+            }
+            if (!d.contains("iterations")) {
+                throw std::runtime_error("Missing required key 'iterations'");
+            }
+            desc.lsystem.axiom = d["axiom"].cast<std::string>();
+            auto rules = d["rules"].cast<py::dict>();
+            for (auto item : rules) {
+                std::string key_str = item.first.cast<std::string>();
+                if (key_str.empty()) {
+                    throw std::runtime_error("Empty key in rules dictionary");
+                }
+                char key = key_str[0];
+                desc.lsystem.rules[key] = item.second.cast<std::string>();
+            }
+            desc.angle = d["angle"].cast<float>();
+            desc.iterations = d["iterations"].cast<uint32_t>();
+        } catch (const py::cast_error& e) {
+            throw std::runtime_error(std::string("Type conversion error in create_dead_tree_from_dict: ") + e.what());
+        }
+        return desc;
+    }, "Create DeadTreeDescriptor from Python dict");
 
     // ========================================================================
     // Materials bindings

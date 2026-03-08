@@ -160,8 +160,26 @@ ENTITY_COLORS = {
     "flower_patch": (0.75, 0.45, 0.55),      # Pinkish petals
     "mushroom": (0.72, 0.55, 0.38),          # Tan-orange cap
     "cactus": (0.35, 0.55, 0.28),            # Desert green
+    "creature": (0.55, 0.70, 0.45),          # Organic greenish
 }
 DEFAULT_ENTITY_COLOR = (0.60, 0.60, 0.60)  # Neutral gray for unknown types
+
+
+# =============================================================================
+# Building BSP helper
+# =============================================================================
+
+
+def _build_block_from_dict(block_dict: dict, cpp: Any) -> Any:
+    """Recursively build a BuildingBlock from a dict descriptor."""
+    block = cpp.BuildingBlock()
+    size = block_dict.get("size", [1, 1, 1])
+    block.size = cpp.Vec3(size[0], size[1], size[2])
+    pos = block_dict.get("position", [0, 0, 0])
+    block.position = cpp.Vec3(pos[0], pos[1], pos[2])
+    for child_dict in block_dict.get("children", []):
+        block.children.append(_build_block_from_dict(child_dict, cpp))
+    return block
 
 
 # =============================================================================
@@ -619,7 +637,7 @@ class GraphicsBridge:
                 mesh = cpp.generate_pine_tree_mesh(desc)
             elif entity_type == "dead_tree":
                 if entity_state and "axiom" in entity_state:
-                    desc = cpp.create_tree_from_dict({
+                    desc = cpp.create_dead_tree_from_dict({
                         "axiom": entity_state["axiom"],
                         "rules": entity_state.get("rules", {"F": "F[+F][-F]"}),
                         "angle": entity_state.get("angle", 35.0),
@@ -683,9 +701,27 @@ class GraphicsBridge:
                             arm.angle = float(arm_dict.get("angle", 0.0))
                             desc.arms.append(arm)
                 mesh = cpp.generate_cactus_mesh(desc)
+            elif entity_type == "creature":
+                if entity_state and "skeleton" in entity_state and "metaballs" in entity_state:
+                    try:
+                        desc = cpp.create_creature_from_dict({
+                            "skeleton": entity_state["skeleton"],
+                            "metaballs": entity_state["metaballs"],
+                        })
+                        mesh = cpp.generate_creature_mesh(desc)
+                    except Exception as e:
+                        logger.warning(f"Creature mesh generation failed: {e}, using capsule fallback")
+                        mesh = cpp.generate_capsule_mesh(0.3, 1.0, 12, 6)
+                else:
+                    mesh = cpp.generate_capsule_mesh(0.3, 1.0, 12, 6)
             elif entity_type == "building":
-                # Box for buildings
-                mesh = cpp.generate_box_mesh(cpp.Vec3(3, 2, 3))
+                if entity_state and "root" in entity_state:
+                    desc = cpp.BuildingDescriptor()
+                    desc.root = _build_block_from_dict(entity_state["root"], cpp)
+                    mesh = cpp.generate_building_mesh(desc)
+                else:
+                    # Fallback to simple box if no BSP descriptor
+                    mesh = cpp.generate_box_mesh(cpp.Vec3(3, 2, 3))
             else:
                 # Default small box
                 mesh = cpp.generate_box_mesh(cpp.Vec3(0.5, 0.5, 0.5))
