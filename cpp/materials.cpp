@@ -376,6 +376,10 @@ uniform vec3 uCameraPos;
 uniform vec3 uLightPos;
 uniform vec3 uLightColor;
 uniform float uAmbientStrength;
+uniform float uFogStart;
+uniform float uFogDensity;
+uniform float uFogMax;
+uniform vec3 uFogColor;
 )";
 
     // Add noise library if needed
@@ -415,6 +419,10 @@ uniform float uAmbientStrength;
         ss << "    vec3 ambient = uAmbientStrength * finalMaterial.albedo * finalMaterial.ao;\n";
         ss << "    vec3 Lo = calculatePBR(finalMaterial, N, V, L, uLightColor);\n";
         ss << "    vec3 color = ambient + Lo;\n\n";
+        ss << "    // Distance fog with dead zone\n";
+        ss << "    float fogDist = max(length(vWorldPos - uCameraPos) - uFogStart, 0.0);\n";
+        ss << "    float fogFactor = clamp(1.0 - exp(-fogDist * uFogDensity), 0.0, uFogMax);\n";
+        ss << "    color = mix(color, uFogColor, fogFactor);\n\n";
         ss << "    // Gamma correction\n";
         ss << "    color = pow(color, vec3(1.0/2.2));\n\n";
         ss << "    fragColor = vec4(color, 1.0);\n";

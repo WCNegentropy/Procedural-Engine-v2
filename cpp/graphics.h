@@ -145,7 +145,7 @@ struct Vertex {
 };
 
 /**
- * Uniform buffer for per-frame data (camera, lighting).
+ * Uniform buffer for per-frame data (camera, lighting, fog).
  */
 struct FrameUniforms {
     float view[16];           // View matrix
@@ -153,6 +153,8 @@ struct FrameUniforms {
     float view_projection[16]; // Combined VP matrix
     float camera_pos[4];       // Camera position (w unused)
     float time[4];             // Time data: x=total, y=delta, z=frame, w=unused
+    float fog_params[4];       // x=fog_start, y=fog_density, z=fog_max, w=unused
+    float fog_color[4];        // RGB fog color (w unused)
 };
 
 /**

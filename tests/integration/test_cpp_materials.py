@@ -623,6 +623,33 @@ class TestShaderOutput:
             in fs
         )
 
+    def test_fragment_shader_includes_fog_with_dead_zone(self):
+        """PBR fragment shader should apply distance fog with a dead zone."""
+        graph = {
+            "nodes": {
+                "base_color": {
+                    "type": "pbr_const",
+                    "albedo": [0.6, 0.6, 0.6],
+                    "roughness": 0.5,
+                    "metallic": 0.0,
+                }
+            },
+            "output": "base_color",
+        }
+
+        shader = cpp.compile_material_from_dict(graph)
+
+        fs = shader.fragment_source
+        # Fog uniforms should be declared
+        assert "uniform float uFogStart;" in fs
+        assert "uniform float uFogDensity;" in fs
+        assert "uniform float uFogMax;" in fs
+        assert "uniform vec3 uFogColor;" in fs
+        # Fog should use a dead zone (subtract start distance before exp)
+        assert "uFogStart" in fs
+        assert "uFogDensity" in fs
+        assert "mix(color, uFogColor, fogFactor)" in fs
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
