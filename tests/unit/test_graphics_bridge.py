@@ -1,6 +1,8 @@
-"""Tests for graphics_bridge module."""
-import pytest
 import math
+import sys
+from types import SimpleNamespace
+
+import pytest
 
 from procengine.graphics.graphics_bridge import (
     GraphicsBridge,
@@ -278,6 +280,43 @@ class TestGraphicsBridge:
         assert bridge.render_state.draw_calls == 1
 
         bridge.end_frame()
+
+    def test_upload_entity_mesh_logs_unknown_type(self, monkeypatch, caplog):
+        """Unknown entity types should emit a diagnostic warning."""
+        bridge = GraphicsBridge()
+        bridge.initialize()
+
+        class FakeMesh:
+            def __init__(self) -> None:
+                self.vertices = []
+                self.colors = []
+                self.indices = []
+
+            def set_uniform_color(self, color) -> None:
+                self.color = color
+
+            def ensure_colors(self) -> None:
+                pass
+
+            def validate(self) -> bool:
+                return True
+
+        fake_cpp = SimpleNamespace(
+            Vec3=lambda x, y, z: (x, y, z),
+            generate_box_mesh=lambda size: FakeMesh(),
+        )
+        monkeypatch.setitem(sys.modules, "procengine_cpp", fake_cpp)
+
+        with caplog.at_level("WARNING"):
+            success = bridge.upload_entity_mesh(
+                "mystery_mesh",
+                "mystery_prop",
+                {"foo": 1, "bar": 2},
+            )
+
+        assert success is True
+        assert "Unknown entity type 'mystery_prop'" in caplog.text
+        assert "['bar', 'foo']" in caplog.text
 
     def test_light_management(self):
         """Test light addition."""
