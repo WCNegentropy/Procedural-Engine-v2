@@ -1,6 +1,6 @@
 # Procedural Engine v2 -- Architecture & Development Reference
 
-> Compiled 2026-02-07. Covers the full Python/C++ hybrid engine, CI pipeline,
+> Compiled 2026-03-08. Covers the full Python/C++ hybrid engine, CI pipeline,
 > rendering stack, dynamic chunk system, prop generation, command architecture,
 > and conventions discovered during development.
 
@@ -13,8 +13,8 @@ Procedural-Engine-v2/
 ├── main.py                      # CLI entry point (procedural-engine command)
 ├── pyproject.toml               # Build config, deps, lint/type settings
 ├── setup.py                     # CMake-based C++ extension build
-├── procengine/                  # Python package (10 subpackages)
-│   ├── __init__.py              # 39 public exports, barrel-style
+├── procengine/                  # Python package (9 top-level subpackages)
+│   ├── __init__.py              # 53 public exports, barrel-style
 │   ├── core/                    # Engine fundamentals
 │   │   ├── engine.py            # Determinism-tracking reference engine
 │   │   └── seed_registry.py     # Hierarchical PRNG (splitmix64 → PCG64)
@@ -35,11 +35,13 @@ Procedural-Engine-v2/
 │   │   ├── behavior_tree.py     # BT nodes (Selector, Sequence, etc.)
 │   │   ├── data_loader.py       # JSON content loader (NPCs, quests, items)
 │   │   └── ui_system.py         # Dear ImGui UI (HUD, dialogue, inventory, console, debug)
+│   ├── managers/                # Runtime bridges for C++ scheduling/streaming
+│   │   └── game_manager.py      # GameManagerBridge, ManagerConfig, FrameDirective
 │   ├── graphics/                # Rendering abstraction
 │   │   └── graphics_bridge.py   # Mesh upload, draw calls, camera, lighting
 │   ├── agents/                  # NPC AI framework (LocalAgent → MCP)
 │   ├── commands/                # Command system
-│   │   ├── commands.py          # Command registry (51 commands)
+│   │   ├── commands.py          # Command registry (52 registered commands)
 │   │   ├── console.py           # In-game console with autocomplete
 │   │   └── handlers/            # Game command implementations
 │   │       └── game_commands.py
@@ -52,8 +54,8 @@ Procedural-Engine-v2/
 │   └── graphics.h / graphics.cpp # Vulkan rendering backend
 ├── tests/
 │   ├── conftest.py              # sys.path setup for both Python-only and C++ tests
-│   ├── unit/                    # 586 Python-only tests (22 files)
-│   └── integration/             # 108 C++ module tests (10 files)
+│   ├── unit/                    # Active Python-side suite
+│   └── integration/             # Active C++/hybrid integration suite
 ├── data/                        # Game content JSON files
 │   ├── npcs/                    # NPC definitions (6 village NPCs)
 │   ├── quests/                  # Quest definitions (6 quests)
@@ -117,7 +119,7 @@ rg "^\s+from\s+\w" --type py     # find indented (runtime) imports
 ### Python Package
 
 - **Build backend**: setuptools
-- **Python**: >=3.10 (tested on 3.10, 3.11, 3.12)
+- **Python**: >=3.10 (CI currently runs Python 3.12)
 - **Runtime dependency**: numpy>=1.24 (the only required dependency)
 - **Dev dependencies**: pytest, ruff, mypy, numpy-stubs
 - **Entry point**: `procedural-engine = "main:main"`
@@ -195,6 +197,13 @@ Platform builds produce native modules -> `build-standalone` downloads them ->
 PyInstaller packages everything into distributable archives (tar.gz / zip).
 Artifacts retained for 7 days.
 
+### Release Workflow (`.github/workflows/release.yml`)
+
+- Builds platform wheels on Linux, Windows, and macOS
+- Builds standalone executables with bundled game data
+- Uses the same Python 3.12 toolchain as CI
+- Targets tag pushes (`v*`) and manual workflow dispatch
+
 ---
 
 ## 5. Rendering Pipeline
@@ -218,6 +227,16 @@ The bridge abstracts Vulkan into a simple mesh/pipeline/draw API:
 | `draw_entity()` | Convenience: position/rotation/scale → transform → draw |
 | `destroy_mesh()` | Free GPU resources for a mesh |
 | `begin_frame()` / `end_frame()` | Frame lifecycle |
+
+### Biome Material Pipelines
+
+`GameRunner` now connects the Python material graph DSL to the C++ material
+compiler at runtime for terrain rendering:
+
+1. `generate_material_graph()` produces a deterministic graph per biome
+2. `procengine_cpp.compile_material_from_dict()` compiles GLSL sources
+3. `GraphicsBridge.create_material_pipeline()` registers GPU pipelines
+4. Terrain chunks select a biome-specific pipeline with fallback to `default`
 
 ### Windowed Rendering (SDL2 + Vulkan)
 
@@ -502,7 +521,7 @@ keybinds, and future MCP integration.
 
 | Component | File | Description |
 |-----------|------|-------------|
-| `CommandRegistry` | commands.py | 51 commands with typed params, validation, access control |
+| `CommandRegistry` | commands.py | 52 registered commands with typed params, validation, access control |
 | `Console` | console.py | In-game console with history and autocomplete |
 | `game_commands` | handlers/game_commands.py | Game-specific command implementations |
 
@@ -517,7 +536,10 @@ keybinds, and future MCP integration.
 
 ### Categories
 
-world, terrain, props, npc, player, physics, engine, quest, ui, system
+world, terrain, props, npc, player, physics, engine, quest, ui, system, debug
+
+There are 11 defined command categories in the enum, with 9 currently populated
+by registered commands in the live registry.
 
 ### MCP Tool Generation
 
@@ -551,6 +573,7 @@ The UI system uses Dear ImGui with an abstraction layer for testing:
 | SettingsPanel | Debug overlay toggle, VSync toggle |
 | DebugOverlay | FPS, player position, entity count, biome info |
 | ConsoleWindow | Developer console with input, output, autocomplete |
+| NotificationStack | Toast-style runtime notifications |
 
 ---
 
@@ -619,19 +642,26 @@ adding a single `rng.random()` call) will change all downstream results.
 
 ### Test Organization
 
-- **Unit tests** (`tests/unit/`): 586 tests across 22 files, Python-only, no C++ required
-- **Integration tests** (`tests/integration/`): 108 tests across 10 files, require built `procengine_cpp`
-- **Total**: 694+ tests
+- **Active Python suite**: `tests/unit/` plus `tests/integration/test_world.py`
+- **Active native integration suite**: selected `tests/integration/test_cpp_*.py` files after building `procengine_cpp`
+- **Legacy archive**: `Legacy/tests/` is still discoverable by root pytest config, but is not part of the active CI suite
 - **conftest.py**: Adds project root, procengine/, build/, build/Release/ to sys.path
 
 ### Running Tests
 
 ```bash
-# Unit tests only (no C++ build needed)
-python -m pytest tests/unit/ -v
+# Python-side CI suite (fresh clone friendly)
+python -m pytest tests/unit tests/integration/test_world.py -v --tb=short
 
-# Integration tests (requires C++ build)
-python -m pytest tests/integration/ -v
+# Native integration suite (requires built procengine_cpp in ./build)
+python -m pytest \
+  tests/integration/test_cpp_engine.py \
+  tests/integration/test_cpp_terrain.py \
+  tests/integration/test_cpp_physics.py \
+  tests/integration/test_cpp_props.py \
+  tests/integration/test_cpp_materials.py \
+  tests/integration/test_cpp_seed_registry.py \
+  -v --tb=short
 
 # Specific test
 python -m pytest tests/unit/test_props.py -v
@@ -744,6 +774,7 @@ To add a new procedural prop type (e.g., "bush"):
 | Change entity colors | `procengine/graphics/graphics_bridge.py` (ENTITY_COLORS) |
 | Spawn props on terrain | `procengine/game/game_runner.py` (`_spawn_chunk_props`) |
 | Chunk load/unload logic | `procengine/world/chunk.py` (ChunkManager) |
+| Frame-budget chunk scheduling | `procengine/managers/game_manager.py`, `cpp/game_manager.cpp` |
 | Chunk entity cleanup | `procengine/game/game_runner.py` (`_cleanup_chunk`) |
 | Physics bodies/collision | `procengine/physics/` |
 | Sim-distance filtering | `procengine/game/game_api.py` (physics_step, _update_npcs) |
@@ -752,5 +783,6 @@ To add a new procedural prop type (e.g., "bush"):
 | Command definitions | `procengine/commands/commands.py`, `handlers/game_commands.py` |
 | UI components | `procengine/game/ui_system.py` |
 | CI workflow | `.github/workflows/ci.yml` |
+| Release packaging workflow | `.github/workflows/release.yml` |
 | Test configuration | `tests/conftest.py` |
 | Build configuration | `pyproject.toml`, `setup.py`, `cpp/CMakeLists.txt` |

@@ -10,16 +10,21 @@ Hybrid Python/C++ procedural game engine with deterministic world generation, dy
 
 ```bash
 # Install dependencies
-pip install numpy pybind11
+pip install -r requirements.txt
 
 # Build C++ module (headless mode for CI/development)
-cd cpp && mkdir build && cd build
-cmake .. -DNO_GRAPHICS=ON && make
-cd ../..
+mkdir -p build && cd build
+cmake ../cpp -DNO_GRAPHICS=ON -DCMAKE_BUILD_TYPE=Release
+cmake --build . -j2
+cd ..
 
-# Run tests (694+ tests)
-python -m pytest -q
+# Run the active Python-side suite
+python -m pytest tests/unit tests/integration/test_world.py -q
 ```
+
+`python -m pytest` from the repository root also traverses `Legacy/tests/`, which
+are archived reference tests and may require a separately built `procengine_cpp`
+module. The commands above mirror the active CI paths for a fresh clone.
 
 ---
 
@@ -30,6 +35,7 @@ python -m pytest -q
 - Deterministic output: same seed always produces identical results
 - Hybrid Python/C++ architecture with pybind11 FFI
 - Dynamic chunk-based world streaming with configurable render/sim distances
+- `GameManagerBridge` feeds frame-budget directives, async chunk generation, and fallback-safe scheduling into the Python game loop
 - Hot-reload infrastructure for iterative development
 - SHA-256 state verification across FFI boundary
 
@@ -59,12 +65,12 @@ python -m pytest -q
 - **Event System**: Pub/sub for decoupled game systems
 
 ### Command Architecture
-- **Command Registry**: 51 registered commands across 11 categories with typed parameters
+- **Command Registry**: 52 registered commands across 11 defined categories (9 currently populated) with typed parameters
 - **In-Game Console**: Toggle with tilde, command history, autocomplete
 - **Keybind System**: Key-to-command mapping with configurable binds
 - **Access Control**: PUBLIC, CONSOLE, CHEAT, and DEV permission levels
 - **MCP Tool Generation**: Commands auto-export as MCP tools for AI integration
-- Categories: world, terrain, props, npc, player, physics, engine, quest, ui, system
+- Categories: world, terrain, props, npc, player, physics, engine, quest, ui, system, debug
 
 ### UI System (Dear ImGui)
 - **HUD**: Health bar, quest tracker, interaction prompts
@@ -75,6 +81,7 @@ python -m pytest -q
 - **Debug Overlay**: FPS counter, player position, entity count, biome info
 - **Console Window**: Developer console with input, output history, autocomplete
 - **Settings Panel**: Debug overlay toggle, VSync toggle
+- **Notification Stack**: Toast-style runtime notifications
 - Headless backend for testing without GPU
 
 ### Terrain Generation
@@ -88,8 +95,9 @@ python -m pytest -q
 ### Props & Mesh
 - Rocks: SDF-based generation with sphere mesh synthesis
 - Trees: L-system skeletons with sweep mesh
+- Bushes, pine trees, dead trees, fallen logs, boulder clusters, flower patches, mushrooms, and cacti have dedicated descriptor and mesh paths
 - Buildings: Shape grammar with BSP mesh synthesis
-- Creatures: Metaball + skeleton with marching cubes
+- Creatures: Metaball + skeleton with marching cubes, with capsule fallback if generation fails
 - LOD generation with mesh simplification
 
 ### Physics (3D)
@@ -107,6 +115,7 @@ python -m pytest -q
 - Node-based material graph DSL
 - GLSL generation and SPIR-V compilation
 - **Vulkan backend with full rendering pipeline**
+- **Biome-specific material pipelines** generated in Python, compiled in C++, and selected per rendered terrain chunk
 - **16-biome terrain color palette** with vertex colors
 - **Entity meshes**: Players, NPCs, rocks, trees, buildings
 - **Render-distance entity culling**: only entities in loaded chunks are drawn
@@ -140,7 +149,7 @@ Chunk management         --->     Terrain mesh upload, entity meshes
 | `procengine.game.game_runner` | Main game loop, chunk orchestration, rendering |
 | `procengine.game.behavior_tree` | NPC AI with behavior trees |
 | `procengine.game.ui_system` | Dear ImGui UI (HUD, dialogue, inventory, console) |
-| `procengine.commands.commands` | Command registry with 51 commands |
+| `procengine.commands.commands` | Command registry with 52 registered commands |
 | `procengine.commands.console` | In-game console with autocomplete |
 | `procengine.physics.bodies` | RigidBody, RigidBody3D, Vec3 |
 | `procengine.physics.collision` | 2D and 3D physics simulation |
@@ -149,6 +158,7 @@ Chunk management         --->     Terrain mesh upload, entity meshes
 | `procengine.world.props` | Rock, tree, building, creature descriptors |
 | `procengine.world.materials` | Material graph DSL and node system |
 | `procengine.world.world` | Multi-chunk world assembly |
+| `procengine.managers.game_manager` | C++ `GameManager` bridge and `FrameDirective` fallback |
 | `procengine.graphics.graphics_bridge` | Vulkan abstraction layer |
 
 ---
@@ -349,26 +359,26 @@ cmake ..
 ## Testing
 
 ```bash
-# Run all tests
-python -m pytest -q
+# Active Python-side suite (matches the CI `test-python` job)
+python -m pytest tests/unit tests/integration/test_world.py -v --tb=short
 
-# Run specific categories
-python -m pytest tests/unit/test_game_api.py -v       # Game systems
-python -m pytest tests/unit/test_behavior_tree.py -v  # Behavior trees
-python -m pytest tests/unit/test_physics_3d.py -v     # 3D physics
-python -m pytest tests/unit/test_physics.py -v        # 2D physics
-python -m pytest tests/unit/test_chunk_system.py -v   # Dynamic chunks
-python -m pytest tests/unit/test_game_runner.py -v    # Game loop
-python -m pytest tests/unit/test_commands.py -v       # Command registry
-python -m pytest tests/unit/test_ui_system.py -v      # UI system
-python -m pytest tests/unit/test_terrain.py -v        # Terrain generation
-python -m pytest tests/unit/test_hot_reload.py -v     # Hot-reload system
+# Native integration subset (requires a built procengine_cpp module in ./build)
+python -m pytest \
+  tests/integration/test_cpp_engine.py \
+  tests/integration/test_cpp_terrain.py \
+  tests/integration/test_cpp_physics.py \
+  tests/integration/test_cpp_props.py \
+  tests/integration/test_cpp_materials.py \
+  tests/integration/test_cpp_seed_registry.py \
+  -v --tb=short
 
-# Run C++ integration tests
-python -m pytest tests/integration/ -v
+# Example targeted runtime regression check
+python -m pytest tests/unit/test_chunk_system.py tests/unit/test_game_runner.py -x -q
 ```
 
-**Current Coverage:** 694+ tests passing (586 unit + 108 integration)
+**Current coverage layout:** active tests live under `tests/unit/` and
+`tests/integration/`, while `Legacy/tests/` remains archival reference material.
+The CI workflow runs the Python-only suite separately from the native build jobs.
 
 ---
 
@@ -402,9 +412,11 @@ This project is actively developing toward v2.0, an AI-native RPG platform.
 ### Phase 2.5: Graphics & UI (Complete)
 - [x] Vulkan rendering pipeline complete
 - [x] Terrain with biome colors
+- [x] Biome-specific material pipelines for terrain rendering
 - [x] Entity mesh generation (capsule, cylinder, box, L-system trees)
 - [x] Dear ImGui UI framework (HUD, dialogue, inventory, console, debug overlay)
 - [x] Dynamic chunk-based world streaming
+- [x] C++ `GameManager` bridge for frame-budgeted chunk scheduling
 - [x] Render-distance entity culling
 - [x] Simulation-distance NPC/physics filtering
 - [x] LOADING/PLAYING state machine with mesh verification
@@ -418,7 +430,7 @@ This project is actively developing toward v2.0, an AI-native RPG platform.
 - [ ] Graceful fallback to LocalAgent
 
 ### Phase 4: Command Architecture (Complete)
-- [x] Unified command registry (51 commands)
+- [x] Unified command registry (52 commands)
 - [x] In-game console with autocomplete
 - [x] Keybind system
 - [x] Access control (PUBLIC, CONSOLE, CHEAT, DEV)
@@ -426,6 +438,9 @@ This project is actively developing toward v2.0, an AI-native RPG platform.
 - [ ] Script execution for modding (planned)
 
 See [plan.md](plan.md) for the complete development plan.
+
+For the latest audit of still-disconnected runtime/FFI features, see
+[`docs/remediation_report.md`](docs/remediation_report.md).
 
 ---
 
