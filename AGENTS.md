@@ -54,8 +54,8 @@ Engine.snapshot_state(frame:int) -> bytes   # returns deterministic hash
 
 ## 5 · Best Practices & CI Pipeline
 - Adhere to PEP 8 style and type annotate new Python code.
-- Run `pytest` and ensure all tests pass before submitting a change.
-- The GitHub Actions workflow runs tests on Python 3.10 and 3.11 and builds the package; keep these jobs green.
+- Run the active pytest paths (`tests/unit` plus `tests/integration/test_world.py`) before submitting Python-side changes, and run the native integration subset after building `procengine_cpp`.
+- The GitHub Actions workflow currently runs on Python 3.12 and builds/packages the project across Linux, Windows, and macOS; keep these jobs green.
 - Each commit must leave the repository in a clean state with all checks passing.
 - Maintain the root `requirements.txt` with all core dependencies (currently `numpy` and `pytest`).
 - Respect the repository `.gitignore`; avoid committing build artifacts or virtual environments.
@@ -88,8 +88,10 @@ Engine.snapshot_state(frame:int) -> bytes   # returns deterministic hash
 │   │   ├── player_controller.py # Input & camera system
 │   │   ├── data_loader.py      # JSON data loading
 │   │   └── ui_system.py        # Dear ImGui UI (HUD, dialogue, inventory, console)
+│   ├── managers/               # Runtime scheduling bridge
+│   │   └── game_manager.py     # GameManagerBridge + FrameDirective fallback
 │   ├── commands/               # Command system
-│   │   ├── commands.py         # Command registry (51 commands)
+│   │   ├── commands.py         # Command registry (52 registered commands)
 │   │   ├── console.py          # In-game console
 │   │   └── handlers/           # Command implementations
 │   │       └── game_commands.py # Game-specific commands
@@ -104,11 +106,11 @@ Engine.snapshot_state(frame:int) -> bytes   # returns deterministic hash
 │   ├── terrain.h / terrain.cpp # Heightmap → mesh + biome colors
 │   └── props.h / props.cpp     # Mesh generators (rock, tree, building, creature)
 │
-├── tests/                      # TEST SUITE (694+ tests)
+├── tests/                      # ACTIVE TEST SUITE
 │   ├── conftest.py             # Pytest configuration
-│   ├── unit/                   # 586 Python-only tests (22 files)
+│   ├── unit/                   # Python-side tests used by CI
 │   │   └── test_*.py
-│   ├── integration/            # 108 C++ module tests (10 files)
+│   ├── integration/            # Native/hybrid tests used by CI
 │   │   └── test_*.py
 │   └── performance/            # Performance tests
 │
@@ -165,9 +167,11 @@ Bare imports (`from physics import ...`) will fail at runtime due to the namespa
 
 ### Phase 2.5: Graphics, UI & Dynamic World
 - ✅ Vulkan rendering pipeline with biome terrain colors
+- ✅ Biome-specific material pipelines generated in Python and compiled/applied via C++
 - ✅ Entity mesh generation and rendering
-- ✅ Dear ImGui UI system with 8 components (`ui_system.py`)
+- ✅ Dear ImGui UI system with 9 components plus headless backend (`ui_system.py`)
 - ✅ Dynamic chunk-based infinite world streaming (`chunk.py`)
+- ✅ `GameManagerBridge` / `FrameDirective` integration for async chunk scheduling and frame-budget hints
 - ✅ LOADING/PLAYING state machine with mesh verification
 - ✅ Render-distance entity culling in dynamic mode
 - ✅ Simulation-distance filtering for NPC updates and physics
@@ -179,7 +183,7 @@ Bare imports (`from physics import ...`) will fail at runtime due to the namespa
 - ⏳ Pending — MCP server, MCPAgent, Game Master mode
 
 ### Phase 4: Command Architecture
-- ✅ Command registry with 51 commands across 11 categories (`commands.py`)
+- ✅ Command registry with 52 registered commands across 11 defined categories (`commands.py`)
 - ✅ In-game console with autocomplete (`console.py`)
 - ✅ Keybind system with configurable binds
 - ✅ Access control levels: PUBLIC, CONSOLE, CHEAT, DEV
@@ -292,7 +296,7 @@ The command system provides a unified control surface for console, GUI, keybinds
 
 ### Categories
 
-world, terrain, props, npc, player, physics, engine, quest, ui, system
+world, terrain, props, npc, player, physics, engine, quest, ui, system, debug
 
 ---
 
