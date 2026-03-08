@@ -119,7 +119,7 @@ rg "^\s+from\s+\w" --type py     # find indented (runtime) imports
 ### Python Package
 
 - **Build backend**: setuptools
-- **Python**: >=3.10 (CI currently runs Python 3.12)
+- **Python**: >=3.10 (supported in packaging metadata; CI currently exercises 3.12)
 - **Runtime dependency**: numpy>=1.24 (the only required dependency)
 - **Dev dependencies**: pytest, ruff, mypy, numpy-stubs
 - **Entry point**: `procedural-engine = "main:main"`

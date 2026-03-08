@@ -65,7 +65,7 @@ module. The commands above mirror the active CI paths for a fresh clone.
 - **Event System**: Pub/sub for decoupled game systems
 
 ### Command Architecture
-- **Command Registry**: 52 registered commands across 11 defined categories (9 currently populated) with typed parameters
+- **Command Registry**: 52 registered commands with typed parameters and access control
 - **In-Game Console**: Toggle with tilde, command history, autocomplete
 - **Keybind System**: Key-to-command mapping with configurable binds
 - **Access Control**: PUBLIC, CONSOLE, CHEAT, and DEV permission levels
