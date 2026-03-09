@@ -15,6 +15,7 @@
 #ifndef NO_GRAPHICS
 #include "graphics.h"
 #include "imgui.h"
+#include "misc/cpp/imgui_stdlib.h"
 #include "imgui_impl_vulkan.h"
 #if HAS_SDL2
 #include "imgui_impl_sdl2.h"
@@ -1459,6 +1460,16 @@ PYBIND11_MODULE(procengine_cpp, m) {
         return ImGui::Button(label.c_str(), ImVec2(w, h));
     }, py::arg("label"), py::arg("width") = 0.0f, py::arg("height") = 0.0f,
     "Render a button, returns true if clicked");
+
+    m.def("imgui_input_text", [](const std::string& label,
+                                 const std::string& text,
+                                 size_t buffer_size) {
+        (void)buffer_size;  // Retained for Python UIBackend API compatibility.
+        std::string value = text;
+        bool changed = ImGui::InputText(label.c_str(), &value);
+        return py::make_tuple(changed, value);
+    }, py::arg("label"), py::arg("text"), py::arg("buffer_size") = 256,
+    "Render a text input and return (changed, new_text)");
 
     m.def("imgui_progress_bar", [](float fraction, float width, float height) {
         ImGui::ProgressBar(fraction, ImVec2(width, height));

@@ -65,6 +65,7 @@ __all__ = [
 
 _NO_DECORATION_FLAGS = 1   # No title bar, resize, etc.
 _NO_RESIZE_FLAGS = 2       # No resize
+_MAX_WORLD_SEED = 0xFFFFFFFFFFFFFFFF
 
 
 # =============================================================================
@@ -1250,6 +1251,7 @@ class WorldCreationScreen(UIComponent):
         self._screen_width = screen_width
         self._screen_height = screen_height
         self._seed_text: str = "42"
+        self._status_message: str = ""
         self._on_start: Optional[Callable[[int], None]] = None
         self._on_back: Optional[Callable[[], None]] = None
 
@@ -1261,12 +1263,40 @@ class WorldCreationScreen(UIComponent):
     def seed_text(self, value: str) -> None:
         self._seed_text = value
 
+    def set_status(self, message: str) -> None:
+        """Set a validation or status message to display."""
+        self._status_message = message
+
+    def _parse_seed(self) -> Tuple[Optional[int], str]:
+        """Parse and validate the currently entered seed.
+
+        Returns
+        -------
+        tuple[Optional[int], str]
+            ``(seed, "")`` when validation succeeds, otherwise
+            ``(None, error_message)``.
+        """
+        seed_text = self._seed_text.strip()
+        if not seed_text:
+            return None, "World seed is required. Enter digits 0-9 only."
+
+        if not seed_text.isdigit():
+            return None, "Seeds must use digits 0-9 only."
+
+        seed = int(seed_text)
+        if seed > _MAX_WORLD_SEED:
+            return None, (
+                f"Seed must be between 0 and {_MAX_WORLD_SEED}."
+            )
+
+        return seed, ""
+
     def render(self, **kwargs: Any) -> None:
         if not self._visible:
             return
 
         panel_width = 480
-        panel_height = 340
+        panel_height = 390
         panel_x = (self._screen_width - panel_width) / 2
         panel_y = (self._screen_height - panel_height) / 2
 
@@ -1292,6 +1322,7 @@ class WorldCreationScreen(UIComponent):
         )
         if changed:
             self._seed_text = new_text
+            self._status_message = ""
 
         self._backend.spacing()
         self._backend.text_colored(
@@ -1300,6 +1331,10 @@ class WorldCreationScreen(UIComponent):
         )
         self._backend.text_colored(
             "  Same seed = same world, every time.",
+            *_COLOR_SUBTITLE,
+        )
+        self._backend.text_colored(
+            f"  Use digits only: 0 to {_MAX_WORLD_SEED}.",
             *_COLOR_SUBTITLE,
         )
 
@@ -1313,12 +1348,19 @@ class WorldCreationScreen(UIComponent):
 
         if self._backend.button("Generate World", button_width, 50):
             if self._on_start:
-                # Parse seed: try int, fall back to hash of string
-                try:
-                    seed = int(self._seed_text)
-                except (ValueError, TypeError):
-                    seed = hash(self._seed_text) & 0xFFFFFFFF
-                self._on_start(seed)
+                seed, error_message = self._parse_seed()
+                if error_message:
+                    self._status_message = error_message
+                elif seed is not None:
+                    self._status_message = ""
+                    self._on_start(seed)
+
+        if self._status_message:
+            self._backend.spacing()
+            self._backend.text_colored(
+                f"  {self._status_message}",
+                *_COLOR_QUEST_FAILED,
+            )
 
         self._backend.spacing()
         self._backend.spacing()
