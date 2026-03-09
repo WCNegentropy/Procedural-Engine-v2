@@ -1098,16 +1098,16 @@ class TestDynamicChunks:
         def fake_generate_chunk_props(
             registry,
             chunk_size,
-            passed_heightmap,
-            passed_slope_map,
-            passed_biome_map,
+            heightmap_arg,
+            slope_map_arg,
+            biome_map_arg,
             **kwargs,
         ):
             captured["root_seed"] = registry.root_seed
             captured["chunk_size"] = chunk_size
-            captured["heightmap"] = passed_heightmap
-            captured["slope_map"] = passed_slope_map
-            captured["biome_map"] = passed_biome_map
+            captured["heightmap"] = heightmap_arg
+            captured["slope_map"] = slope_map_arg
+            captured["biome_map"] = biome_map_arg
             captured["kwargs"] = kwargs
             return [{
                 "type": "rock",

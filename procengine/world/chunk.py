@@ -625,10 +625,13 @@ class ChunkManager:
     ) -> List[Dict[str, Any]]:
         """Generate deterministic prop descriptors for one chunk.
 
-        The terrain arrays should use the chunk's size+1 overlap shape so
-        prop height sampling can interpolate against the shared edge vertex
-        near chunk boundaries without allowing props to spawn outside the
-        chunk's original ``chunk_size`` footprint.
+        The terrain arrays should use the chunk's ``(chunk_size + 1,
+        chunk_size + 1)`` overlap shape so prop height sampling can
+        interpolate against the shared edge vertex near chunk boundaries
+        without allowing props to spawn outside the chunk's original
+        ``chunk_size`` footprint. Passing only ``(chunk_size, chunk_size)``
+        arrays still works, but it loses the overlap vertex and can make props
+        near the chunk edge float or clip on steep terrain.
         """
 
         from procengine.world.props import generate_chunk_props

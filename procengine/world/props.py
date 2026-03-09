@@ -76,7 +76,14 @@ def _sample_heightmap_bilinear(
     max_x: int,
     max_z: int,
 ) -> float:
-    """Sample a heightmap at fractional coordinates with bilinear filtering."""
+    """Sample a heightmap at fractional coordinates with bilinear filtering.
+
+    ``max_x`` and ``max_z`` describe the chunk-local sampling extent for prop
+    placement. The underlying heightmap may be larger (for example
+    ``chunk_size + 1`` overlap vertices), which allows interpolation to use the
+    shared edge vertex near chunk boundaries without letting prop placement
+    sample beyond the chunk's intended footprint.
+    """
 
     sample_max_x = min(max_x, heightmap.shape[1] - 1)
     sample_max_z = min(max_z, heightmap.shape[0] - 1)
