@@ -4,6 +4,7 @@
 #include <openssl/sha.h>
 #include <vector>
 #include <string>
+#include <cstring>
 #include <unordered_map>
 #include <memory>
 #include "seed_registry.h"
@@ -18,6 +19,7 @@
 #include "misc/cpp/imgui_stdlib.h"
 #include "imgui_impl_vulkan.h"
 #if HAS_SDL2
+#include <SDL.h>
 #include "imgui_impl_sdl2.h"
 #endif
 #endif
@@ -1464,12 +1466,41 @@ PYBIND11_MODULE(procengine_cpp, m) {
     m.def("imgui_input_text", [](const std::string& label,
                                  const std::string& text,
                                  size_t buffer_size) {
+         (void)buffer_size;  // Retained for Python UIBackend API compatibility.
+         std::string value = text;
+         bool changed = ImGui::InputText(label.c_str(), &value);
+         return py::make_tuple(changed, value);
+     }, py::arg("label"), py::arg("text"), py::arg("buffer_size") = 256,
+     "Render a text input and return (changed, new_text)");
+
+    m.def("imgui_input_text_state", [](const std::string& label,
+                                       const std::string& text,
+                                       size_t buffer_size) {
         (void)buffer_size;  // Retained for Python UIBackend API compatibility.
         std::string value = text;
-        bool changed = ImGui::InputText(label.c_str(), &value);
-        return py::make_tuple(changed, value);
+        bool submitted = ImGui::InputText(
+            label.c_str(),
+            &value,
+            ImGuiInputTextFlags_EnterReturnsTrue
+        );
+        bool changed = value != text;
+        return py::make_tuple(changed, submitted, value);
     }, py::arg("label"), py::arg("text"), py::arg("buffer_size") = 256,
-    "Render a text input and return (changed, new_text)");
+    "Render a text input and return (changed, submitted, new_text)");
+
+#if HAS_SDL2
+    m.def("imgui_process_sdl_event", [](py::bytes event_bytes) {
+        if (!ImGui::GetCurrentContext()) return;
+
+        std::string raw = event_bytes;
+        if (raw.size() != sizeof(SDL_Event)) return;
+
+        SDL_Event event{};
+        std::memcpy(&event, raw.data(), sizeof(SDL_Event));
+        ImGui_ImplSDL2_ProcessEvent(&event);
+    }, py::arg("event_bytes"),
+    "Forward a raw SDL_Event payload to Dear ImGui");
+#endif
 
     m.def("imgui_progress_bar", [](float fraction, float width, float height) {
         ImGui::ProgressBar(fraction, ImVec2(width, height));

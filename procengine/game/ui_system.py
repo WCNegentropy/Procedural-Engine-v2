@@ -278,6 +278,22 @@ class UIBackend(ABC):
         """
         return (False, text)
 
+    def input_text_state(
+        self, label: str, text: str, buffer_size: int = 256
+    ) -> Tuple[bool, bool, str]:
+        """Render text input field and report edit + submit state.
+
+        Returns ``(changed, submitted, new_text)``. Backends without native text
+        input support fall back to the basic ``input_text`` contract and never
+        report submission.
+        """
+        changed, new_text = self.input_text(label, text, buffer_size)
+        return (changed, False, new_text)
+
+    def process_platform_event(self, event: bytes) -> None:
+        """Forward a native platform event to the UI backend."""
+        pass
+
 
 class HeadlessUIBackend(UIBackend):
     """Headless UI backend for testing.
@@ -521,6 +537,18 @@ class ImGuiBackend(UIBackend):
         if hasattr(self._cpp, "imgui_input_text"):
             return self._cpp.imgui_input_text(label, text, buffer_size)
         return (False, text)
+
+    def input_text_state(
+        self, label: str, text: str, buffer_size: int = 256
+    ) -> Tuple[bool, bool, str]:
+        if hasattr(self._cpp, "imgui_input_text_state"):
+            return self._cpp.imgui_input_text_state(label, text, buffer_size)
+        changed, new_text = self.input_text(label, text, buffer_size)
+        return (changed, False, new_text)
+
+    def process_platform_event(self, event: bytes) -> None:
+        if hasattr(self._cpp, "imgui_process_sdl_event"):
+            self._cpp.imgui_process_sdl_event(event)
 
 
 # =============================================================================
@@ -1292,42 +1320,9 @@ class WorldCreationScreen(UIComponent):
 
         return seed, ""
 
-    def _apply_seed_keyboard_input(
-        self,
-        input_manager: Optional["InputManager"],
-    ) -> Tuple[bool, bool]:
-        """Apply menu keyboard input fallback for the seed field.
-
-        Returns
-        -------
-        tuple[bool, bool]
-            ``(changed, submitted)`` for this frame.
-        """
-        if input_manager is None:
-            return False, False
-
-        changed = False
-        for digit in "0123456789":
-            if input_manager.was_key_just_pressed(digit):
-                self._seed_text += digit
-                changed = True
-
-        if input_manager.was_key_just_pressed("BACKSPACE"):
-            self._seed_text = self._seed_text[:-1]
-            changed = True
-
-        if input_manager.was_key_just_pressed("DELETE"):
-            self._seed_text = ""
-            changed = True
-
-        submitted = input_manager.was_key_just_pressed("RETURN")
-        return changed, submitted
-
     def render(self, **kwargs: Any) -> None:
         if not self._visible:
             return
-
-        input_manager = kwargs.get("input_manager")
 
         panel_width = 480
         panel_height = 390
@@ -1351,17 +1346,12 @@ class WorldCreationScreen(UIComponent):
         # Seed input
         self._backend.text("World Seed:")
         self._backend.spacing()
-        changed, new_text = self._backend.input_text(
+        changed, submitted, new_text = self._backend.input_text_state(
             "##seed", self._seed_text, 64
         )
         if changed:
             self._seed_text = new_text
             self._status_message = ""
-            submitted = False
-        else:
-            changed, submitted = self._apply_seed_keyboard_input(input_manager)
-            if changed:
-                self._status_message = ""
 
         self._backend.spacing()
         self._backend.text_colored(
@@ -2047,6 +2037,10 @@ class UIManager:
     def end_frame(self) -> None:
         """End UI frame."""
         self._backend.end_frame()
+
+    def process_platform_event(self, event: bytes) -> None:
+        """Forward a native platform event to the active UI backend."""
+        self._backend.process_platform_event(event)
 
     # -------------------------------------------------------------------------
     # Component Rendering

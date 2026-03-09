@@ -707,8 +707,8 @@ class TestWorldCreationScreen:
         assert started == [18446744073709551615]
         assert not backend.has_text("Seed must be between 0 and 18446744073709551615.")
 
-    def test_keyboard_fallback_updates_seed_and_submits(self):
-        """Test seed entry works from raw menu key presses."""
+    def test_world_creation_requires_backend_text_input(self):
+        """Test raw menu key presses do not emulate text entry for the seed field."""
         backend = HeadlessUIBackend()
         screen = WorldCreationScreen(backend, 1920, 1080)
         input_manager = InputManager()
@@ -726,30 +726,25 @@ class TestWorldCreationScreen:
         screen.render(input_manager=input_manager)
         backend.end_frame()
 
-        assert screen.seed_text == "123"
+        assert screen.seed_text == ""
         assert started == []
 
-        input_manager.on_key_up("1")
-        input_manager.on_key_up("2")
-        input_manager.on_key_up("3")
-        input_manager.begin_frame()
-        input_manager.on_key_down("BACKSPACE")
+    def test_input_text_submit_starts_world_without_button_click(self):
+        """Test direct ImGui-style text submission can start world generation."""
+        backend = HeadlessUIBackend()
+        screen = WorldCreationScreen(backend, 1920, 1080)
+
+        started = []
+        screen._on_start = started.append
+
+        backend.input_text_state = lambda *_args, **_kwargs: (True, True, "987654321")
 
         backend.begin_frame()
-        screen.render(input_manager=input_manager)
+        screen.render()
         backend.end_frame()
 
-        assert screen.seed_text == "12"
-
-        input_manager.on_key_up("BACKSPACE")
-        input_manager.begin_frame()
-        input_manager.on_key_down("RETURN")
-
-        backend.begin_frame()
-        screen.render(input_manager=input_manager)
-        backend.end_frame()
-
-        assert started == [12]
+        assert started == [987654321]
+        assert screen.seed_text == "987654321"
 
 
 # =============================================================================
@@ -887,6 +882,7 @@ class MockCppModule:
     def __init__(self):
         self.calls = []
         self.input_text_responses = {}
+        self.input_text_state_responses = {}
 
     def _record(self, name, *args, **kwargs):
         self.calls.append({"name": name, "args": args, "kwargs": kwargs})
@@ -957,6 +953,16 @@ class MockCppModule:
         if new_text is None:
             return False, text
         return True, new_text
+
+    def imgui_input_text_state(self, label, text, buffer_size=256):
+        self._record("imgui_input_text_state", label, text, buffer_size)
+        changed, submitted, new_text = self.input_text_state_responses.get(
+            label, (False, False, text)
+        )
+        return changed, submitted, new_text
+
+    def imgui_process_sdl_event(self, event_bytes):
+        self._record("imgui_process_sdl_event", event_bytes)
 
 
 class TestImGuiBackend:
@@ -1098,6 +1104,28 @@ class TestImGuiBackend:
         assert new_text == "42-edited"
         input_call = [c for c in mock.calls if c["name"] == "imgui_input_text"][0]
         assert input_call["args"] == ("##seed", "42", 64)
+
+    def test_input_text_state(self):
+        """Test text input state delegates to C++."""
+        backend, mock = self._make_backend()
+        mock.input_text_state_responses["##seed"] = (True, True, "123")
+
+        changed, submitted, new_text = backend.input_text_state("##seed", "12", 64)
+
+        assert changed is True
+        assert submitted is True
+        assert new_text == "123"
+        input_call = [c for c in mock.calls if c["name"] == "imgui_input_text_state"][0]
+        assert input_call["args"] == ("##seed", "12", 64)
+
+    def test_process_platform_event(self):
+        """Test platform event forwarding delegates to C++."""
+        backend, mock = self._make_backend()
+
+        backend.process_platform_event(b"fake-sdl-event")
+
+        event_call = [c for c in mock.calls if c["name"] == "imgui_process_sdl_event"][0]
+        assert event_call["args"] == (b"fake-sdl-event",)
 
     def test_implements_uibackend(self):
         """Test that ImGuiBackend is a valid UIBackend subclass."""
