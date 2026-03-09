@@ -1,6 +1,6 @@
 # FFI Remediation Report: Current Python ↔ C++ Runtime Gaps
 
-**Date:** 2026-03-08  
+**Date:** 2026-03-08 (updated 2026-03-09)
 **Scope:** Refresh audit of the active runtime wiring in `procengine`, `procengine_cpp`, and the current documentation set
 
 ---
@@ -12,6 +12,7 @@ The current engine split is now clearer than the earlier draft documented:
 - **Python** owns game logic, world orchestration, behavior trees, UI state, command handling, and deterministic descriptor generation
 - **C++** owns rendering, material compilation, native mesh generation, async chunk scheduling, and native helper/container types
 - **`GameRunner`** now drives both `GraphicsBridge` and `GameManagerBridge`, so several previously disconnected native paths are now live at runtime
+- **`GameRunner`** uses two-phase initialization: `initialize()` boots to main menu; `_init_world(seed)` deferred until user action. `_cleanup_world()` tears down world state for menu return
 
 This report therefore focuses on the **remaining** runtime gaps, and also records
 which earlier remediation items have since been connected.
@@ -165,6 +166,7 @@ These Python ↔ C++ connections are verified as live in the current runtime:
 | Building / creature runtime meshes | Descriptor threading now reaches the native builders |
 | Vulkan rendering | Python draw orchestration -> native graphics backend |
 | ImGui backend | Python UI state -> C++ ImGui bindings |
+| Main menu / world creation | Two-phase init: boot to menu, deferred world generation, save/load, cleanup |
 
 ---
 

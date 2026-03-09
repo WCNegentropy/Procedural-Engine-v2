@@ -1,8 +1,8 @@
 # Next Steps Plan: Visual Fixes, Creature System, and Prop Polish
 
-**Date:** 2026-03-08
+**Date:** 2026-03-08 (updated 2026-03-09)
 **Scope:** Post-materials-pipeline assessment and implementation roadmap
-**Prerequisites:** Passing build, validated materials pipeline, expanded prop families connected
+**Prerequisites:** Passing build, validated materials pipeline, expanded prop families connected, main menu system consolidated
 
 ---
 
@@ -625,6 +625,11 @@ These work items have no dependencies on each other and can be done simultaneous
 ---
 
 ## Appendix: Key Code Locations Reference
+
+> **Note:** Line numbers below were captured before the main menu consolidation
+> (2026-03-09) which added ~300 lines to `game_runner.py` and ~380 lines to
+> `ui_system.py`. Offsets in those files may have shifted; use symbol search
+> rather than absolute line numbers.
 
 | System | File | Lines | Description |
 |---|---|---|---|

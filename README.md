@@ -35,6 +35,7 @@ module. The commands above mirror the active CI paths for a fresh clone.
 - Deterministic output: same seed always produces identical results
 - Hybrid Python/C++ architecture with pybind11 FFI
 - Dynamic chunk-based world streaming with configurable render/sim distances
+- Two-phase initialization: app boots to main menu; world generation deferred until user action
 - `GameManagerBridge` feeds frame-budget directives, async chunk generation, and fallback-safe scheduling into the Python game loop
 - Hot-reload infrastructure for iterative development
 - SHA-256 state verification across FFI boundary
@@ -42,6 +43,7 @@ module. The commands above mirror the active CI paths for a fresh clone.
 ### Dynamic Chunk System
 - **ChunkManager** streams terrain around the player in real time
 - Configurable render distance (default 6 chunks) and simulation distance (default 3 chunks)
+- MAIN_MENU → WORLD_CREATION → LOADING → PLAYING state machine
 - LOADING state generates initial chunks before gameplay begins; transitions to PLAYING after mesh verification
 - Load queue sorted closest-first for immediate visual feedback around the player
 - Seamless chunk stitching via vertex overlap (chunk_size + 1)
@@ -73,11 +75,14 @@ module. The commands above mirror the active CI paths for a fresh clone.
 - Categories: world, terrain, props, npc, player, physics, engine, quest, ui, system, debug
 
 ### UI System (Dear ImGui)
+- **Main Menu**: New World, Load Game, Settings, Quit — app boots here before any world generation
+- **World Creation Screen**: Editable seed input, determinism explanation, Generate World button
+- **Save/Load Screen**: Lists save files, supports save (named) and load from both main menu and pause menu
 - **HUD**: Health bar, quest tracker, interaction prompts
 - **Dialogue Box**: NPC conversation display with response options
 - **Inventory Panel**: Grid of items with use/drop actions
 - **Quest Log**: Active and completed quest tracking
-- **Pause Menu**: Resume, save, load, settings, quit
+- **Pause Menu**: Resume, save, load, settings, quit to main menu
 - **Debug Overlay**: FPS counter, player position, entity count, biome info
 - **Console Window**: Developer console with input, output history, autocomplete
 - **Settings Panel**: Debug overlay toggle, VSync toggle
@@ -146,9 +151,9 @@ Chunk management         --->     Terrain mesh upload, entity meshes
 |--------|---------|
 | `procengine.core.engine` | Core engine with state snapshots, hot-reload |
 | `procengine.game.game_api` | GameWorld, entities, quests, dialogue, inventory |
-| `procengine.game.game_runner` | Main game loop, chunk orchestration, rendering |
+| `procengine.game.game_runner` | Main game loop, menu flow, chunk orchestration, rendering |
 | `procengine.game.behavior_tree` | NPC AI with behavior trees |
-| `procengine.game.ui_system` | Dear ImGui UI (HUD, dialogue, inventory, console) |
+| `procengine.game.ui_system` | Dear ImGui UI (main menu, world creation, save/load, HUD, dialogue, inventory, console) |
 | `procengine.commands.commands` | Command registry with 52 registered commands |
 | `procengine.commands.console` | In-game console with autocomplete |
 | `procengine.physics.bodies` | RigidBody, RigidBody3D, Vec3 |
@@ -288,6 +293,7 @@ Render Distance (6 chunks)
 - **Sim-distance chunks**: Physics runs, NPCs update behavior trees
 - Chunks outside render distance are unloaded (terrain mesh destroyed, entities despawned)
 - LOADING state ensures all sim-distance chunks have meshes uploaded before gameplay starts
+- World creation is deferred: app boots to main menu, world generated on demand via `_init_world(seed)`
 
 ---
 
@@ -414,12 +420,17 @@ This project is actively developing toward v2.0, an AI-native RPG platform.
 - [x] Terrain with biome colors
 - [x] Biome-specific material pipelines for terrain rendering
 - [x] Entity mesh generation (capsule, cylinder, box, L-system trees)
-- [x] Dear ImGui UI framework (HUD, dialogue, inventory, console, debug overlay)
+- [x] Dear ImGui UI framework (main menu, world creation, save/load, HUD, dialogue, inventory, console, debug overlay)
+- [x] Two-phase initialization: app boots to main menu; world created on demand
+- [x] Working save/load screens and world cleanup for return-to-menu flow
 - [x] Dynamic chunk-based world streaming
 - [x] C++ `GameManager` bridge for frame-budgeted chunk scheduling
 - [x] Render-distance entity culling
 - [x] Simulation-distance NPC/physics filtering
-- [x] LOADING/PLAYING state machine with mesh verification
+- [x] MAIN_MENU → WORLD_CREATION → LOADING → PLAYING state machine
+- [x] Main menu, world creation screen, and save/load screen UI components
+- [x] Working save/load from both main menu and pause menu
+- [x] World cleanup for returning to main menu from gameplay
 - [x] Closest-first chunk load ordering
 - [x] Entity lifecycle tied to chunk load/unload
 
