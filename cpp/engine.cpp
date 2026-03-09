@@ -1464,10 +1464,8 @@ PYBIND11_MODULE(procengine_cpp, m) {
     m.def("imgui_input_text", [](const std::string& label,
                                  const std::string& text,
                                  size_t buffer_size) {
+        (void)buffer_size;  // Retained for Python UIBackend API compatibility.
         std::string value = text;
-        if (buffer_size > 0 && value.capacity() < buffer_size) {
-            value.reserve(buffer_size);
-        }
         bool changed = ImGui::InputText(label.c_str(), &value);
         return py::make_tuple(changed, value);
     }, py::arg("label"), py::arg("text"), py::arg("buffer_size") = 256,

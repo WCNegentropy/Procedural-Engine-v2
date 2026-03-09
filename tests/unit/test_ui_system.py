@@ -841,6 +841,7 @@ class MockCppModule:
 
     def __init__(self):
         self.calls = []
+        self.input_text_responses = {}
 
     def _record(self, name, *args, **kwargs):
         self.calls.append({"name": name, "args": args, "kwargs": kwargs})
@@ -907,7 +908,10 @@ class MockCppModule:
 
     def imgui_input_text(self, label, text, buffer_size=256):
         self._record("imgui_input_text", label, text, buffer_size)
-        return True, "updated seed"
+        new_text = self.input_text_responses.get(label)
+        if new_text is None:
+            return False, text
+        return True, new_text
 
 
 class TestImGuiBackend:
@@ -1041,11 +1045,12 @@ class TestImGuiBackend:
     def test_input_text(self):
         """Test text input delegates to C++."""
         backend, mock = self._make_backend()
+        mock.input_text_responses["##seed"] = "42-edited"
 
         changed, new_text = backend.input_text("##seed", "42", 64)
 
         assert changed is True
-        assert new_text == "updated seed"
+        assert new_text == "42-edited"
         input_call = [c for c in mock.calls if c["name"] == "imgui_input_text"][0]
         assert input_call["args"] == ("##seed", "42", 64)
 

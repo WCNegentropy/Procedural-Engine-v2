@@ -1268,12 +1268,17 @@ class WorldCreationScreen(UIComponent):
         self._status_message = message
 
     def _parse_seed(self) -> Tuple[Optional[int], str]:
-        """Parse and validate the currently entered seed."""
+        """Parse and validate the currently entered seed.
+
+        Returns
+        -------
+        tuple[Optional[int], str]
+            ``(seed, "")`` when validation succeeds, otherwise
+            ``(None, error_message)``.
+        """
         seed_text = self._seed_text.strip()
         if not seed_text:
-            return None, (
-                f"Enter a world seed between 0 and {_MAX_WORLD_SEED}."
-            )
+            return None, "World seed is required. Enter digits 0-9 only."
 
         if not seed_text.isdigit():
             return None, "Seeds must use digits 0-9 only."
@@ -1347,7 +1352,6 @@ class WorldCreationScreen(UIComponent):
                 if error_message:
                     self._status_message = error_message
                 elif seed is not None:
-                    self._seed_text = self._seed_text.strip()
                     self._status_message = ""
                     self._on_start(seed)
 
