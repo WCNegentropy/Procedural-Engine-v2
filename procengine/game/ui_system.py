@@ -37,6 +37,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from procengine.game.game_api import GameWorld, Player, NPC, Quest, Inventory, DialogueResponse
+    from procengine.game.player_controller import InputManager
     from procengine.game.player_controller import InteractionTarget
 
 __all__ = [
@@ -1291,9 +1292,42 @@ class WorldCreationScreen(UIComponent):
 
         return seed, ""
 
+    def _apply_seed_keyboard_input(
+        self,
+        input_manager: Optional["InputManager"],
+    ) -> Tuple[bool, bool]:
+        """Apply menu keyboard input fallback for the seed field.
+
+        Returns
+        -------
+        tuple[bool, bool]
+            ``(changed, submitted)`` for this frame.
+        """
+        if input_manager is None:
+            return False, False
+
+        changed = False
+        for digit in "0123456789":
+            if input_manager.was_key_just_pressed(digit):
+                self._seed_text += digit
+                changed = True
+
+        if input_manager.was_key_just_pressed("BACKSPACE"):
+            self._seed_text = self._seed_text[:-1]
+            changed = True
+
+        if input_manager.was_key_just_pressed("DELETE"):
+            self._seed_text = ""
+            changed = True
+
+        submitted = input_manager.was_key_just_pressed("RETURN")
+        return changed, submitted
+
     def render(self, **kwargs: Any) -> None:
         if not self._visible:
             return
+
+        input_manager = kwargs.get("input_manager")
 
         panel_width = 480
         panel_height = 390
@@ -1323,6 +1357,11 @@ class WorldCreationScreen(UIComponent):
         if changed:
             self._seed_text = new_text
             self._status_message = ""
+            submitted = False
+        else:
+            changed, submitted = self._apply_seed_keyboard_input(input_manager)
+            if changed:
+                self._status_message = ""
 
         self._backend.spacing()
         self._backend.text_colored(
@@ -1346,7 +1385,7 @@ class WorldCreationScreen(UIComponent):
 
         button_width = panel_width - 60
 
-        if self._backend.button("Generate World", button_width, 50):
+        if self._backend.button("Generate World", button_width, 50) or submitted:
             if self._on_start:
                 seed, error_message = self._parse_seed()
                 if error_message:
@@ -2328,10 +2367,13 @@ class UIManager:
         self._main_menu.visible = True
         self._main_menu.render()
 
-    def render_world_creation(self) -> None:
+    def render_world_creation(
+        self,
+        input_manager: Optional["InputManager"] = None,
+    ) -> None:
         """Render the world creation screen."""
         self._world_creation.visible = True
-        self._world_creation.render()
+        self._world_creation.render(input_manager=input_manager)
 
     def render_save_load(self) -> None:
         """Render the save/load screen."""

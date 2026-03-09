@@ -289,6 +289,10 @@ class InputManager:
                 if is_new:
                     self.state.just_pressed.add(binding.action)
 
+    def was_key_just_pressed(self, key: str) -> bool:
+        """Check if a raw key was newly pressed this frame."""
+        return key.upper() in self._keys_just_pressed
+
     def on_key_up(self, key: str) -> None:
         """Handle a key release event."""
         key = key.upper()

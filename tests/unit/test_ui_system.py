@@ -1,6 +1,7 @@
 """Tests for ui_system module."""
 import pytest
 
+from procengine.game.player_controller import InputManager
 from procengine.game.ui_system import (
     UIManager,
     HeadlessUIBackend,
@@ -705,6 +706,50 @@ class TestWorldCreationScreen:
 
         assert started == [18446744073709551615]
         assert not backend.has_text("Seed must be between 0 and 18446744073709551615.")
+
+    def test_keyboard_fallback_updates_seed_and_submits(self):
+        """Test seed entry works from raw menu key presses."""
+        backend = HeadlessUIBackend()
+        screen = WorldCreationScreen(backend, 1920, 1080)
+        input_manager = InputManager()
+
+        started = []
+        screen._on_start = started.append
+        screen.seed_text = ""
+
+        input_manager.begin_frame()
+        input_manager.on_key_down("1")
+        input_manager.on_key_down("2")
+        input_manager.on_key_down("3")
+
+        backend.begin_frame()
+        screen.render(input_manager=input_manager)
+        backend.end_frame()
+
+        assert screen.seed_text == "123"
+        assert started == []
+
+        input_manager.on_key_up("1")
+        input_manager.on_key_up("2")
+        input_manager.on_key_up("3")
+        input_manager.begin_frame()
+        input_manager.on_key_down("BACKSPACE")
+
+        backend.begin_frame()
+        screen.render(input_manager=input_manager)
+        backend.end_frame()
+
+        assert screen.seed_text == "12"
+
+        input_manager.on_key_up("BACKSPACE")
+        input_manager.begin_frame()
+        input_manager.on_key_down("RETURN")
+
+        backend.begin_frame()
+        screen.render(input_manager=input_manager)
+        backend.end_frame()
+
+        assert started == [12]
 
 
 # =============================================================================
