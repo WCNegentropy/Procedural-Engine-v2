@@ -589,20 +589,22 @@ def main() -> int:
         return 0
 
     # Normal mode: Run the game!
-    print(f"Starting game with seed {config.seed}...")
+    # The game now boots into a main menu where the user can configure
+    # the world seed and other parameters before generation begins.
+    print("Launching Procedural Engine...")
     print()
-    
+
     runner_config = RunnerConfig(
-        window_title=f"Procedural Engine - Seed {config.seed}",
+        window_title="Procedural Engine v2",
         window_width=1280,
         window_height=720,
         headless=args.headless,
-        world_seed=config.seed,
+        world_seed=config.seed,  # Default seed; overridden by world creation screen
         enable_debug=args.verbose,
     )
-    
+
     runner = GameRunner(runner_config)
-    
+
     try:
         runner.run()
     except KeyboardInterrupt:
@@ -616,7 +618,7 @@ def main() -> int:
         if sys.platform == "win32":
             input("\nPress Enter to exit...")
         return 1
-    
+
     print("\nThanks for playing!")
     return 0
 

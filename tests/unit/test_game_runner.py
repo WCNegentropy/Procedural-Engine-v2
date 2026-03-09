@@ -166,6 +166,16 @@ class TestRunnerConfig:
 # =============================================================================
 
 
+def _init_world_for_test(runner, seed: int | None = None) -> None:
+    """Initialize the game world for a test runner.
+
+    Since ``initialize()`` now starts at the main menu without creating
+    a world, tests that need a world must call this helper after init.
+    """
+    world_seed = seed if seed is not None else runner.config.world_seed
+    runner._init_world(world_seed)
+
+
 def _advance_past_loading(runner, max_frames: int = 50) -> None:
     """Run frames until the runner exits LOADING state.
 
@@ -173,6 +183,10 @@ def _advance_past_loading(runner, max_frames: int = 50) -> None:
     ~8 frames (29 sim-distance chunks at 4 per frame).  The ``max_frames``
     safety limit prevents infinite loops in case of a bug.
     """
+    # If still at MAIN_MENU, init the world first
+    if runner.state == GameState.MAIN_MENU:
+        _init_world_for_test(runner)
+
     for _ in range(max_frames):
         if runner.state != GameState.LOADING:
             return
@@ -196,7 +210,11 @@ class TestGameRunner:
         runner = GameRunner(config)
 
         assert runner.initialize()
-        # Dynamic chunks start in LOADING; advance frames to finish loading
+        # After initialize(), runner starts at the main menu
+        assert runner.state == GameState.MAIN_MENU
+
+        # Simulate starting a world
+        _init_world_for_test(runner)
         assert runner.state in (GameState.LOADING, GameState.PLAYING)
         _advance_past_loading(runner)
         assert runner.state == GameState.PLAYING
@@ -210,6 +228,7 @@ class TestGameRunner:
         config = RunnerConfig(headless=True, world_seed=42)
         runner = GameRunner(config)
         runner.initialize()
+        _init_world_for_test(runner)
 
         player = runner.player
         assert player is not None
@@ -237,6 +256,7 @@ class TestGameRunner:
         config = RunnerConfig(headless=True)
         runner = GameRunner(config)
         runner.initialize()
+        _init_world_for_test(runner)
         _advance_past_loading(runner)
 
         assert runner.state == GameState.PLAYING
@@ -254,6 +274,7 @@ class TestGameRunner:
         config = RunnerConfig(headless=True)
         runner = GameRunner(config)
         runner.initialize()
+        _init_world_for_test(runner)
         _advance_past_loading(runner)
         captured = []
         runner.backend.set_mouse_capture = captured.append
@@ -305,6 +326,7 @@ class TestGameRunner:
         config = RunnerConfig(headless=True)
         runner = GameRunner(config)
         runner.initialize()
+        _init_world_for_test(runner)
         _advance_past_loading(runner)
         captured = []
         runner.backend.set_mouse_capture = captured.append
@@ -362,24 +384,34 @@ class TestGameRunner:
         runner.set_update_callback(on_update)
         runner.set_render_callback(on_render)
 
-        runner.run_frames(5)
+        # initialize + init world, then run frames
+        runner.initialize()
+        _init_world_for_test(runner)
+        runner._running = True
+        for _ in range(5):
+            if not runner._running:
+                break
+            runner._running = runner._frame()
 
         assert update_count[0] > 0
         assert render_count[0] == 5  # One render per frame
+        runner.shutdown()
 
     def test_world_seed_determinism(self):
         """Test same seed produces same world state."""
         config1 = RunnerConfig(headless=True, world_seed=42)
         runner1 = GameRunner(config1)
         runner1.initialize()
-        runner1.run_frames(10)
+        _init_world_for_test(runner1, seed=42)
+        _advance_past_loading(runner1)
         player1_pos = (runner1.player.position.x, runner1.player.position.z)
         runner1.shutdown()
 
         config2 = RunnerConfig(headless=True, world_seed=42)
         runner2 = GameRunner(config2)
         runner2.initialize()
-        runner2.run_frames(10)
+        _init_world_for_test(runner2, seed=42)
+        _advance_past_loading(runner2)
         player2_pos = (runner2.player.position.x, runner2.player.position.z)
         runner2.shutdown()
 
@@ -452,6 +484,8 @@ class TestGameRunnerIntegration:
         backend = HeadlessBackend()
         runner = GameRunner(config, backend=backend)
         runner.initialize()
+        _init_world_for_test(runner)
+        _advance_past_loading(runner)
 
         initial_pos = Vec3(
             runner.player.position.x,
@@ -463,7 +497,11 @@ class TestGameRunnerIntegration:
         backend.simulate_key_press("W")
 
         # Run several frames to allow movement
-        runner.run_frames(60)
+        runner._running = True
+        for _ in range(60):
+            if not runner._running:
+                break
+            runner._running = runner._frame()
 
         # Player should have moved
         final_pos = runner.player.position
@@ -485,6 +523,8 @@ class TestGameRunnerIntegration:
         config = RunnerConfig(headless=True)
         runner = GameRunner(config)
         runner.initialize()
+        _init_world_for_test(runner)
+        _advance_past_loading(runner)
         captured = []
         runner.backend.set_mouse_capture = captured.append
 
@@ -519,6 +559,8 @@ class TestGameRunnerIntegration:
         config = RunnerConfig(headless=True)
         runner = GameRunner(config)
         runner.initialize()
+        _init_world_for_test(runner)
+        _advance_past_loading(runner)
 
         events_received = []
 
@@ -527,7 +569,11 @@ class TestGameRunnerIntegration:
 
         runner.world.events.subscribe_all(on_event)
 
-        runner.run_frames(10)
+        runner._running = True
+        for _ in range(10):
+            if not runner._running:
+                break
+            runner._running = runner._frame()
 
         # Should have received some events (at least time updates)
         # Note: specific events depend on game state
@@ -535,7 +581,7 @@ class TestGameRunnerIntegration:
 
     def test_pause_unpause_via_keyboard(self):
         """Test that pressing ESC key pauses and unpauses the game.
-        
+
         This is a regression test for the issue where pressing ESC to pause
         would hang the game because UI inputs weren't processed in PAUSED state.
         """
@@ -543,6 +589,7 @@ class TestGameRunnerIntegration:
         backend = HeadlessBackend()
         runner = GameRunner(config, backend=backend)
         runner.initialize()
+        _init_world_for_test(runner)
         _advance_past_loading(runner)
 
         # Verify game starts in PLAYING state
@@ -618,7 +665,8 @@ class TestDynamicChunks:
         config = RunnerConfig(headless=True, enable_dynamic_chunks=False)
         runner = GameRunner(config)
         runner.initialize()
-        
+        _init_world_for_test(runner)
+
         assert runner._chunk_manager is None
         runner.shutdown()
 
@@ -632,11 +680,12 @@ class TestDynamicChunks:
         )
         runner = GameRunner(config)
         runner.initialize()
-        
+        _init_world_for_test(runner)
+
         assert runner._chunk_manager is not None
         assert runner._chunk_manager.chunk_size == 32
         assert runner._chunk_manager.render_distance == 1
-        
+
         runner.shutdown()
 
     def test_dynamic_mode_loads_initial_chunks(self):
@@ -649,11 +698,12 @@ class TestDynamicChunks:
         )
         runner = GameRunner(config)
         runner.initialize()
-        
+        _init_world_for_test(runner)
+
         assert runner._chunk_manager is not None
         # Should have some chunks loaded
         assert len(runner._chunk_manager.chunks) > 0
-        
+
         runner.shutdown()
 
     def test_dynamic_mode_world_has_chunk_manager(self):
@@ -666,10 +716,11 @@ class TestDynamicChunks:
         )
         runner = GameRunner(config)
         runner.initialize()
-        
+        _init_world_for_test(runner)
+
         assert runner._world is not None
         assert runner._world.get_chunk_manager() is runner._chunk_manager
-        
+
         runner.shutdown()
 
     def test_player_spawns_on_terrain_in_dynamic_mode(self):
@@ -683,12 +734,13 @@ class TestDynamicChunks:
         )
         runner = GameRunner(config)
         runner.initialize()
-        
+        _init_world_for_test(runner, seed=42)
+
         player = runner.player
         assert player is not None
         # Player should be above ground level (terrain varies by seed)
         assert player.position.y > 0
-        
+
         runner.shutdown()
 
     def test_run_frames_in_dynamic_mode(self):
@@ -700,20 +752,26 @@ class TestDynamicChunks:
             render_distance=1,
         )
         runner = GameRunner(config)
-        
-        # Should be able to run frames without error
-        runner.run_frames(10)
-        
-        assert runner.frame_count == 10
-        
+        runner.initialize()
+        _init_world_for_test(runner)
+
+        # Run frames to advance past loading
+        runner._running = True
+        for _ in range(10):
+            if not runner._running:
+                break
+            runner._running = runner._frame()
+
         # Verify chunk manager state
         assert runner._chunk_manager is not None
         assert len(runner._chunk_manager.chunks) > 0
-        
+
         # Verify chunks are loaded around spawn point
         spawn_chunk = runner._chunk_manager.get_chunk_at_world(16.0, 16.0)
         assert spawn_chunk is not None
         assert spawn_chunk.is_loaded
+
+        runner.shutdown()
 
     def test_loading_not_premature_with_cpp_manager(self):
         """queue_empty should be False when C++ GameManager is active.
@@ -731,6 +789,7 @@ class TestDynamicChunks:
         )
         runner = GameRunner(config)
         runner.initialize()
+        _init_world_for_test(runner)
 
         # Regardless of whether C++ is available, the guard logic should
         # not allow ``queue_empty`` to short-circuit to True on the C++ path.
@@ -760,6 +819,7 @@ class TestDynamicChunks:
         )
         runner = GameRunner(config)
         runner.initialize()
+        _init_world_for_test(runner)
 
         if not runner._game_manager.available:
             # With Python fallback, queue_empty comes from _load_queue.
@@ -784,6 +844,7 @@ class TestDynamicChunks:
         )
         runner = GameRunner(config)
         runner.initialize()
+        _init_world_for_test(runner)
         _advance_past_loading(runner)
 
         old_chunk = Chunk(coords=(-3, 0), is_loaded=True, is_mesh_uploaded=True)
@@ -848,6 +909,8 @@ class TestDynamicChunks:
         )
         runner = GameRunner(config)
         runner.initialize()
+        _init_world_for_test(runner)
+        _advance_past_loading(runner)
         original_graphics_bridge = runner._graphics_bridge
 
         class FakeGraphicsBridge:
