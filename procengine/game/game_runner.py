@@ -2601,7 +2601,7 @@ class GameRunner:
                 self._ui_manager.render_main_menu()
 
             elif self._state == GameState.WORLD_CREATION:
-                self._ui_manager.render_world_creation()
+                self._ui_manager.render_world_creation(self._input_manager)
 
             elif self._state == GameState.SAVE_LOAD:
                 self._ui_manager.render_save_load()

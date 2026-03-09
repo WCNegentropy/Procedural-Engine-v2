@@ -419,6 +419,24 @@ class TestGameRunner:
 
         runner.shutdown()
 
+    def test_render_ui_passes_input_manager_to_world_creation(self):
+        """Test world creation render receives menu input manager."""
+        config = RunnerConfig(headless=True, world_seed=42)
+        runner = GameRunner(config)
+        runner.initialize()
+
+        captured = []
+        runner._state = GameState.WORLD_CREATION
+        runner._ui_manager.render_world_creation = (
+            lambda input_manager=None: captured.append(input_manager)
+        )
+
+        runner._render_ui()
+
+        assert captured == [runner._input_manager]
+
+        runner.shutdown()
+
     def test_world_seed_determinism(self):
         """Test same seed produces same world state."""
         config1 = RunnerConfig(headless=True, world_seed=42)
