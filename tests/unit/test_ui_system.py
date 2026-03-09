@@ -11,6 +11,7 @@ from procengine.game.ui_system import (
     PauseMenu,
     SettingsPanel,
     DebugOverlay,
+    WorldCreationScreen,
 )
 from procengine.game.player_controller import InteractionTarget
 from procengine.physics import Vec3
@@ -633,6 +634,80 @@ class TestDebugOverlay:
 
 
 # =============================================================================
+# WorldCreationScreen Tests
+# =============================================================================
+
+
+class TestWorldCreationScreen:
+    """Tests for WorldCreationScreen component."""
+
+    def test_valid_seed_triggers_start_callback(self):
+        """Test a valid seed is passed through unchanged."""
+        backend = HeadlessUIBackend()
+        screen = WorldCreationScreen(backend, 1920, 1080)
+
+        started = []
+        screen._on_start = started.append
+
+        backend.set_input_text_value("##seed", "123456789")
+        backend.set_button_response("Generate World", True)
+
+        backend.begin_frame()
+        screen.render()
+        backend.end_frame()
+
+        assert started == [123456789]
+        assert screen.seed_text == "123456789"
+        assert not backend.has_text("Seeds must use digits 0-9 only.")
+
+    def test_invalid_seed_shows_error_and_blocks_start(self):
+        """Test invalid seed text does not start world generation."""
+        backend = HeadlessUIBackend()
+        screen = WorldCreationScreen(backend, 1920, 1080)
+
+        started = []
+        screen._on_start = started.append
+
+        backend.set_input_text_value("##seed", "not-a-number")
+        backend.set_button_response("Generate World", True)
+
+        backend.begin_frame()
+        screen.render()
+        backend.end_frame()
+
+        assert started == []
+        assert backend.has_text("Seeds must use digits 0-9 only.")
+
+    def test_out_of_range_seed_can_be_corrected_and_retried(self):
+        """Test users can retry after fixing an out-of-range seed."""
+        backend = HeadlessUIBackend()
+        screen = WorldCreationScreen(backend, 1920, 1080)
+
+        started = []
+        screen._on_start = started.append
+
+        backend.set_input_text_value("##seed", "18446744073709551616")
+        backend.set_button_response("Generate World", True)
+
+        backend.begin_frame()
+        screen.render()
+        backend.end_frame()
+
+        assert started == []
+        assert backend.has_text("Seed must be between 0 and 18446744073709551615.")
+
+        backend.clear_calls()
+        backend.set_input_text_value("##seed", "18446744073709551615")
+
+        backend.begin_frame()
+        screen.render()
+        backend.end_frame()
+
+        assert started == [18446744073709551615]
+        assert not backend.has_text("Seed must be between 0 and 18446744073709551615.")
+
+
+# =============================================================================
 # UIManager Tests
 # =============================================================================
 
@@ -830,6 +905,10 @@ class MockCppModule:
     def imgui_set_next_window_size(self, w, h):
         self._record("imgui_set_next_window_size", w, h)
 
+    def imgui_input_text(self, label, text, buffer_size=256):
+        self._record("imgui_input_text", label, text, buffer_size)
+        return True, "updated seed"
+
 
 class TestImGuiBackend:
     """Tests for ImGuiBackend with mocked C++ module."""
@@ -958,6 +1037,17 @@ class TestImGuiBackend:
 
         img_call = [c for c in mock.calls if c["name"] == "imgui_image"][0]
         assert img_call["args"] == (42, 128, 64)
+
+    def test_input_text(self):
+        """Test text input delegates to C++."""
+        backend, mock = self._make_backend()
+
+        changed, new_text = backend.input_text("##seed", "42", 64)
+
+        assert changed is True
+        assert new_text == "updated seed"
+        input_call = [c for c in mock.calls if c["name"] == "imgui_input_text"][0]
+        assert input_call["args"] == ("##seed", "42", 64)
 
     def test_implements_uibackend(self):
         """Test that ImGuiBackend is a valid UIBackend subclass."""

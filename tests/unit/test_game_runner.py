@@ -397,6 +397,28 @@ class TestGameRunner:
         assert render_count[0] == 5  # One render per frame
         runner.shutdown()
 
+    def test_world_creation_seed_entry_starts_world_with_entered_seed(self):
+        """Test world creation UI passes the entered seed into init."""
+        config = RunnerConfig(headless=True, world_seed=42)
+        runner = GameRunner(config)
+        runner.initialize()
+
+        started = []
+        runner._init_world = lambda seed=None: started.append(seed)
+
+        runner._on_new_world()
+        runner._ui_manager.backend.set_input_text_value("##seed", "987654321")
+        runner._ui_manager.backend.set_button_response("Generate World", True)
+
+        runner._ui_manager.begin_frame()
+        runner._ui_manager.render_world_creation()
+        runner._ui_manager.end_frame()
+
+        assert started == [987654321]
+        assert runner.state == GameState.WORLD_CREATION
+
+        runner.shutdown()
+
     def test_world_seed_determinism(self):
         """Test same seed produces same world state."""
         config1 = RunnerConfig(headless=True, world_seed=42)

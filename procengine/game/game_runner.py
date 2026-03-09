@@ -2654,6 +2654,9 @@ class GameRunner:
 
     def _on_new_world(self) -> None:
         """Handle 'New World' button from main menu."""
+        if self._ui_manager:
+            self._ui_manager.world_creation.seed_text = str(self.config.world_seed)
+            self._ui_manager.world_creation.set_status("")
         self._state = GameState.WORLD_CREATION
 
     def _on_main_menu_load(self) -> None:

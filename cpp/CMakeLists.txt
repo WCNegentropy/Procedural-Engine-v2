@@ -252,6 +252,7 @@ if(NOT NO_GRAPHICS)
         ${imgui_SOURCE_DIR}/imgui_draw.cpp
         ${imgui_SOURCE_DIR}/imgui_tables.cpp
         ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+        ${imgui_SOURCE_DIR}/misc/cpp/imgui_stdlib.cpp
         ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
     )
 
@@ -265,6 +266,7 @@ if(NOT NO_GRAPHICS)
     target_include_directories(imgui_lib PUBLIC
         ${imgui_SOURCE_DIR}
         ${imgui_SOURCE_DIR}/backends
+        ${imgui_SOURCE_DIR}/misc/cpp
     )
     target_link_libraries(imgui_lib PUBLIC Vulkan::Vulkan)
 
