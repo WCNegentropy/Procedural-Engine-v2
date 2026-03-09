@@ -192,7 +192,11 @@ class WindowBackend(ABC):
         pass
 
     @abstractmethod
-    def poll_events(self, input_manager: InputManager) -> bool:
+    def poll_events(
+        self,
+        input_manager: InputManager,
+        ui_event_sink: Optional[Callable[[bytes], None]] = None,
+    ) -> bool:
         """Poll window events and update input state.
 
         Returns False if the window should close.
@@ -277,7 +281,11 @@ class HeadlessBackend(WindowBackend):
         """Shutdown headless backend."""
         self._running = False
 
-    def poll_events(self, input_manager: InputManager) -> bool:
+    def poll_events(
+        self,
+        input_manager: InputManager,
+        ui_event_sink: Optional[Callable[[bytes], None]] = None,
+    ) -> bool:
         """Poll simulated events."""
         input_manager.begin_frame()
 
@@ -412,6 +420,8 @@ def create_sdl2_backend() -> Optional[WindowBackend]:
             """SDL2-based window backend with Vulkan support."""
 
             def __init__(self) -> None:
+                import ctypes
+
                 self._window = None
                 self._renderer = None
                 self._width: int = 1920
@@ -419,6 +429,7 @@ def create_sdl2_backend() -> Optional[WindowBackend]:
                 self._focused: bool = True
                 self._start_time: float = 0.0
                 self._vk_surface: Optional[int] = None  # VkSurfaceKHR handle as int
+                self._ctypes = ctypes
 
                 # Key mapping from SDL2 scancodes to our key names
                 self._key_map: Dict[int, str] = {
@@ -527,6 +538,7 @@ def create_sdl2_backend() -> Optional[WindowBackend]:
                 self._height = config.window_height
                 self._start_time = time.perf_counter()
 
+                sdl2.SDL_StartTextInput()
                 # Capture mouse for FPS-style controls
                 sdl2.SDL_SetRelativeMouseMode(sdl2.SDL_TRUE)
 
@@ -631,15 +643,28 @@ def create_sdl2_backend() -> Optional[WindowBackend]:
             def shutdown(self) -> None:
                 # Note: The Vulkan surface is destroyed by the C++ GraphicsSystem
                 # when it shuts down, not here. SDL2 cleanup should happen after.
+                sdl2.SDL_StopTextInput()
                 if self._window:
                     sdl2.SDL_DestroyWindow(self._window)
                 sdl2.SDL_Quit()
 
-            def poll_events(self, input_manager: InputManager) -> bool:
+            def poll_events(
+                self,
+                input_manager: InputManager,
+                ui_event_sink: Optional[Callable[[bytes], None]] = None,
+            ) -> bool:
                 input_manager.begin_frame()
 
                 event = sdl2.SDL_Event()
                 while sdl2.SDL_PollEvent(event):
+                    if ui_event_sink is not None:
+                        ui_event_sink(
+                            self._ctypes.string_at(
+                                self._ctypes.byref(event),
+                                self._ctypes.sizeof(event),
+                            )
+                        )
+
                     if event.type == sdl2.SDL_QUIT:
                         return False
 
@@ -1345,7 +1370,11 @@ class GameRunner:
             self._fps_update_time = current_time
 
         # Poll input events
-        if not self._backend.poll_events(self._input_manager):
+        ui_event_sink = None
+        if self._ui_manager is not None and self.config.enable_ui:
+            ui_event_sink = self._ui_manager.process_platform_event
+
+        if not self._backend.poll_events(self._input_manager, ui_event_sink):
             return False
 
         # Fixed timestep game updates

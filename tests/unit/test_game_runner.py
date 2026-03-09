@@ -437,6 +437,26 @@ class TestGameRunner:
 
         runner.shutdown()
 
+    def test_frame_forwards_platform_events_to_ui_manager(self):
+        """Test frame polling forwards native events to the active UI manager."""
+        config = RunnerConfig(headless=True, world_seed=42)
+        runner = GameRunner(config)
+        runner.initialize()
+
+        captured = []
+
+        def fake_poll_events(input_manager, ui_event_sink=None):
+            assert input_manager is runner._input_manager
+            captured.append(ui_event_sink)
+            return False
+
+        runner._backend.poll_events = fake_poll_events
+
+        assert runner._frame() is False
+        assert captured == [runner._ui_manager.process_platform_event]
+
+        runner.shutdown()
+
     def test_world_seed_determinism(self):
         """Test same seed produces same world state."""
         config1 = RunnerConfig(headless=True, world_seed=42)
