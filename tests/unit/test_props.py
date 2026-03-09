@@ -240,6 +240,22 @@ def test_sample_heightmap_bilinear_interpolates_fractional_positions():
     assert sampled == pytest.approx(7.75)
 
 
+def test_sample_heightmap_bilinear_clamps_and_uses_overlap_vertex():
+    """Bilinear height sampling should clamp bounds and use overlap vertices."""
+    heightmap = np.array(
+        [
+            [0.0, 10.0, 20.0],
+            [30.0, 40.0, 50.0],
+            [60.0, 70.0, 80.0],
+        ],
+        dtype=np.float32,
+    )
+
+    assert props_module._sample_heightmap_bilinear(heightmap, 0.0, 0.0, 2, 2) == pytest.approx(0.0)
+    assert props_module._sample_heightmap_bilinear(heightmap, 2.0, 2.0, 2, 2) == pytest.approx(80.0)
+    assert props_module._sample_heightmap_bilinear(heightmap, 1.5, 0.5, 2, 2) == pytest.approx(30.0)
+
+
 # =============================================================================
 # New Prop Generator Tests
 # =============================================================================

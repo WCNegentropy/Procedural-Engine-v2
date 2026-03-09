@@ -623,7 +623,13 @@ class ChunkManager:
         slope_map: np.ndarray | None = None,
         biome_map: np.ndarray | None = None,
     ) -> List[Dict[str, Any]]:
-        """Generate deterministic chunk props from the provided terrain data."""
+        """Generate deterministic prop descriptors for one chunk.
+
+        The terrain arrays should use the chunk's size+1 overlap shape so
+        prop height sampling can interpolate against the shared edge vertex
+        near chunk boundaries without allowing props to spawn outside the
+        chunk's original ``chunk_size`` footprint.
+        """
 
         from procengine.world.props import generate_chunk_props
 
