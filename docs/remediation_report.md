@@ -1,6 +1,6 @@
 # FFI Remediation Report: Current Python ↔ C++ Runtime Gaps
 
-**Date:** 2026-03-08  
+**Date:** 2026-03-08 (updated 2026-03-09)
 **Scope:** Refresh audit of the active runtime wiring in `procengine`, `procengine_cpp`, and the current documentation set
 
 ---
@@ -12,6 +12,7 @@ The current engine split is now clearer than the earlier draft documented:
 - **Python** owns game logic, world orchestration, behavior trees, UI state, command handling, and deterministic descriptor generation
 - **C++** owns rendering, material compilation, native mesh generation, async chunk scheduling, and native helper/container types
 - **`GameRunner`** now drives both `GraphicsBridge` and `GameManagerBridge`, so several previously disconnected native paths are now live at runtime
+- **`GameRunner`** uses two-phase initialization: `initialize()` boots to main menu; `_init_world(seed)` deferred until user action. `_cleanup_world()` tears down world state for menu return
 
 This report therefore focuses on the **remaining** runtime gaps, and also records
 which earlier remediation items have since been connected.
@@ -106,9 +107,9 @@ The runtime now goes well beyond rocks/trees/buildings:
 - the gameplay loop intentionally uses the Python hybrid 2D+height physics implementation
 - the native container-style physics worlds are still only exercised by tests
 
-**Gap:** these native persistent-body container classes remain disconnected from gameplay, even though this appears to be an intentional architecture choice rather than a bug.
+**Architecture decision:** the Python hybrid 2D+height physics implementation is the intentional runtime path. The native container-style physics worlds serve as tested building blocks for potential future native physics migration, but the current architecture deliberately uses the Python implementation for flexibility and determinism control. This is not a gap.
 
-### 4. Cone and Plane Primitive Helpers Are Still Unused by Runtime Code
+### 4. Cone and Plane Primitive Helpers — Utility Reserve
 
 **Files involved:**
 - `cpp/props.cpp`
@@ -118,9 +119,9 @@ The runtime now goes well beyond rocks/trees/buildings:
 - `generate_capsule_mesh()`, `generate_cylinder_mesh()`, `generate_box_mesh()`, and many descriptor-driven generators are used at runtime
 - `generate_cone_mesh()` and `generate_plane_mesh()` are still only covered in tests/utilities
 
-**Gap:** minor utility mismatch; these helpers are available and tested, but currently have no live gameplay call site.
+**Architecture decision:** these are intentionally available as tested utility primitives for future prop types (e.g., pine trees already use cone meshes internally). Their presence in the test suite validates they work correctly; they will be called from runtime code when new prop types need them. This is not a gap.
 
-### 5. `Engine.generate_terrain()` Is Not Part of the Main Game Loop
+### 5. `Engine.generate_terrain()` vs Chunk Orchestration — Separate API Paths
 
 **Files involved:**
 - `main.py`
@@ -128,10 +129,10 @@ The runtime now goes well beyond rocks/trees/buildings:
 - `cpp/engine.cpp`
 
 **Current state:**
-- CLI-oriented generation still uses the engine wrapper
-- gameplay terrain generation continues to use `generate_terrain_standalone()` / chunk orchestration paths instead
+- CLI-oriented generation uses the engine wrapper for batch generation
+- gameplay terrain generation uses `generate_terrain_standalone()` / chunk orchestration paths for dynamic streaming
 
-**Gap:** not a functional terrain problem, but the engine-member terrain API remains outside the main gameplay runtime.
+**Architecture decision:** the engine-member terrain API and the chunk orchestration API serve different purposes by design. The engine wrapper is for CLI batch generation and determinism verification. The chunk orchestration path is for runtime streaming with per-chunk seeds and progressive loading. Having both is intentional and not a gap.
 
 ---
 
@@ -146,9 +147,9 @@ The runtime now goes well beyond rocks/trees/buildings:
 | Expanded prop generator families | **Connected** | Bush, pine, dead tree, fallen log, cactus, etc. |
 | Engine hot-reload / snapshot gameplay use | **Still disconnected** | Tested utility, not used in `GameRunner` |
 | Runtime LOD simplification | **Still disconnected** | `lod_bias` is stored but not applied |
-| PhysicsWorld / PhysicsWorld3D containers | **Still disconnected** | Test-only native containers |
-| Cone / plane primitive helpers | **Still disconnected** | No live entity type uses them |
-| `Engine.generate_terrain()` in gameplay | **Still disconnected** | CLI path only |
+| PhysicsWorld / PhysicsWorld3D containers | **Architecture decision** | Python physics is the intentional runtime path |
+| Cone / plane primitive helpers | **Architecture decision** | Utility reserve for future prop types |
+| `Engine.generate_terrain()` in gameplay | **Architecture decision** | CLI batch vs runtime streaming are separate by design |
 
 ---
 
@@ -165,6 +166,7 @@ These Python ↔ C++ connections are verified as live in the current runtime:
 | Building / creature runtime meshes | Descriptor threading now reaches the native builders |
 | Vulkan rendering | Python draw orchestration -> native graphics backend |
 | ImGui backend | Python UI state -> C++ ImGui bindings |
+| Main menu / world creation | Two-phase init: boot to menu, deferred world generation, save/load, cleanup |
 
 ---
 
@@ -176,8 +178,15 @@ Use `_current_lod_bias` from `FrameDirective` to simplify distant prop meshes or
 ### Priority 2 — Integrate Engine State Tracking into Gameplay
 Instantiate the engine in `GameRunner`, feed terrain/descriptor changes into it, and expose hot-reload or snapshot flows through commands/debug tooling.
 
-### Priority 3 — Decide Whether the Native Physics Containers Should Remain Test-Only
-If the Python physics architecture is final, document these native classes as support/test utilities; otherwise, wire them into an alternate runtime path.
+### Architectural Decisions (Not Gaps)
 
-### Priority 4 — Either Use or Explicitly Classify Cone / Plane Helpers as Utility-Only
-They are not harmful, but they remain dead-end runtime features today.
+The following items were previously listed as remediation priorities but are
+intentional architecture decisions and do not require action:
+
+- **Native physics containers (PhysicsWorld / PhysicsWorld3D):** The Python
+  hybrid physics implementation is the intentional runtime path. Native
+  containers are tested building blocks for potential future migration.
+- **Cone / plane primitive helpers:** Utility reserve for future prop types.
+  Already tested and available when needed.
+- **Engine.generate_terrain() vs chunk orchestration:** CLI batch generation
+  and runtime streaming are separate APIs by design.

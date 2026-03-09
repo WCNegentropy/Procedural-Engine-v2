@@ -25,6 +25,7 @@ def runner():
     backend = HeadlessBackend()
     runner = GameRunner(config, backend=backend)
     runner.initialize()
+    runner._init_world(42)
     yield runner
     runner.shutdown()
 

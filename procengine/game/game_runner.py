@@ -726,6 +726,9 @@ def create_sdl2_backend() -> Optional[WindowBackend]:
 class GameState(Enum):
     """Current state of the game."""
 
+    MAIN_MENU = auto()
+    WORLD_CREATION = auto()
+    SAVE_LOAD = auto()
     LOADING = auto()
     PLAYING = auto()
     PAUSED = auto()
@@ -784,9 +787,11 @@ class GameRunner:
                 print("         The game will run but without a visible window.")
                 print("         To fix: pip install pysdl2 pysdl2-dll")
 
-        # Game state
-        self._state = GameState.LOADING
+        # Game state -- start at main menu, not loading
+        self._state = GameState.MAIN_MENU
         self._running = False
+        self._world_initialized = False
+        self._settings_return_state = GameState.PAUSED
 
         # Core systems
         self._world: Optional[GameWorld] = None
@@ -860,7 +865,11 @@ class GameRunner:
         self._on_ui: Optional[Callable[[], None]] = None
 
     def initialize(self) -> bool:
-        """Initialize all game systems.
+        """Initialize core systems (window, graphics, input, UI).
+
+        This sets up everything needed to display the main menu.
+        World generation is deferred until the user starts a new world
+        or loads a save via ``_init_world()``.
 
         Returns True on success, False on failure.
         """
@@ -895,6 +904,63 @@ class GameRunner:
         self._player_controller.on_dialogue_option = self._on_dialogue_option
         self._player_controller.on_console_toggle = self._on_console_toggle
 
+        # Initialize UI if enabled (needed for main menu)
+        if self.config.enable_ui:
+            self._init_ui()
+
+        # Initialize command system
+        self._init_commands()
+
+        # Release mouse for main menu cursor interaction
+        self._backend.set_mouse_capture(False)
+
+        # Start in main menu state
+        self._state = GameState.MAIN_MENU
+        print("Entering MAIN MENU — select New World to begin.")
+
+        self._last_time = self._backend.get_time()
+        self._fps_update_time = self._last_time
+
+        return True
+
+    def _init_world(self, seed: Optional[int] = None) -> None:
+        """Initialize the game world with the given seed.
+
+        Called when the user starts a new world from the creation screen.
+        Sets up the game world, player, terrain, and content, then
+        transitions to the LOADING state.
+
+        Parameters
+        ----------
+        seed:
+            World seed to use. If None, uses the config default.
+        """
+        if seed is not None:
+            self.config.world_seed = seed
+
+        # Reinitialize the C++ GameManager with the new seed
+        from procengine.managers.game_manager import GameManagerBridge, ManagerConfig
+        self._game_manager = GameManagerBridge(
+            seed=self.config.world_seed,
+            config=ManagerConfig(
+                terrain_octaves=6,
+                terrain_macro_points=8,
+                terrain_erosion_iters=0,
+            ),
+        )
+
+        # Reset loading state
+        self._loading_total_chunks = 0
+        self._loading_chunks_done = 0
+        self._loading_complete = False
+        self._entity_meshes.clear()
+        self._terrain_heightmap = None
+        self._terrain_biome = None
+        self._terrain_river = None
+        self._terrain_slope = None
+        self._chunk_manager = None
+        self._current_lod_bias = 0.0
+
         # Create game world
         world_config = GameConfig(
             seed=self.config.world_seed,
@@ -908,9 +974,9 @@ class GameRunner:
         spawn_z = self.config.chunk_size // 2
         self._world.create_player(name="Hero", position=Vec3(spawn_x, 50, spawn_z))
 
-        # Initialize UI if enabled
-        if self.config.enable_ui:
-            self._init_ui()
+        # Wire UI to the new world
+        if self._ui_manager:
+            self._ui_manager.set_world(self._world)
 
         # Setup terrain (dynamic chunks or static)
         if self.config.enable_dynamic_chunks:
@@ -925,46 +991,39 @@ class GameRunner:
                 px = int(player.position.x) % self.config.chunk_size
                 pz = int(player.position.z) % self.config.chunk_size
                 terrain_y = self._terrain_heightmap[pz, px]
-                # Position player on terrain and reset velocity to prevent falling
                 player.position = Vec3(player.position.x, terrain_y + 2.0, player.position.z)
-                player.velocity = Vec3(0, 0, 0)  # Reset velocity
-                player.grounded = True  # Mark as grounded
+                player.velocity = Vec3(0, 0, 0)
+                player.grounded = True
                 print(f"Player spawned at terrain height: {terrain_y + 2.0}")
 
         # Set initial camera to view terrain
         if self._graphics_bridge and self._player_controller:
-            # Position camera above and behind player, looking at terrain center
             center = self.config.chunk_size // 2
-            # Get terrain height at center if available
             terrain_target_y = 0.0
             if self._terrain_heightmap is not None:
-                # Safely clamp center to heightmap bounds
                 h, w = self._terrain_heightmap.shape
                 safe_z = min(center, h - 1)
                 safe_x = min(center, w - 1)
                 terrain_target_y = float(self._terrain_heightmap[safe_z, safe_x])
-            camera_y = terrain_target_y + 35.0  # Above terrain
+            camera_y = terrain_target_y + 35.0
             self._player_controller.camera.camera.position = Vec3(center, camera_y, center + 30)
             self._player_controller.camera.camera.target = Vec3(center, terrain_target_y, center)
 
         # Load game content
         self._load_game_content()
 
-        # Initialize command system
-        self._init_commands()
+        # Update command context to point to this runner (world changed)
+        command_registry.set_context(self)
 
-        # Start in LOADING for dynamic chunks (world loads first, then player starts)
-        # For static terrain, loading is already done so go straight to PLAYING
+        self._world_initialized = True
+
+        # Transition to LOADING for dynamic chunks or PLAYING for static
         if self.config.enable_dynamic_chunks and not self._loading_complete:
             self._state = GameState.LOADING
-            print("Entering LOADING state — generating world terrain...")
+            print(f"Generating world with seed {self.config.world_seed}...")
         else:
             self._state = GameState.PLAYING
-
-        self._last_time = self._backend.get_time()
-        self._fps_update_time = self._last_time
-
-        return True
+            self._backend.set_mouse_capture(True)
 
     def _init_ui(self) -> None:
         """Initialize UI system.
@@ -1002,18 +1061,38 @@ class GameRunner:
                 self._backend.height,
                 backend=backend,
             )
-            self._ui_manager.set_world(self._world)
+            # World is not created yet at this point — set_world called
+            # later in _init_world() once the user starts a new game.
 
             # Wire the developer console to the UI so it can be rendered
             self._ui_manager.set_console(self._console)
 
-            # Wire pause menu buttons to command registry / game runner methods
+            # --- Main menu & world creation callbacks ---
+            self._ui_manager.set_main_menu_callbacks(
+                on_new_world=self._on_new_world,
+                on_load_game=self._on_main_menu_load,
+                on_settings=self._on_main_menu_settings,
+                on_quit=self._on_main_menu_quit,
+            )
+
+            self._ui_manager.set_world_creation_callbacks(
+                on_start=self._on_world_creation_start,
+                on_back=self._on_world_creation_back,
+            )
+
+            self._ui_manager.set_save_load_callbacks(
+                on_save=self._on_save_game,
+                on_load=self._on_load_game,
+                on_back=self._on_save_load_back,
+            )
+
+            # --- In-game pause menu callbacks ---
             self._ui_manager.set_pause_callbacks(
                 on_resume=self._on_pause_pressed,
-                on_save=lambda: self.execute_command("system.save"),
-                on_load=lambda: self.execute_command("system.load"),
+                on_save=self._on_pause_save,
+                on_load=self._on_pause_load,
                 on_settings=self._on_settings_open,
-                on_quit=lambda: self.execute_command("system.quit"),
+                on_quit=self._on_quit_to_menu,
             )
 
             self._ui_manager.set_settings_callbacks(
@@ -1294,6 +1373,15 @@ class GameRunner:
     def _update(self, dt: float) -> None:
         """Update game state."""
 
+        # === MAIN MENU / WORLD CREATION / SAVE-LOAD: no game updates ===
+        if self._state in (
+            GameState.MAIN_MENU,
+            GameState.WORLD_CREATION,
+            GameState.SAVE_LOAD,
+        ):
+            # Menu states only need UI interaction; game logic is dormant.
+            return
+
         # === LOADING STATE: progressively generate world chunks ===
         if self._state == GameState.LOADING:
             self._update_loading(dt)
@@ -1405,6 +1493,17 @@ class GameRunner:
     def _render(self) -> None:
         """Render the game world."""
         if self._graphics_bridge and not self._graphics_bridge.is_headless:
+
+            # --- Menu states: render only UI (no terrain/entities) ---
+            if self._state in (
+                GameState.MAIN_MENU,
+                GameState.WORLD_CREATION,
+                GameState.SAVE_LOAD,
+            ):
+                self._graphics_bridge.begin_frame()
+                self._render_ui()
+                self._graphics_bridge.end_frame()
+                return
 
             # --- LOADING state: show progress screen only ---
             if self._state == GameState.LOADING:
@@ -2498,7 +2597,16 @@ class GameRunner:
             )
 
             # Render appropriate UI based on state
-            if self._state == GameState.PLAYING:
+            if self._state == GameState.MAIN_MENU:
+                self._ui_manager.render_main_menu()
+
+            elif self._state == GameState.WORLD_CREATION:
+                self._ui_manager.render_world_creation()
+
+            elif self._state == GameState.SAVE_LOAD:
+                self._ui_manager.render_save_load()
+
+            elif self._state == GameState.PLAYING:
                 self._ui_manager.render_hud(player, interaction_target)
 
             elif self._state == GameState.PAUSED:
@@ -2541,18 +2649,159 @@ class GameRunner:
             self._on_ui()
 
     # -------------------------------------------------------------------------
-    # UI Callbacks
+    # Main Menu / World Creation / Save-Load Callbacks
+    # -------------------------------------------------------------------------
+
+    def _on_new_world(self) -> None:
+        """Handle 'New World' button from main menu."""
+        self._state = GameState.WORLD_CREATION
+
+    def _on_main_menu_load(self) -> None:
+        """Handle 'Load Game' from main menu."""
+        self._refresh_save_list()
+        if self._ui_manager:
+            self._ui_manager.save_load_screen.set_mode("load")
+        self._state = GameState.SAVE_LOAD
+
+    def _on_main_menu_settings(self) -> None:
+        """Handle 'Settings' from main menu."""
+        # Reuse the settings panel; store that we came from main menu
+        self._settings_return_state = GameState.MAIN_MENU
+        self._state = GameState.MENU
+
+    def _on_main_menu_quit(self) -> None:
+        """Handle 'Quit' from main menu -- exit the application."""
+        self._running = False
+
+    def _on_world_creation_start(self, seed: int) -> None:
+        """Handle 'Generate World' from world creation screen."""
+        print(f"Starting world generation with seed: {seed}")
+        self._init_world(seed)
+
+    def _on_world_creation_back(self) -> None:
+        """Handle 'Back' from world creation screen."""
+        self._state = GameState.MAIN_MENU
+
+    def _on_save_game(self, filename: str) -> None:
+        """Handle save action from save/load screen."""
+        from pathlib import Path
+        if self._world:
+            path = Path(f"saves/{filename}.json")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            self._world.save_to_file(path)
+            if self._ui_manager:
+                self._ui_manager.save_load_screen.set_status(f"Saved to {path}")
+            self._refresh_save_list()
+            print(f"Game saved to {path}")
+
+    def _on_load_game(self, filename: str) -> None:
+        """Handle load action from save/load screen."""
+        from pathlib import Path
+        import json
+        path = Path(f"saves/{filename}.json")
+        if not path.exists():
+            if self._ui_manager:
+                self._ui_manager.save_load_screen.set_status(f"Save not found: {path}")
+            return
+
+        # Read save to get seed
+        with open(path, "r") as f:
+            data = json.load(f)
+
+        save_seed = data.get("seed", self.config.world_seed)
+
+        # Initialize world with saved seed, then load state
+        self._init_world(save_seed)
+
+        # After world is initialized and loaded, apply saved state
+        if self._world:
+            self._world.load_from_dict(data)
+            print(f"Game loaded from {path}")
+
+    def _on_save_load_back(self) -> None:
+        """Handle 'Back' from save/load screen."""
+        if self._ui_manager:
+            self._ui_manager.save_load_screen.set_status("")
+        # Return to wherever we came from
+        if self._world_initialized:
+            self._state = GameState.PAUSED
+        else:
+            self._state = GameState.MAIN_MENU
+
+    def _on_pause_save(self) -> None:
+        """Handle 'Save Game' from pause menu -- open save screen."""
+        self._refresh_save_list()
+        if self._ui_manager:
+            self._ui_manager.save_load_screen.set_mode("save")
+        self._state = GameState.SAVE_LOAD
+
+    def _on_pause_load(self) -> None:
+        """Handle 'Load Game' from pause menu -- open load screen."""
+        self._refresh_save_list()
+        if self._ui_manager:
+            self._ui_manager.save_load_screen.set_mode("load")
+        self._state = GameState.SAVE_LOAD
+
+    def _on_quit_to_menu(self) -> None:
+        """Handle 'Quit' from pause menu -- return to main menu."""
+        # Clean up the current world
+        self._cleanup_world()
+        self._state = GameState.MAIN_MENU
+        self._backend.set_mouse_capture(False)
+        print("Returned to main menu.")
+
+    def _cleanup_world(self) -> None:
+        """Clean up the current game world for returning to menu."""
+        # Destroy chunk meshes
+        if self._chunk_manager and self._graphics_bridge:
+            for chunk in list(self._chunk_manager._loaded_chunks.values()):
+                if chunk.is_mesh_uploaded and chunk.mesh_id:
+                    self._graphics_bridge.destroy_mesh(chunk.mesh_id)
+
+        # Destroy entity meshes
+        if self._graphics_bridge:
+            for mesh_name in list(self._entity_meshes.values()):
+                self._graphics_bridge.destroy_mesh(mesh_name)
+
+        # Clear state
+        self._entity_meshes.clear()
+        self._chunk_manager = None
+        self._world = None
+        self._world_initialized = False
+        self._terrain_heightmap = None
+        self._terrain_biome = None
+        self._terrain_river = None
+        self._terrain_slope = None
+        self._loading_complete = False
+        self._loading_chunks_done = 0
+        self._loading_total_chunks = 0
+
+    def _refresh_save_list(self) -> None:
+        """Refresh the list of available save files for the save/load screen."""
+        from pathlib import Path
+        saves_dir = Path("saves")
+        save_files: list[str] = []
+        if saves_dir.exists():
+            for f in sorted(saves_dir.glob("*.json")):
+                save_files.append(f.stem)
+        if self._ui_manager:
+            self._ui_manager.save_load_screen.set_save_files(save_files)
+
+    # -------------------------------------------------------------------------
+    # In-Game UI Callbacks
     # -------------------------------------------------------------------------
 
     def _on_pause_pressed(self) -> None:
         """Handle pause button press."""
         if self._state == GameState.PLAYING:
             self._state = GameState.PAUSED
-            self._world.paused = True
+            if self._world:
+                self._world.paused = True
             self._backend.set_mouse_capture(False)
         elif self._state == GameState.PAUSED:
             self._state = GameState.PLAYING
-            self._world.paused = False
+            if self._world:
+                self._world.paused = False
             self._backend.set_mouse_capture(True)
         elif self._state in (GameState.INVENTORY, GameState.DIALOGUE):
             # Close current UI
@@ -2578,6 +2827,7 @@ class GameRunner:
     def _on_settings_open(self) -> None:
         """Open settings menu."""
         if self._state == GameState.PAUSED:
+            self._settings_return_state = GameState.PAUSED
             self._state = GameState.MENU
             if self._player_controller:
                 self._player_controller.in_menu = True
@@ -2585,7 +2835,10 @@ class GameRunner:
     def _on_settings_close(self) -> None:
         """Close settings menu."""
         if self._state == GameState.MENU:
-            self._state = GameState.PAUSED
+            # Return to wherever we came from
+            return_state = getattr(self, "_settings_return_state", GameState.PAUSED)
+            self._state = return_state
+            self._settings_return_state = GameState.PAUSED
 
     def _toggle_debug_overlay(self) -> None:
         """Toggle debug overlay setting."""

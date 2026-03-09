@@ -26,7 +26,7 @@ Paste this file into the root of the game-studio repository so that any context-
 | **Props & Creatures** | Generate JSON descriptors (CSG trees, L-systems, genomes). | Mesh synthesis, LODs, skeleton rigs, GPU upload. |
 | **Materials**     | Emit material graph DSL (JSON). | DSL to SPIR-V compile, virtual texture paging. |
 | **Physics**       | 3D hybrid solver, ChunkedHeightField sampling, sim-distance filtering. | Bullet-style solver, fluid voxels, wind fields. |
-| **Game Logic**    | GameWorld, entities, quests, dialogue, behavior trees, commands. | (Future: native game loop) |
+| **Game Logic**    | GameWorld, entities, quests, dialogue, behavior trees, commands, main menu flow, save/load. | (Future: native game loop) |
 | **UI**            | Dear ImGui orchestration (UIManager, components, headless backend). | ImGui rendering via Vulkan backend. |
 | **Testing/Tooling** | Seed mining, dashboards, live editors. | Headless mode, hot-reload endpoint. |
 
@@ -83,11 +83,11 @@ Engine.snapshot_state(frame:int) -> bytes   # returns deterministic hash
 │   │   └── heightfield.py      # HeightField, HeightField2D
 │   ├── game/                   # Runtime game systems
 │   │   ├── game_api.py         # GameWorld, Entity hierarchy, Events
-│   │   ├── game_runner.py      # Main game loop, chunk orchestration, rendering
+│   │   ├── game_runner.py      # Main game loop, menu flow, chunk orchestration, rendering
 │   │   ├── behavior_tree.py    # NPC behavior trees
 │   │   ├── player_controller.py # Input & camera system
 │   │   ├── data_loader.py      # JSON data loading
-│   │   └── ui_system.py        # Dear ImGui UI (HUD, dialogue, inventory, console)
+│   │   └── ui_system.py        # Dear ImGui UI (main menu, world creation, save/load, HUD, dialogue, inventory, console)
 │   ├── managers/               # Runtime scheduling bridge
 │   │   └── game_manager.py     # GameManagerBridge + FrameDirective fallback
 │   ├── commands/               # Command system
@@ -169,10 +169,13 @@ Bare imports (`from physics import ...`) will fail at runtime due to the namespa
 - ✅ Vulkan rendering pipeline with biome terrain colors
 - ✅ Biome-specific material pipelines generated in Python and compiled/applied via C++
 - ✅ Entity mesh generation and rendering
-- ✅ Dear ImGui UI system with 9 components plus headless backend (`ui_system.py`)
+- ✅ Dear ImGui UI system with 12 components plus headless backend (`ui_system.py`)
 - ✅ Dynamic chunk-based infinite world streaming (`chunk.py`)
 - ✅ `GameManagerBridge` / `FrameDirective` integration for async chunk scheduling and frame-budget hints
-- ✅ LOADING/PLAYING state machine with mesh verification
+- ✅ MAIN_MENU → WORLD_CREATION → LOADING → PLAYING state machine with two-phase initialization
+- ✅ Main menu, world creation screen, and save/load screen UI
+- ✅ Working save/load flow from both main menu and pause menu
+- ✅ World cleanup (`_cleanup_world()`) for return-to-menu transitions
 - ✅ Render-distance entity culling in dynamic mode
 - ✅ Simulation-distance filtering for NPC updates and physics
 - ✅ Closest-first chunk load ordering
@@ -252,11 +255,17 @@ The engine uses a chunk-based streaming system for infinite procedural worlds.
 ### State Machine
 
 ```
-LOADING → PLAYING
+MAIN_MENU → WORLD_CREATION → LOADING → PLAYING
+              ↕ (back)                    ↕ (pause)
+          SAVE_LOAD ←──────────────── PAUSED
 ```
 
+- **MAIN_MENU**: Application entry point. New World, Load Game, Settings, Quit. No world exists yet.
+- **WORLD_CREATION**: Seed input screen. Calls `_init_world(seed)` on Generate.
+- **SAVE_LOAD**: Lists save files; supports named save and load. Reachable from main menu (load only) and pause menu (save + load).
 - **LOADING**: Progressively generates chunks around spawn. Transitions to PLAYING only when the load queue is empty (or minimum chunks met) AND all sim-distance chunks have `is_mesh_uploaded == True`.
 - **PLAYING**: Player can move. Chunks dynamically load/unload around the player position. Load queue sorted closest-first for immediate visual feedback.
+- **PAUSED**: Quit returns to MAIN_MENU via `_cleanup_world()`.
 
 ### Entity Lifecycle
 

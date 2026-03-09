@@ -47,6 +47,9 @@ __all__ = [
     "InventoryPanel",
     "QuestLog",
     "PauseMenu",
+    "MainMenu",
+    "WorldCreationScreen",
+    "SaveLoadScreen",
     "SettingsPanel",
     "DebugOverlay",
     "ConsoleWindow",
@@ -1141,6 +1144,314 @@ class PauseMenu(UIComponent):
 
 
 # =============================================================================
+# MainMenu
+# =============================================================================
+
+
+class MainMenu(UIComponent):
+    """Main menu shown on application startup.
+
+    Provides options to create a new world, load a saved game,
+    open settings, or quit.
+    """
+
+    def __init__(
+        self,
+        backend: UIBackend,
+        screen_width: int,
+        screen_height: int,
+    ) -> None:
+        super().__init__(backend)
+        self._screen_width = screen_width
+        self._screen_height = screen_height
+        self._on_new_world: Optional[Callable[[], None]] = None
+        self._on_load_game: Optional[Callable[[], None]] = None
+        self._on_settings: Optional[Callable[[], None]] = None
+        self._on_quit: Optional[Callable[[], None]] = None
+
+    def render(self, **kwargs: Any) -> None:
+        if not self._visible:
+            return
+
+        menu_width = 420
+        menu_height = 440
+        menu_x = (self._screen_width - menu_width) / 2
+        menu_y = (self._screen_height - menu_height) / 2
+
+        self._backend.begin_window(
+            "Main Menu",
+            menu_x, menu_y,
+            menu_width, menu_height,
+            flags=_NO_RESIZE_FLAGS,
+        )
+
+        # Title
+        self._backend.spacing()
+        self._backend.spacing()
+        self._backend.text_colored("   PROCEDURAL ENGINE v2", *_COLOR_TITLE)
+        self._backend.spacing()
+        self._backend.text_colored("   Deterministic World Generation", *_COLOR_SUBTITLE)
+        self._backend.spacing()
+        self._backend.separator()
+        self._backend.spacing()
+        self._backend.spacing()
+
+        button_width = menu_width - 60
+
+        if self._backend.button("New World", button_width, 50):
+            if self._on_new_world:
+                self._on_new_world()
+
+        self._backend.spacing()
+        self._backend.spacing()
+
+        if self._backend.button("Load Game", button_width, 50):
+            if self._on_load_game:
+                self._on_load_game()
+
+        self._backend.spacing()
+        self._backend.spacing()
+
+        if self._backend.button("Settings", button_width, 50):
+            if self._on_settings:
+                self._on_settings()
+
+        self._backend.spacing()
+        self._backend.spacing()
+        self._backend.separator()
+        self._backend.spacing()
+
+        if self._backend.button("Quit", button_width, 40):
+            if self._on_quit:
+                self._on_quit()
+
+        self._backend.end_window()
+
+
+# =============================================================================
+# WorldCreationScreen
+# =============================================================================
+
+
+class WorldCreationScreen(UIComponent):
+    """World creation screen with editable generation parameters.
+
+    Allows the user to configure world seed and other generation
+    parameters before starting world generation.
+    """
+
+    def __init__(
+        self,
+        backend: UIBackend,
+        screen_width: int,
+        screen_height: int,
+    ) -> None:
+        super().__init__(backend)
+        self._screen_width = screen_width
+        self._screen_height = screen_height
+        self._seed_text: str = "42"
+        self._on_start: Optional[Callable[[int], None]] = None
+        self._on_back: Optional[Callable[[], None]] = None
+
+    @property
+    def seed_text(self) -> str:
+        return self._seed_text
+
+    @seed_text.setter
+    def seed_text(self, value: str) -> None:
+        self._seed_text = value
+
+    def render(self, **kwargs: Any) -> None:
+        if not self._visible:
+            return
+
+        panel_width = 480
+        panel_height = 340
+        panel_x = (self._screen_width - panel_width) / 2
+        panel_y = (self._screen_height - panel_height) / 2
+
+        self._backend.begin_window(
+            "Create New World",
+            panel_x, panel_y,
+            panel_width, panel_height,
+            flags=_NO_RESIZE_FLAGS,
+        )
+
+        # Title
+        self._backend.spacing()
+        self._backend.text_colored("   WORLD CREATION", *_COLOR_TITLE)
+        self._backend.spacing()
+        self._backend.separator()
+        self._backend.spacing()
+
+        # Seed input
+        self._backend.text("World Seed:")
+        self._backend.spacing()
+        changed, new_text = self._backend.input_text(
+            "##seed", self._seed_text, 64
+        )
+        if changed:
+            self._seed_text = new_text
+
+        self._backend.spacing()
+        self._backend.text_colored(
+            "  The seed determines the entire world.",
+            *_COLOR_SUBTITLE,
+        )
+        self._backend.text_colored(
+            "  Same seed = same world, every time.",
+            *_COLOR_SUBTITLE,
+        )
+
+        self._backend.spacing()
+        self._backend.spacing()
+        self._backend.separator()
+        self._backend.spacing()
+        self._backend.spacing()
+
+        button_width = panel_width - 60
+
+        if self._backend.button("Generate World", button_width, 50):
+            if self._on_start:
+                # Parse seed: try int, fall back to hash of string
+                try:
+                    seed = int(self._seed_text)
+                except (ValueError, TypeError):
+                    seed = hash(self._seed_text) & 0xFFFFFFFF
+                self._on_start(seed)
+
+        self._backend.spacing()
+        self._backend.spacing()
+
+        if self._backend.button("Back", button_width, 40):
+            if self._on_back:
+                self._on_back()
+
+        self._backend.end_window()
+
+
+# =============================================================================
+# SaveLoadScreen
+# =============================================================================
+
+
+class SaveLoadScreen(UIComponent):
+    """Save/Load screen listing available save files.
+
+    Used from both the main menu (load only) and the pause menu
+    (save and load).
+    """
+
+    def __init__(
+        self,
+        backend: UIBackend,
+        screen_width: int,
+        screen_height: int,
+    ) -> None:
+        super().__init__(backend)
+        self._screen_width = screen_width
+        self._screen_height = screen_height
+        self._mode: str = "load"  # "save" or "load"
+        self._save_files: List[str] = []
+        self._selected_file: str = "quicksave"
+        self._save_name_text: str = "quicksave"
+        self._status_message: str = ""
+        self._on_save: Optional[Callable[[str], None]] = None
+        self._on_load: Optional[Callable[[str], None]] = None
+        self._on_back: Optional[Callable[[], None]] = None
+
+    def set_mode(self, mode: str) -> None:
+        """Set mode to 'save' or 'load'."""
+        self._mode = mode
+
+    def set_save_files(self, files: List[str]) -> None:
+        """Update list of available save files."""
+        self._save_files = files
+
+    def set_status(self, message: str) -> None:
+        """Set a status message to display."""
+        self._status_message = message
+
+    def render(self, **kwargs: Any) -> None:
+        if not self._visible:
+            return
+
+        panel_width = 480
+        panel_height = 420
+        panel_x = (self._screen_width - panel_width) / 2
+        panel_y = (self._screen_height - panel_height) / 2
+
+        title = "Save Game" if self._mode == "save" else "Load Game"
+        self._backend.begin_window(
+            title,
+            panel_x, panel_y,
+            panel_width, panel_height,
+            flags=_NO_RESIZE_FLAGS,
+        )
+
+        self._backend.spacing()
+        self._backend.text_colored(f"   {title.upper()}", *_COLOR_TITLE)
+        self._backend.spacing()
+        self._backend.separator()
+        self._backend.spacing()
+
+        button_width = panel_width - 60
+
+        # Save name input (only in save mode)
+        if self._mode == "save":
+            self._backend.text("Save Name:")
+            changed, new_text = self._backend.input_text(
+                "##savename", self._save_name_text, 64
+            )
+            if changed:
+                self._save_name_text = new_text
+            self._backend.spacing()
+
+            if self._backend.button("Save", button_width, 40):
+                if self._on_save:
+                    self._on_save(self._save_name_text)
+            self._backend.spacing()
+            self._backend.separator()
+            self._backend.spacing()
+
+        # List available saves
+        if self._save_files:
+            self._backend.text("Available Saves:")
+            self._backend.spacing()
+
+            for save_name in self._save_files:
+                label = f"  {save_name}"
+                if self._mode == "load":
+                    if self._backend.button(f"Load: {save_name}", button_width, 30):
+                        if self._on_load:
+                            self._on_load(save_name)
+                else:
+                    self._backend.text(label)
+                self._backend.spacing()
+        else:
+            self._backend.text_colored("  No save files found.", *_COLOR_SUBTITLE)
+            self._backend.spacing()
+
+        # Status message
+        if self._status_message:
+            self._backend.spacing()
+            self._backend.text_colored(
+                f"  {self._status_message}", *_COLOR_QUEST_ACTIVE
+            )
+            self._backend.spacing()
+
+        self._backend.spacing()
+        self._backend.separator()
+        self._backend.spacing()
+
+        if self._backend.button("Back", button_width, 40):
+            if self._on_back:
+                self._on_back()
+
+        self._backend.end_window()
+
+
+# =============================================================================
 # SettingsPanel
 # =============================================================================
 
@@ -1593,6 +1904,9 @@ class UIManager:
         self._screen_height = screen_height
 
         # Create components
+        self._main_menu = MainMenu(self._backend, screen_width, screen_height)
+        self._world_creation = WorldCreationScreen(self._backend, screen_width, screen_height)
+        self._save_load_screen = SaveLoadScreen(self._backend, screen_width, screen_height)
         self._hud = HUD(self._backend, screen_width, screen_height)
         self._dialogue_box = DialogueBox(self._backend, screen_width, screen_height)
         self._inventory_panel = InventoryPanel(self._backend, screen_width, screen_height)
@@ -1962,3 +2276,67 @@ class UIManager:
             on_reset_world=on_reset_world,
             on_toggle_physics_debug=on_toggle_physics_debug,
         )
+
+    # -------------------------------------------------------------------------
+    # Main Menu & World Creation
+    # -------------------------------------------------------------------------
+
+    def render_main_menu(self) -> None:
+        """Render the main menu."""
+        self._main_menu.visible = True
+        self._main_menu.render()
+
+    def render_world_creation(self) -> None:
+        """Render the world creation screen."""
+        self._world_creation.visible = True
+        self._world_creation.render()
+
+    def render_save_load(self) -> None:
+        """Render the save/load screen."""
+        self._save_load_screen.visible = True
+        self._save_load_screen.render()
+
+    def set_main_menu_callbacks(
+        self,
+        on_new_world: Optional[Callable[[], None]] = None,
+        on_load_game: Optional[Callable[[], None]] = None,
+        on_settings: Optional[Callable[[], None]] = None,
+        on_quit: Optional[Callable[[], None]] = None,
+    ) -> None:
+        """Set main menu callbacks."""
+        self._main_menu._on_new_world = on_new_world
+        self._main_menu._on_load_game = on_load_game
+        self._main_menu._on_settings = on_settings
+        self._main_menu._on_quit = on_quit
+
+    def set_world_creation_callbacks(
+        self,
+        on_start: Optional[Callable[[int], None]] = None,
+        on_back: Optional[Callable[[], None]] = None,
+    ) -> None:
+        """Set world creation screen callbacks."""
+        self._world_creation._on_start = on_start
+        self._world_creation._on_back = on_back
+
+    def set_save_load_callbacks(
+        self,
+        on_save: Optional[Callable[[str], None]] = None,
+        on_load: Optional[Callable[[str], None]] = None,
+        on_back: Optional[Callable[[], None]] = None,
+    ) -> None:
+        """Set save/load screen callbacks."""
+        self._save_load_screen._on_save = on_save
+        self._save_load_screen._on_load = on_load
+        self._save_load_screen._on_back = on_back
+
+    @property
+    def main_menu(self) -> MainMenu:
+        return self._main_menu
+
+    @property
+    def world_creation(self) -> WorldCreationScreen:
+        return self._world_creation
+
+    @property
+    def save_load_screen(self) -> SaveLoadScreen:
+        return self._save_load_screen

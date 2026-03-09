@@ -30,11 +30,11 @@ Procedural-Engine-v2/
 │   │   └── heightfield.py       # HeightField, HeightField2D
 │   ├── game/                    # Runtime game systems
 │   │   ├── game_api.py          # GameWorld, Entity hierarchy, Events
-│   │   ├── game_runner.py       # Main loop, chunk orchestration, rendering
+│   │   ├── game_runner.py       # Main loop, menu flow, chunk orchestration, rendering
 │   │   ├── player_controller.py # Camera, player input
 │   │   ├── behavior_tree.py     # BT nodes (Selector, Sequence, etc.)
 │   │   ├── data_loader.py       # JSON content loader (NPCs, quests, items)
-│   │   └── ui_system.py         # Dear ImGui UI (HUD, dialogue, inventory, console, debug)
+│   │   └── ui_system.py         # Dear ImGui UI (main menu, world creation, save/load, HUD, dialogue, inventory, console, debug)
 │   ├── managers/                # Runtime bridges for C++ scheduling/streaming
 │   │   └── game_manager.py      # GameManagerBridge, ManagerConfig, FrameDirective
 │   ├── graphics/                # Rendering abstraction
@@ -319,8 +319,21 @@ Each `Chunk` stores:
 ### State Machine (GameRunner)
 
 ```
-LOADING → PLAYING
+MAIN_MENU → WORLD_CREATION → LOADING → PLAYING
+              ↕ (back)                    ↕ (pause)
+          SAVE_LOAD ←──────────────── PAUSED → (quit) → MAIN_MENU
 ```
+
+**MAIN_MENU state**:
+- Application entry point. No world exists; only UI is rendered.
+- Options: New World → WORLD_CREATION, Load Game → SAVE_LOAD, Settings, Quit.
+
+**WORLD_CREATION state**:
+- Editable seed input. Calls `_init_world(seed)` on Generate, which creates the `GameWorld`, sets up terrain/chunks, and transitions to LOADING.
+
+**SAVE_LOAD state**:
+- Lists `saves/*.json` files. Supports named save (from pause menu) and load (from either menu).
+- Loading reads the save's seed, calls `_init_world(seed)`, then applies `load_from_dict()`.
 
 **LOADING state**:
 - Generates chunks at `loading_chunks_per_frame` rate (default 4)
@@ -334,6 +347,9 @@ LOADING → PLAYING
 - Load queue sorted by squared distance to player (closest-first)
 - Process 1 chunk/frame for loading, 2 chunks/frame for unloading
 - Props generated when chunks enter prop range (half render distance)
+
+**PAUSED state**:
+- Quit calls `_cleanup_world()` which destroys all chunk/entity meshes, clears world state, and returns to MAIN_MENU.
 
 ### Entity Lifecycle
 
@@ -565,11 +581,14 @@ The UI system uses Dear ImGui with an abstraction layer for testing:
 
 | Component | Purpose |
 |-----------|---------|
+| MainMenu | New World, Load Game, Settings, Quit — app entry point |
+| WorldCreationScreen | Seed input, determinism info, Generate World button |
+| SaveLoadScreen | Save file list, named save, load — dual-mode (main menu + pause) |
 | HUD | Health bar, quest tracker, interaction prompts |
 | DialogueBox | NPC conversation with response options |
 | InventoryPanel | Player inventory with use/drop actions |
 | QuestLog | Active and completed quest tracking |
-| PauseMenu | Resume, save, load, settings, quit |
+| PauseMenu | Resume, save, load, settings, quit to main menu |
 | SettingsPanel | Debug overlay toggle, VSync toggle |
 | DebugOverlay | FPS, player position, entity count, biome info |
 | ConsoleWindow | Developer console with input, output, autocomplete |
@@ -769,6 +788,8 @@ To add a new procedural prop type (e.g., "bush"):
 | Add/modify prop descriptor | `procengine/world/props.py` |
 | Change prop mesh generation | `cpp/props.cpp`, `cpp/props.h` |
 | Update pybind11 bindings | `cpp/engine.cpp` |
+| Main menu / world creation flow | `procengine/game/game_runner.py` (`_init_world`, `_cleanup_world`) |
+| Save/load screens | `procengine/game/ui_system.py` (SaveLoadScreen), `procengine/game/game_runner.py` |
 | Change entity rendering/scale | `procengine/game/game_runner.py` |
 | Change entity mesh creation | `procengine/graphics/graphics_bridge.py` |
 | Change entity colors | `procengine/graphics/graphics_bridge.py` (ENTITY_COLORS) |

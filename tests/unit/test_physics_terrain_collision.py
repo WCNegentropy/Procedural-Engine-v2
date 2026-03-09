@@ -26,13 +26,14 @@ def test_player_spawns_on_terrain():
         world_seed=42,
         enable_dynamic_chunks=False,  # Use static terrain for predictable test
     )
-    
+
     backend = HeadlessBackend()
     backend.set_max_frames(1)
-    
+
     runner = GameRunner(config, backend)
     assert runner.initialize(), "Failed to initialize runner"
-    
+    runner._init_world(42)
+
     player = runner.world.get_player()
     assert player is not None, "Player not created"
     
@@ -68,12 +69,17 @@ def test_player_stays_on_terrain():
     
     runner = GameRunner(config, backend)
     assert runner.initialize(), "Failed to initialize runner"
-    
+    runner._init_world(42)
+
     player = runner.world.get_player()
     initial_y = player.position.y
-    
+
     # Run simulation for 5 seconds
-    runner.run_frames(frames)
+    runner._running = True
+    for _ in range(frames):
+        if not runner._running:
+            break
+        runner._running = runner._frame()
     
     # Player should not have fallen significantly
     final_y = player.position.y
@@ -102,7 +108,8 @@ def test_heightfield_is_set():
     
     runner = GameRunner(config, backend)
     assert runner.initialize(), "Failed to initialize runner"
-    
+    runner._init_world(42)
+
     # Check that world has heightfield
     assert runner.world._heightfield is not None, "Heightfield not set in world"
     
@@ -140,7 +147,8 @@ def test_player_falls_and_lands():
     
     runner = GameRunner(config, backend)
     assert runner.initialize(), "Failed to initialize runner"
-    
+    runner._init_world(42)
+
     player = runner.world.get_player()
     hf = runner.world._heightfield
     
