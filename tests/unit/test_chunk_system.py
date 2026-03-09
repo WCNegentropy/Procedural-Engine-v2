@@ -659,6 +659,42 @@ class TestChunkPropsGeneration:
         assert hasattr(chunk, 'pending_props')
         assert isinstance(chunk.pending_props, list)
 
+    def test_chunk_prop_generation_receives_overlap_vertices(self, monkeypatch):
+        """Prop placement should see the size+1 overlap vertices for interpolation."""
+        registry = SeedRegistry(42)
+        manager = ChunkManager(registry, chunk_size=32, render_distance=0)
+        captured = {}
+
+        def fake_generate_chunk_props(
+            chunk_registry,
+            chunk_size,
+            heightmap,
+            slope_map,
+            biome_map,
+            **kwargs,
+        ):
+            captured["root_seed"] = chunk_registry.root_seed
+            captured["chunk_size"] = chunk_size
+            captured["height_shape"] = heightmap.shape
+            captured["slope_shape"] = slope_map.shape if slope_map is not None else None
+            captured["biome_shape"] = biome_map.shape if biome_map is not None else None
+            return []
+
+        monkeypatch.setattr("procengine.world.props.generate_chunk_props", fake_generate_chunk_props)
+
+        manager.update_player_position(16.0, 16.0)
+        generated = manager.process_load_queue(max_per_frame=1)
+
+        expected_registry = SeedRegistry(42)
+        expected_registry.spawn("global_terrain")
+
+        assert len(generated) == 1
+        assert captured["root_seed"] == expected_registry.spawn("chunk_0_0").root_seed
+        assert captured["chunk_size"] == 32
+        assert captured["height_shape"] == (33, 33)
+        assert captured["slope_shape"] == (33, 33)
+        assert captured["biome_shape"] == (33, 33)
+
     def test_chunk_props_deterministic(self):
         """Test that chunk props are deterministically generated."""
         registry1 = SeedRegistry(42)

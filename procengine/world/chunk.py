@@ -566,10 +566,6 @@ class ChunkManager:
         This enables seamless edges where Noise(x=64) in Chunk A equals
         Noise(x=0) in Chunk B.
         """
-        # Create a deterministic seed registry for chunk-specific things (props)
-        chunk_name = f"chunk_{coord[0]}_{coord[1]}"
-        chunk_registry = self._registry.spawn(chunk_name)
-
         # Calculate offsets based on chunk size
         # This assumes chunk (1,0) should start noise where chunk (0,0) ended
         offset_x = float(coord[0] * self._chunk_size)
@@ -597,25 +593,15 @@ class ChunkManager:
 
         height, biome, river, slope = maps
 
-        # FIX: Check if chunk is within prop generation range
         prop_descriptors: List[Dict[str, Any]] = []
-        has_props = False
-        # Only generate props if within prop_distance
-        if self.is_chunk_in_prop_range(coord):
-            from procengine.world.props import generate_chunk_props
-
-            # Slice the maps to original size for props.
-            # We don't want props spawning on the overlap edge (index chunk_size)
-            # because the neighbor chunk will spawn them at index 0.
-            # Use chunk_registry for deterministic per-chunk prop generation.
-            prop_descriptors = generate_chunk_props(
-                chunk_registry,
-                self._chunk_size,
-                height[:self._chunk_size, :self._chunk_size],
-                slope[:self._chunk_size, :self._chunk_size],
-                biome[:self._chunk_size, :self._chunk_size],
+        has_props = self.is_chunk_in_prop_range(coord)
+        if has_props:
+            prop_descriptors = self._generate_prop_descriptors(
+                coord,
+                height,
+                slope,
+                biome,
             )
-            has_props = True
 
         chunk = Chunk(
             coords=coord,
@@ -629,6 +615,27 @@ class ChunkManager:
         )
 
         return chunk
+
+    def _generate_prop_descriptors(
+        self,
+        coord: ChunkCoord,
+        heightmap: np.ndarray,
+        slope_map: np.ndarray | None = None,
+        biome_map: np.ndarray | None = None,
+    ) -> List[Dict[str, Any]]:
+        """Generate deterministic chunk props from the provided terrain data."""
+
+        from procengine.world.props import generate_chunk_props
+
+        chunk_name = f"chunk_{coord[0]}_{coord[1]}"
+        chunk_registry = self._registry.spawn(chunk_name)
+        return generate_chunk_props(
+            chunk_registry,
+            self._chunk_size,
+            heightmap,
+            slope_map,
+            biome_map,
+        )
 
     def get_chunk_at_world(self, x: float, z: float) -> Optional[Chunk]:
         """Get the chunk containing a world position.
