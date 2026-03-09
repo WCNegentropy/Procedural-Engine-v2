@@ -1751,8 +1751,6 @@ class GameRunner:
             return
 
         try:
-            import numpy as np
-
             import procengine_cpp as cpp
 
             size = self.config.chunk_size
@@ -1771,13 +1769,13 @@ class GameRunner:
             )
             
             # Unpack results (returns tuple of height, biome, river, slope)
-            heightmap = result[0]
+            normalized_heightmap = result[0]
             biome_map = result[1]
             river_map = result[2]
             slope_map = result[3] if len(result) > 3 else None
             
             # Scale heights to world units
-            heightmap = heightmap * self.HEIGHT_SCALE
+            heightmap = normalized_heightmap * self.HEIGHT_SCALE
             
             # Store terrain data for other systems
             self._terrain_heightmap = heightmap
@@ -1822,7 +1820,12 @@ class GameRunner:
             self._update_physics_terrain(heightmap, size)
 
             # Generate and spawn props on the terrain
-            self._setup_props(heightmap, size)
+            self._setup_props(
+                normalized_heightmap,
+                size,
+                slope_map=slope_map,
+                biome_map=biome_map,
+            )
 
         except ImportError as e:
             print(f"Warning: C++ module not available: {e}")
@@ -2069,17 +2072,12 @@ class GameRunner:
         prop_descriptors = []
         has_props = False
         if self._chunk_manager:
-            from procengine.world.props import generate_chunk_props
-            chunk_name = f"chunk_{coord[0]}_{coord[1]}"
-            chunk_registry = self._chunk_manager._registry.spawn(chunk_name)
-
             if self._chunk_manager.is_chunk_in_prop_range(coord):
-                prop_descriptors = generate_chunk_props(
-                    chunk_registry,
-                    self.config.chunk_size,
-                    height[:self.config.chunk_size, :self.config.chunk_size],
-                    slope[:self.config.chunk_size, :self.config.chunk_size] if slope is not None else None,
-                    biome[:self.config.chunk_size, :self.config.chunk_size],
+                prop_descriptors = self._chunk_manager._generate_prop_descriptors(
+                    coord,
+                    height,
+                    slope,
+                    biome,
                 )
                 has_props = True
 
@@ -2485,84 +2483,42 @@ class GameRunner:
             import traceback
             traceback.print_exc()
 
-    def _setup_props(self, heightmap: "np.ndarray", size: int) -> None:
+    def _setup_props(
+        self,
+        heightmap: "np.ndarray",
+        size: int,
+        *,
+        slope_map: "np.ndarray | None" = None,
+        biome_map: "np.ndarray | None" = None,
+    ) -> None:
         """Generate and spawn props (rocks, trees) on the terrain."""
         if not self._world or not self._graphics_bridge:
             return
 
         try:
-            import numpy as np
-
             from procengine.core.seed_registry import SeedRegistry
-            from procengine.world.props import (
-                generate_rock_descriptors,
-                generate_tree_descriptors,
+            from procengine.world.chunk import Chunk
+            from procengine.world.props import generate_chunk_props
+
+            chunk_registry = SeedRegistry(self.config.world_seed).spawn("chunk_0_0")
+            prop_descriptors = generate_chunk_props(
+                chunk_registry,
+                size,
+                heightmap,
+                slope_map,
+                biome_map,
+                rock_count=15,
+                tree_count=10,
             )
 
-            # Create a seed registry from world seed for deterministic prop generation
-            registry = SeedRegistry(self.config.world_seed)
-
-            # Generate rock descriptors
-            rock_count = 15  # Number of rocks to generate
-            rock_descriptors = generate_rock_descriptors(
-                registry,
-                rock_count,
-                size=float(size),
+            static_chunk = Chunk(
+                coords=(0, 0),
+                pending_props=prop_descriptors,
+                is_loaded=True,
+                has_props=bool(prop_descriptors),
             )
-
-            # Generate tree descriptors
-            tree_count = 10  # Number of trees to generate
-            tree_descriptors = generate_tree_descriptors(
-                registry,
-                tree_count,
-            )
-
-            # Spawn rocks as Prop entities
-            for i, rock_desc in enumerate(rock_descriptors):
-                pos = rock_desc["position"]
-                # Get terrain height at rock position
-                px = int(pos[0]) % size
-                pz = int(pos[2]) % size
-                terrain_y = float(heightmap[pz, px])
-
-                rock_prop = Prop(
-                    entity_id=f"rock_{i}",
-                    position=Vec3(pos[0], terrain_y + 0.1, pos[2]),  # Slightly above terrain
-                    prop_type="rock",
-                    state={
-                        "radius": rock_desc["radius"],
-                        "noise_seed": rock_desc.get("noise_seed", 0),
-                    },
-                )
-                self._world.spawn_entity(rock_prop)
-
-            # Spawn trees as Prop entities
-            # Trees need position - use random positions based on seed
-            tree_rng = registry.get_rng("tree_positions")
-            for i, tree_desc in enumerate(tree_descriptors):
-                # Generate position within terrain bounds
-                pos_x = float(tree_rng.random() * size)
-                pos_z = float(tree_rng.random() * size)
-
-                # Get terrain height at tree position
-                px = int(pos_x) % size
-                pz = int(pos_z) % size
-                terrain_y = float(heightmap[pz, px])
-
-                tree_prop = Prop(
-                    entity_id=f"tree_{i}",
-                    position=Vec3(pos_x, terrain_y, pos_z),
-                    prop_type="tree",
-                    state={
-                        "axiom": tree_desc["axiom"],
-                        "rules": tree_desc["rules"],
-                        "angle": tree_desc["angle"],
-                        "iterations": tree_desc["iterations"],
-                    },
-                )
-                self._world.spawn_entity(tree_prop)
-
-            print(f"Props spawned: {rock_count} rocks, {tree_count} trees")
+            self._spawn_chunk_props(static_chunk, world_x=0.0, world_z=0.0)
+            print(f"Props spawned: {len(prop_descriptors)} terrain-aware chunk props")
 
         except Exception as e:
             print(f"Warning: Could not setup props: {e}")

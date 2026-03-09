@@ -69,6 +69,45 @@ __all__ = [
 ]
 
 
+def _sample_heightmap_bilinear(
+    heightmap: np.ndarray,
+    x: float,
+    z: float,
+    max_x: int,
+    max_z: int,
+) -> float:
+    """Sample a heightmap at fractional coordinates with bilinear filtering.
+
+    ``max_x`` and ``max_z`` describe the chunk-local sampling extent for prop
+    placement. The underlying heightmap may be larger (for example
+    ``chunk_size + 1`` overlap vertices), which allows interpolation to use the
+    shared edge vertex near chunk boundaries without letting prop placement
+    sample beyond the chunk's intended footprint.
+    """
+
+    sample_max_x = min(max_x, heightmap.shape[1] - 1)
+    sample_max_z = min(max_z, heightmap.shape[0] - 1)
+    fx = min(max(float(x), 0.0), float(sample_max_x))
+    fz = min(max(float(z), 0.0), float(sample_max_z))
+
+    x0 = int(np.floor(fx))
+    z0 = int(np.floor(fz))
+    x1 = min(x0 + 1, sample_max_x)
+    z1 = min(z0 + 1, sample_max_z)
+
+    tx = fx - float(x0)
+    tz = fz - float(z0)
+
+    h00 = float(heightmap[z0, x0])
+    h10 = float(heightmap[z0, x1])
+    h01 = float(heightmap[z1, x0])
+    h11 = float(heightmap[z1, x1])
+
+    top = h00 + (h10 - h00) * tx
+    bottom = h01 + (h11 - h01) * tx
+    return top + (bottom - top) * tz
+
+
 def generate_rock_descriptors(
     registry: SeedRegistry,
     count: int,
@@ -595,11 +634,9 @@ def generate_chunk_props(
 
         return True
 
-    def get_terrain_height(x: int, z: int) -> float:
+    def get_terrain_height(x: float, z: float) -> float:
         """Get terrain height at position."""
-        ix = min(max(x, 0), chunk_size - 1)
-        iz = min(max(z, 0), chunk_size - 1)
-        return float(heightmap[iz, ix])
+        return _sample_heightmap_bilinear(heightmap, x, z, chunk_size, chunk_size)
 
     def get_biome(x: int, z: int) -> int:
         """Get biome ID at position, or -1 if no biome map."""
@@ -623,7 +660,7 @@ def generate_chunk_props(
         if not is_valid_position(int(pos_x), int(pos_z)):
             continue
         biome = get_biome(int(pos_x), int(pos_z))
-        terrain_y = get_terrain_height(int(pos_x), int(pos_z))
+        terrain_y = get_terrain_height(pos_x, pos_z)
 
         # Skip rocks in dense forest/jungle (they hide under canopy so
         # reduce density) — keep ~40 % chance
@@ -649,7 +686,7 @@ def generate_chunk_props(
         if not is_valid_position(int(pos_x), int(pos_z)):
             continue
         biome = get_biome(int(pos_x), int(pos_z))
-        terrain_y = get_terrain_height(int(pos_x), int(pos_z))
+        terrain_y = get_terrain_height(pos_x, pos_z)
 
         # Boulder clusters prefer rocky biomes
         if biome != -1 and biome not in {BIOME_MOUNTAIN, BIOME_MESA,
@@ -685,7 +722,7 @@ def generate_chunk_props(
         if not is_valid_position(int(pos_x), int(pos_z)):
             continue
         biome = get_biome(int(pos_x), int(pos_z))
-        terrain_y = get_terrain_height(int(pos_x), int(pos_z))
+        terrain_y = get_terrain_height(pos_x, pos_z)
 
         # No trees in desert/mesa — cacti handle that biome
         if biome in {BIOME_DESERT, BIOME_MESA}:

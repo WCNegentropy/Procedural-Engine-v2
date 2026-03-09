@@ -1,8 +1,10 @@
 """Tests for game_runner module."""
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
+from procengine.core.seed_registry import SeedRegistry
 from procengine.game.game_runner import (
     GameRunner,
     RunnerConfig,
@@ -1070,3 +1072,61 @@ class TestDynamicChunks:
         assert spawned_entities[0].position.y == pytest.approx(0.5 * runner.HEIGHT_SCALE + 0.05)
         assert spawned_entities[1].position.y == pytest.approx(0.5 * runner.HEIGHT_SCALE + 0.15)
         assert chunk.pending_props == []
+
+    def test_setup_props_uses_chunk_prop_pipeline_in_static_mode(self, monkeypatch):
+        """Static props should reuse chunk prop generation and world-height scaling."""
+        runner = GameRunner(
+            RunnerConfig(
+                headless=True,
+                enable_dynamic_chunks=False,
+                world_seed=77,
+                chunk_size=8,
+            )
+        )
+
+        spawned_entities = []
+        runner._graphics_bridge = object()
+        runner._world = SimpleNamespace(
+            spawn_entity=lambda entity: spawned_entities.append(entity) or entity.entity_id
+        )
+
+        heightmap = np.full((8, 8), 0.5, dtype=np.float32)
+        slope_map = np.zeros((8, 8), dtype=np.float32)
+        biome_map = np.full((8, 8), 7, dtype=np.uint8)
+        captured = {}
+
+        def fake_generate_chunk_props(
+            registry,
+            chunk_size,
+            heightmap_arg,
+            slope_map_arg,
+            biome_map_arg,
+            **kwargs,
+        ):
+            captured["root_seed"] = registry.root_seed
+            captured["chunk_size"] = chunk_size
+            captured["heightmap"] = heightmap_arg
+            captured["slope_map"] = slope_map_arg
+            captured["biome_map"] = biome_map_arg
+            captured["kwargs"] = kwargs
+            return [{
+                "type": "rock",
+                "position": [1.5, 0.5, 2.5],
+                "radius": 0.8,
+                "noise_seed": 9,
+            }]
+
+        monkeypatch.setattr("procengine.world.props.generate_chunk_props", fake_generate_chunk_props)
+
+        runner._setup_props(heightmap, 8, slope_map=slope_map, biome_map=biome_map)
+
+        assert captured["root_seed"] == SeedRegistry(77).spawn("chunk_0_0").root_seed
+        assert captured["chunk_size"] == 8
+        assert captured["heightmap"] is heightmap
+        assert captured["slope_map"] is slope_map
+        assert captured["biome_map"] is biome_map
+        assert captured["kwargs"] == {"rock_count": 15, "tree_count": 10}
+        assert len(spawned_entities) == 1
+        assert spawned_entities[0].position.x == pytest.approx(1.5)
+        assert spawned_entities[0].position.y == pytest.approx(0.5 * runner.HEIGHT_SCALE + 0.1)
+        assert spawned_entities[0].position.z == pytest.approx(2.5)

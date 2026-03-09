@@ -1,6 +1,8 @@
 """Tests for deterministic prop descriptor generators."""
 
 import numpy as np
+import procengine.world.props as props_module
+import pytest
 
 from procengine.world.props import (
     generate_building_descriptors,
@@ -220,6 +222,38 @@ def test_generate_chunk_props_different_seeds_different_results():
 
     # Props should be different with different seeds
     assert props1 != props2
+
+
+def test_sample_heightmap_bilinear_interpolates_fractional_positions():
+    """Terrain-aware prop placement should interpolate heights between vertices."""
+    heightmap = np.array(
+        [
+            [0.0, 1.0, 2.0],
+            [10.0, 11.0, 12.0],
+            [20.0, 21.0, 22.0],
+        ],
+        dtype=np.float32,
+    )
+
+    sampled = props_module._sample_heightmap_bilinear(heightmap, 0.25, 0.75, 2, 2)
+
+    assert sampled == pytest.approx(7.75)
+
+
+def test_sample_heightmap_bilinear_clamps_and_uses_overlap_vertex():
+    """Bilinear height sampling should clamp bounds and use overlap vertices."""
+    heightmap = np.array(
+        [
+            [0.0, 10.0, 20.0],
+            [30.0, 40.0, 50.0],
+            [60.0, 70.0, 80.0],
+        ],
+        dtype=np.float32,
+    )
+
+    assert props_module._sample_heightmap_bilinear(heightmap, 0.0, 0.0, 2, 2) == pytest.approx(0.0)
+    assert props_module._sample_heightmap_bilinear(heightmap, 2.0, 2.0, 2, 2) == pytest.approx(80.0)
+    assert props_module._sample_heightmap_bilinear(heightmap, 1.5, 0.5, 2, 2) == pytest.approx(30.0)
 
 
 # =============================================================================
