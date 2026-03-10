@@ -827,9 +827,25 @@ Mesh generate_creature_mesh(
     // the attachment position from the skeleton and walk each segment.
     // ----------------------------------------------------------------
     if (!desc.limbs.empty() && !desc.skeleton.empty() && !desc.metaballs.empty()) {
+        // Cylinder ring resolution for limb segments.
+        constexpr uint32_t LIMB_CYL_SEGMENTS = 6;
+        // Lateral Z-component of the limb direction vector.  The proximal
+        // (upper) segment pushes outward more strongly to visually
+        // separate the limb from the body; the distal (lower) segment
+        // angles back towards vertical for a natural joint bend.
+        constexpr float PROXIMAL_LATERAL  = 0.6f;
+        constexpr float DISTAL_LATERAL    = 0.3f;
+        // Fraction of the estimated body half-width used to offset the
+        // limb attachment point outward from the spine centre-line.
+        constexpr float ATTACH_OFFSET_FRAC = 0.85f;
+        // Fallback body half-width when no nearby torso metaball is found.
+        constexpr float DEFAULT_BODY_HALF_WIDTH = 0.1f;
+
         // 1. Reconstruct spine joint positions from the normalised skeleton.
-        //    The first torso metaball sits at the midpoint of the first spine
-        //    segment, so we can derive the starting joint from it.
+        //    `_place_spine_metaballs` in Python places the first torso
+        //    metaball at the midpoint of the first spine segment, so
+        //    `desc.metaballs[0].center` sits at joint[0] + dir*len*0.5.
+        //    We reverse that to recover the starting joint position.
         std::vector<Vec3> joints;
         float bone0_rad = desc.skeleton[0].angle * DEG_TO_RAD;
         Vec3 bone0_dir(std::cos(bone0_rad), std::sin(bone0_rad), 0.0f);
@@ -842,8 +858,6 @@ Mesh generate_creature_mesh(
         }
 
         // 2. For each limb, generate tapered cylinder segments and append.
-        constexpr uint32_t LIMB_CYL_SEGMENTS = 6;
-
         for (const auto& limb : desc.limbs) {
             uint32_t bone_idx = std::min(
                 limb.attach_bone,
@@ -861,17 +875,15 @@ Mesh generate_creature_mesh(
                     body_half_width = std::max(body_half_width, ball.radius);
                 }
             }
-            if (body_half_width < 0.01f) body_half_width = 0.1f;
+            if (body_half_width < 0.01f) body_half_width = DEFAULT_BODY_HALF_WIDTH;
 
-            Vec3 current = attach + Vec3(0.0f, 0.0f, side_sign * body_half_width * 0.85f);
+            Vec3 current = attach + Vec3(0.0f, 0.0f, side_sign * body_half_width * ATTACH_OFFSET_FRAC);
 
             for (size_t si = 0; si < limb.segments.size(); ++si) {
                 const auto& seg = limb.segments[si];
                 float angle_rad = seg.angle * DEG_TO_RAD;
 
-                // Lateral component — stronger for the proximal segment,
-                // weaker for distal ones, matching the Python generator.
-                float lat = (si == 0) ? 0.6f : 0.3f;
+                float lat = (si == 0) ? PROXIMAL_LATERAL : DISTAL_LATERAL;
                 Vec3 dir(std::cos(angle_rad), std::sin(angle_rad), side_sign * lat);
                 float len = dir.length();
                 if (len > 1e-6f) dir = dir / len;

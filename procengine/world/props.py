@@ -57,6 +57,7 @@ QUADRUPED_START_HEIGHT = 0.6
 TORSO_LATERAL_OFFSET_MIN = 0.60
 TORSO_LATERAL_OFFSET_MAX = 0.75
 METABALL_BRIDGE_RADIUS_EPSILON = 1e-3
+_MAX_LIMB_PAIRS = 2  # 2 pairs × 2 sides = 4 limbs max per creature
 
 __all__ = [
     "generate_rock_descriptors",
@@ -397,10 +398,9 @@ def _generate_limbs(
     """Generate symmetric limb metadata and connected limb metaballs.
 
     Each attach pair produces two limbs (left + right) for bilateral symmetry.
-    The maximum number of attach pairs is capped at 2 so that no creature
-    exceeds 4 limbs total.
+    The maximum number of attach pairs is capped at ``_MAX_LIMB_PAIRS`` so
+    that no creature exceeds 4 limbs total.
     """
-    _MAX_LIMB_PAIRS = 2  # 2 pairs × 2 sides = 4 limbs max
     limbs: list[dict[str, object]] = []
     metaballs: list[dict[str, object]] = []
     bone_count = max(len(joints) - 1, 1)
