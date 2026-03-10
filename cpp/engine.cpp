@@ -734,10 +734,29 @@ PYBIND11_MODULE(procengine_cpp, m) {
         .def_readwrite("radius", &props::Metaball::radius)
         .def_readwrite("strength", &props::Metaball::strength);
 
+    py::class_<props::LimbSegment>(m, "LimbSegment")
+        .def(py::init<>())
+        .def_readwrite("length", &props::LimbSegment::length)
+        .def_readwrite("angle", &props::LimbSegment::angle);
+
+    py::class_<props::LimbMetaball>(m, "LimbMetaball")
+        .def(py::init<>())
+        .def_readwrite("offset", &props::LimbMetaball::offset)
+        .def_readwrite("radius", &props::LimbMetaball::radius);
+
+    py::class_<props::LimbDescriptor>(m, "LimbDescriptor")
+        .def(py::init<>())
+        .def_readwrite("attach_bone", &props::LimbDescriptor::attach_bone)
+        .def_readwrite("side", &props::LimbDescriptor::side)
+        .def_readwrite("segments", &props::LimbDescriptor::segments)
+        .def_readwrite("metaballs", &props::LimbDescriptor::metaballs);
+
     py::class_<props::CreatureDescriptor>(m, "CreatureDescriptor")
         .def(py::init<>())
+        .def_readwrite("body_plan", &props::CreatureDescriptor::body_plan)
         .def_readwrite("skeleton", &props::CreatureDescriptor::skeleton)
-        .def_readwrite("metaballs", &props::CreatureDescriptor::metaballs);
+        .def_readwrite("metaballs", &props::CreatureDescriptor::metaballs)
+        .def_readwrite("limbs", &props::CreatureDescriptor::limbs);
 
     m.def("evaluate_metaball_field", &props::evaluate_metaball_field,
           py::arg("metaballs"), py::arg("point"),
@@ -1027,6 +1046,9 @@ PYBIND11_MODULE(procengine_cpp, m) {
             if (!d.contains("metaballs")) {
                 throw std::runtime_error("Missing required key 'metaballs'");
             }
+            if (d.contains("body_plan")) {
+                desc.body_plan = d["body_plan"].cast<std::string>();
+            }
 
             auto skeleton = d["skeleton"].cast<py::list>();
             for (size_t i = 0; i < py::len(skeleton); ++i) {
@@ -1058,6 +1080,55 @@ PYBIND11_MODULE(procengine_cpp, m) {
                 );
                 ball.radius = m_dict["radius"].cast<float>();
                 desc.metaballs.push_back(ball);
+            }
+
+            if (d.contains("limbs")) {
+                auto limbs = d["limbs"].cast<py::list>();
+                for (size_t limb_index = 0; limb_index < py::len(limbs); ++limb_index) {
+                    auto limb_dict = limbs[limb_index].cast<py::dict>();
+                    props::LimbDescriptor limb;
+                    if (limb_dict.contains("attach_bone")) {
+                        limb.attach_bone = limb_dict["attach_bone"].cast<uint32_t>();
+                    }
+                    if (limb_dict.contains("side")) {
+                        limb.side = limb_dict["side"].cast<std::string>();
+                    }
+                    if (limb_dict.contains("segments")) {
+                        auto segments = limb_dict["segments"].cast<py::list>();
+                        for (size_t seg_index = 0; seg_index < py::len(segments); ++seg_index) {
+                            auto seg_dict = segments[seg_index].cast<py::dict>();
+                            if (!seg_dict.contains("length") || !seg_dict.contains("angle")) {
+                                throw std::runtime_error(
+                                    "Limb segment at index " + std::to_string(seg_index) +
+                                    " missing 'length' or 'angle'"
+                                );
+                            }
+                            props::LimbSegment segment;
+                            segment.length = seg_dict["length"].cast<float>();
+                            segment.angle = seg_dict["angle"].cast<float>();
+                            limb.segments.push_back(segment);
+                        }
+                    }
+                    if (limb_dict.contains("metaballs")) {
+                        auto limb_metaballs = limb_dict["metaballs"].cast<py::list>();
+                        for (size_t meta_index = 0; meta_index < py::len(limb_metaballs); ++meta_index) {
+                            auto meta_dict = limb_metaballs[meta_index].cast<py::dict>();
+                            if (!meta_dict.contains("radius")) {
+                                throw std::runtime_error(
+                                    "Limb metaball at index " + std::to_string(meta_index) +
+                                    " missing 'radius'"
+                                );
+                            }
+                            props::LimbMetaball limb_metaball;
+                            if (meta_dict.contains("offset")) {
+                                limb_metaball.offset = meta_dict["offset"].cast<float>();
+                            }
+                            limb_metaball.radius = meta_dict["radius"].cast<float>();
+                            limb.metaballs.push_back(limb_metaball);
+                        }
+                    }
+                    desc.limbs.push_back(limb);
+                }
             }
         } catch (const py::cast_error& e) {
             throw std::runtime_error(std::string("Type conversion error in create_creature_from_dict: ") + e.what());

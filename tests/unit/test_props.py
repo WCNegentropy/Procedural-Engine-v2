@@ -24,8 +24,27 @@ from procengine.core.seed_registry import SeedRegistry
 # ---- All valid chunk-prop types produced by generate_chunk_props ----
 ALL_CHUNK_PROP_TYPES = {
     "rock", "tree", "bush", "pine_tree", "dead_tree", "fallen_log",
-    "boulder_cluster", "flower_patch", "mushroom", "cactus",
+    "boulder_cluster", "flower_patch", "mushroom", "cactus", "creature",
 }
+
+
+def _metaballs_are_connected(metaballs: list[dict[str, object]]) -> bool:
+    centers = [np.array(ball["center"], dtype=float) for ball in metaballs]
+    radii = [float(ball["radius"]) for ball in metaballs]
+    visited = {0}
+    frontier = [0]
+
+    while frontier:
+        index = frontier.pop()
+        for other in range(len(metaballs)):
+            if other in visited:
+                continue
+            distance = float(np.linalg.norm(centers[index] - centers[other]))
+            if distance <= radii[index] + radii[other] + 1e-6:
+                visited.add(other)
+                frontier.append(other)
+
+    return len(visited) == len(metaballs)
 
 
 def test_generate_rock_descriptors_deterministic():
@@ -97,8 +116,52 @@ def test_generate_creature_descriptors_structure():
     assert len(creatures) == 1
     creature = creatures[0]
     assert creature["type"] == "creature"
-    assert len(creature["skeleton"]) >= 1
-    assert len(creature["metaballs"]) >= 1
+    assert creature["body_plan"] in {"quadruped", "biped"}
+    assert len(creature["skeleton"]) >= 3
+    assert len(creature["metaballs"]) >= len(creature["skeleton"])
+    assert len(creature["limbs"]) == 4
+    assert {limb["side"] for limb in creature["limbs"]} == {"left", "right"}
+
+
+def test_generate_creature_descriptors_are_connected_and_scaled():
+    reg = SeedRegistry(8)
+    creatures = generate_creature_descriptors(reg, 12)
+
+    for creature in creatures:
+        metaballs = creature["metaballs"]
+        assert _metaballs_are_connected(metaballs)
+
+        centers = np.array([ball["center"] for ball in metaballs], dtype=float)
+        radii = np.array([float(ball["radius"]) for ball in metaballs], dtype=float)
+        mins = centers - radii[:, None]
+        maxs = centers + radii[:, None]
+        span = maxs.max(axis=0) - mins.min(axis=0)
+        assert 0.8 <= float(span.max()) <= 2.0 + 1e-6
+        assert mins[:, 1].min() == pytest.approx(0.0, abs=1e-6)
+
+
+def test_generate_creature_descriptors_have_symmetric_limb_metadata():
+    reg = SeedRegistry(9)
+    creature = generate_creature_descriptors(reg, 1)[0]
+
+    limb_pairs = {}
+    for limb in creature["limbs"]:
+        key = limb["attach_bone"]
+        limb_pairs.setdefault(key, {})[limb["side"]] = limb
+
+    assert limb_pairs
+    for pair in limb_pairs.values():
+        assert set(pair) == {"left", "right"}
+        left = pair["left"]
+        right = pair["right"]
+        assert left["segments"] == right["segments"]
+        assert left["metaballs"] == right["metaballs"]
+
+
+def test_generate_creature_descriptors_support_body_plan_filter():
+    reg = SeedRegistry(10)
+    creatures = generate_creature_descriptors(reg, 4, body_plans=("biped",))
+    assert {creature["body_plan"] for creature in creatures} == {"biped"}
 
 
 # =============================================================================

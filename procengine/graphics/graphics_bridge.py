@@ -704,10 +704,7 @@ class GraphicsBridge:
             elif entity_type == "creature":
                 if entity_state and "skeleton" in entity_state and "metaballs" in entity_state:
                     try:
-                        desc = cpp.create_creature_from_dict({
-                            "skeleton": entity_state["skeleton"],
-                            "metaballs": entity_state["metaballs"],
-                        })
+                        desc = cpp.create_creature_from_dict(dict(entity_state))
                         mesh = cpp.generate_creature_mesh(desc)
                     except Exception as e:
                         logger.warning(f"Creature mesh generation failed: {e}, using capsule fallback")

@@ -282,12 +282,31 @@ struct Metaball {
     float strength = 1.0f;
 };
 
+struct LimbSegment {
+    float length = 0.0f;
+    float angle = 0.0f;
+};
+
+struct LimbMetaball {
+    float offset = 0.0f;
+    float radius = 0.0f;
+};
+
+struct LimbDescriptor {
+    uint32_t attach_bone = 0;
+    std::string side = "left";
+    std::vector<LimbSegment> segments;
+    std::vector<LimbMetaball> metaballs;
+};
+
 /**
  * Creature descriptor from Python.
  */
 struct CreatureDescriptor {
+    std::string body_plan = "quadruped";
     std::vector<Bone> skeleton;
     std::vector<Metaball> metaballs;
+    std::vector<LimbDescriptor> limbs;
 };
 
 /**

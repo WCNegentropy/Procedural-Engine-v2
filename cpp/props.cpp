@@ -471,20 +471,21 @@ float evaluate_metaball_field(const std::vector<Metaball>& metaballs, const Vec3
     return field;
 }
 
-// Marching cubes edge table (simplified - 256 entries)
-// This is a minimal implementation for the procedural engine
-
-// Edge vertices for each of the 12 edges of a cube
-static const int edge_vertices[12][2] = {
-    {0, 1}, {1, 2}, {2, 3}, {3, 0},
-    {4, 5}, {5, 6}, {6, 7}, {7, 4},
-    {0, 4}, {1, 5}, {2, 6}, {3, 7}
-};
-
 // Vertex positions for cube corners
 static const float cube_vertices[8][3] = {
     {0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0},
     {0, 0, 1}, {1, 0, 1}, {1, 1, 1}, {0, 1, 1}
+};
+
+// Consistent tetrahedral subdivision of a cube. This avoids the ambiguous
+// saddle/fan cases that were leaving holes in the old creature extractor.
+static const int cube_tetrahedra[6][4] = {
+    {0, 5, 1, 6},
+    {0, 1, 2, 6},
+    {0, 2, 3, 6},
+    {0, 3, 7, 6},
+    {0, 7, 4, 6},
+    {0, 4, 5, 6}
 };
 
 // Interpolate vertex position along edge
@@ -500,6 +501,179 @@ static Vec3 interpolate_edge(
     return p1 + (p2 - p1) * t;
 }
 
+static Vec3 evaluate_field_gradient(
+    const std::vector<Metaball>& metaballs,
+    const Vec3& point,
+    float epsilon
+) {
+    float fx = evaluate_metaball_field(metaballs, point + Vec3(epsilon, 0.0f, 0.0f))
+             - evaluate_metaball_field(metaballs, point - Vec3(epsilon, 0.0f, 0.0f));
+    float fy = evaluate_metaball_field(metaballs, point + Vec3(0.0f, epsilon, 0.0f))
+             - evaluate_metaball_field(metaballs, point - Vec3(0.0f, epsilon, 0.0f));
+    float fz = evaluate_metaball_field(metaballs, point + Vec3(0.0f, 0.0f, epsilon))
+             - evaluate_metaball_field(metaballs, point - Vec3(0.0f, 0.0f, epsilon));
+    return Vec3(fx, fy, fz);
+}
+
+static std::string vertex_key(const Vec3& vertex) {
+    constexpr double scale = 1000000.0;
+    return std::to_string(static_cast<long long>(std::llround(vertex.x * scale))) + ":" +
+           std::to_string(static_cast<long long>(std::llround(vertex.y * scale))) + ":" +
+           std::to_string(static_cast<long long>(std::llround(vertex.z * scale)));
+}
+
+static uint32_t get_or_add_vertex(
+    Mesh& mesh,
+    std::unordered_map<std::string, uint32_t>& vertex_cache,
+    const Vec3& vertex
+) {
+    std::string key = vertex_key(vertex);
+    auto it = vertex_cache.find(key);
+    if (it != vertex_cache.end()) {
+        return it->second;
+    }
+    uint32_t index = static_cast<uint32_t>(mesh.vertices.size());
+    mesh.vertices.push_back(vertex);
+    vertex_cache.emplace(std::move(key), index);
+    return index;
+}
+
+static void emit_triangle(
+    Mesh& mesh,
+    std::unordered_map<std::string, uint32_t>& vertex_cache,
+    const Vec3& v0,
+    const Vec3& v1,
+    const Vec3& v2
+) {
+    mesh.indices.push_back(get_or_add_vertex(mesh, vertex_cache, v0));
+    mesh.indices.push_back(get_or_add_vertex(mesh, vertex_cache, v1));
+    mesh.indices.push_back(get_or_add_vertex(mesh, vertex_cache, v2));
+}
+
+static void polygonise_tetrahedron(
+    Mesh& mesh,
+    std::unordered_map<std::string, uint32_t>& vertex_cache,
+    const Vec3 positions[4],
+    const float values[4],
+    float threshold
+) {
+    int inside[4];
+    int outside[4];
+    int inside_count = 0;
+    int outside_count = 0;
+
+    for (int i = 0; i < 4; ++i) {
+        if (values[i] >= threshold) {
+            inside[inside_count++] = i;
+        } else {
+            outside[outside_count++] = i;
+        }
+    }
+
+    if (inside_count == 0 || inside_count == 4) {
+        return;
+    }
+
+    if (inside_count == 1 || inside_count == 3) {
+        bool invert = inside_count == 3;
+        int apex = invert ? outside[0] : inside[0];
+        const int* ring = invert ? inside : outside;
+
+        Vec3 v0 = interpolate_edge(
+            positions[apex], positions[ring[0]], values[apex], values[ring[0]], threshold
+        );
+        Vec3 v1 = interpolate_edge(
+            positions[apex], positions[ring[1]], values[apex], values[ring[1]], threshold
+        );
+        Vec3 v2 = interpolate_edge(
+            positions[apex], positions[ring[2]], values[apex], values[ring[2]], threshold
+        );
+
+        if (invert) {
+            emit_triangle(mesh, vertex_cache, v0, v2, v1);
+        } else {
+            emit_triangle(mesh, vertex_cache, v0, v1, v2);
+        }
+        return;
+    }
+
+    Vec3 quad[4] = {
+        interpolate_edge(
+            positions[inside[0]], positions[outside[0]],
+            values[inside[0]], values[outside[0]], threshold
+        ),
+        interpolate_edge(
+            positions[inside[0]], positions[outside[1]],
+            values[inside[0]], values[outside[1]], threshold
+        ),
+        interpolate_edge(
+            positions[inside[1]], positions[outside[0]],
+            values[inside[1]], values[outside[0]], threshold
+        ),
+        interpolate_edge(
+            positions[inside[1]], positions[outside[1]],
+            values[inside[1]], values[outside[1]], threshold
+        ),
+    };
+
+    emit_triangle(mesh, vertex_cache, quad[0], quad[1], quad[2]);
+    emit_triangle(mesh, vertex_cache, quad[1], quad[3], quad[2]);
+}
+
+static Mesh finalize_creature_mesh(
+    const Mesh& raw_mesh,
+    const std::vector<Metaball>& metaballs,
+    float cell_size
+) {
+    Mesh mesh;
+    mesh.vertices = raw_mesh.vertices;
+    mesh.normals.assign(mesh.vertices.size(), Vec3(0.0f, 0.0f, 0.0f));
+
+    float epsilon = std::max(cell_size * 0.25f, 1e-4f);
+    float area_epsilon = std::max(cell_size * cell_size * 1e-4f, 1e-8f);
+
+    for (size_t i = 0; i + 2 < raw_mesh.indices.size(); i += 3) {
+        uint32_t i0 = raw_mesh.indices[i];
+        uint32_t i1 = raw_mesh.indices[i + 1];
+        uint32_t i2 = raw_mesh.indices[i + 2];
+
+        const Vec3& v0 = raw_mesh.vertices[i0];
+        const Vec3& v1 = raw_mesh.vertices[i1];
+        const Vec3& v2 = raw_mesh.vertices[i2];
+
+        Vec3 face = (v1 - v0).cross(v2 - v0);
+        float area = face.length();
+        if (area <= area_epsilon) {
+            continue;
+        }
+
+        Vec3 centroid = (v0 + v1 + v2) / 3.0f;
+        Vec3 outward = evaluate_field_gradient(metaballs, centroid, epsilon) * -1.0f;
+        if (outward.length() > 1e-6f && face.dot(outward) < 0.0f) {
+            std::swap(i1, i2);
+            face = face * -1.0f;
+        }
+
+        mesh.indices.push_back(i0);
+        mesh.indices.push_back(i1);
+        mesh.indices.push_back(i2);
+        mesh.normals[i0] += face;
+        mesh.normals[i1] += face;
+        mesh.normals[i2] += face;
+    }
+
+    for (auto& normal : mesh.normals) {
+        float len = normal.length();
+        if (len > 1e-6f) {
+            normal = normal / len;
+        } else {
+            normal = Vec3(0.0f, 1.0f, 0.0f);
+        }
+    }
+
+    return mesh;
+}
+
 Mesh generate_creature_mesh(
     const CreatureDescriptor& desc,
     uint32_t grid_resolution,
@@ -512,19 +686,20 @@ Mesh generate_creature_mesh(
     // Compute bounding box of metaballs
     Vec3 min_bound(1e10f, 1e10f, 1e10f);
     Vec3 max_bound(-1e10f, -1e10f, -1e10f);
+    float max_radius = 0.0f;
 
     for (const auto& ball : desc.metaballs) {
-        float r = ball.radius * 2.0f;  // Extend by radius
+        float r = ball.radius * 2.0f;
         min_bound.x = std::min(min_bound.x, ball.center.x - r);
         min_bound.y = std::min(min_bound.y, ball.center.y - r);
         min_bound.z = std::min(min_bound.z, ball.center.z - r);
         max_bound.x = std::max(max_bound.x, ball.center.x + r);
         max_bound.y = std::max(max_bound.y, ball.center.y + r);
         max_bound.z = std::max(max_bound.z, ball.center.z + r);
+        max_radius = std::max(max_radius, ball.radius);
     }
 
-    // Add some padding
-    Vec3 padding(0.2f, 0.2f, 0.2f);
+    Vec3 padding(max_radius, max_radius, max_radius);
     min_bound = min_bound - padding;
     max_bound = max_bound + padding;
 
@@ -551,11 +726,12 @@ Mesh generate_creature_mesh(
         }
     }
 
-    // March through grid (simplified marching cubes)
+    std::unordered_map<std::string, uint32_t> vertex_cache;
+
+    // March through grid using a consistent tetrahedral decomposition.
     for (uint32_t iz = 0; iz < nz - 1; ++iz) {
         for (uint32_t iy = 0; iy < ny - 1; ++iy) {
             for (uint32_t ix = 0; ix < nx - 1; ++ix) {
-                // Get field values at cube corners
                 float values[8];
                 Vec3 positions[8];
 
@@ -573,84 +749,26 @@ Mesh generate_creature_mesh(
                     );
                 }
 
-                // Compute cube index
-                int cube_index = 0;
-                for (int c = 0; c < 8; ++c) {
-                    if (values[c] >= threshold) {
-                        cube_index |= (1 << c);
+                for (const auto& tetrahedron : cube_tetrahedra) {
+                    Vec3 tetra_positions[4];
+                    float tetra_values[4];
+                    for (int t = 0; t < 4; ++t) {
+                        tetra_positions[t] = positions[tetrahedron[t]];
+                        tetra_values[t] = values[tetrahedron[t]];
                     }
-                }
-
-                // Skip if entirely inside or outside
-                if (cube_index == 0 || cube_index == 255) continue;
-
-                // Find edge intersections
-                Vec3 edge_verts[12];
-                bool edge_used[12] = {false};
-
-                for (int e = 0; e < 12; ++e) {
-                    int v1 = edge_vertices[e][0];
-                    int v2 = edge_vertices[e][1];
-
-                    bool in1 = (values[v1] >= threshold);
-                    bool in2 = (values[v2] >= threshold);
-
-                    if (in1 != in2) {
-                        edge_verts[e] = interpolate_edge(
-                            positions[v1], positions[v2],
-                            values[v1], values[v2], threshold
-                        );
-                        edge_used[e] = true;
-                    }
-                }
-
-                // Generate triangles (simplified - just connect used edges)
-                // This is a basic approach; full marching cubes uses lookup tables
-                std::vector<int> used_edges;
-                for (int e = 0; e < 12; ++e) {
-                    if (edge_used[e]) {
-                        used_edges.push_back(e);
-                    }
-                }
-
-                // Create triangles from edge vertices (fan triangulation)
-                if (used_edges.size() >= 3) {
-                    uint32_t base = static_cast<uint32_t>(mesh.vertices.size());
-
-                    for (int e : used_edges) {
-                        mesh.vertices.push_back(edge_verts[e]);
-                    }
-
-                    // Compute normals for newly added vertices only
-                    float eps = cell_size * 0.1f;
-                    for (size_t vi = base; vi < mesh.vertices.size(); ++vi) {
-                        const Vec3& v = mesh.vertices[vi];
-                        float fx = evaluate_metaball_field(desc.metaballs, v + Vec3(eps, 0, 0))
-                                 - evaluate_metaball_field(desc.metaballs, v - Vec3(eps, 0, 0));
-                        float fy = evaluate_metaball_field(desc.metaballs, v + Vec3(0, eps, 0))
-                                 - evaluate_metaball_field(desc.metaballs, v - Vec3(0, eps, 0));
-                        float fz = evaluate_metaball_field(desc.metaballs, v + Vec3(0, 0, eps))
-                                 - evaluate_metaball_field(desc.metaballs, v - Vec3(0, 0, eps));
-                        mesh.normals.push_back(Vec3(-fx, -fy, -fz).normalized());
-                    }
-
-                    // Fan triangulation
-                    for (size_t i = 1; i + 1 < used_edges.size(); ++i) {
-                        mesh.indices.push_back(base);
-                        mesh.indices.push_back(base + static_cast<uint32_t>(i));
-                        mesh.indices.push_back(base + static_cast<uint32_t>(i + 1));
-                    }
+                    polygonise_tetrahedron(
+                        mesh,
+                        vertex_cache,
+                        tetra_positions,
+                        tetra_values,
+                        threshold
+                    );
                 }
             }
         }
     }
 
-    // Fix normals count if needed
-    while (mesh.normals.size() < mesh.vertices.size()) {
-        mesh.normals.push_back(Vec3(0, 1, 0));
-    }
-
-    return mesh;
+    return finalize_creature_mesh(mesh, desc.metaballs, cell_size);
 }
 
 // ============================================================================
