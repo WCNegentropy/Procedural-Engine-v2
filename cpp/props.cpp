@@ -636,14 +636,18 @@ static Mesh finalize_creature_mesh(
     mesh.vertices = raw_mesh.vertices;
     mesh.normals.assign(mesh.vertices.size(), Vec3(0.0f, 0.0f, 0.0f));
 
-    // Use a larger gradient epsilon to avoid cancellation artifacts at
-    // metaball junctions where multiple field contributions cancel out.
+    // Use a larger gradient epsilon (0.5x cell_size, up from 0.25x) to avoid
+    // cancellation artifacts at metaball junctions where multiple field
+    // contributions cancel out.  0.5x provides a wider sampling span that
+    // averages over junction zones while staying within one cell of the surface.
     float epsilon = std::max(cell_size * 0.5f, 1e-4f);
     // Reject nearly-zero-area triangles created by coplanar or duplicate edge
     // intersections without stripping legitimate small features.
     float area_epsilon = std::max(cell_size * cell_size * 1e-4f, 1e-8f);
-    // Minimum gradient strength to trust for winding correction — weak
-    // gradients at metaball junctions produce unreliable orientations.
+    // Minimum gradient strength to trust for winding correction — at metaball
+    // junctions the gradient can become arbitrarily small as field contributions
+    // cancel.  A threshold of 0.1x cell_size ensures the gradient spans at
+    // least ~10% of a cell before we trust its direction for a winding flip.
     float winding_grad_threshold = cell_size * 0.1f;
 
     // Precompute a relaxed area threshold for triangles near metaball centers
