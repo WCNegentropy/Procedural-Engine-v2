@@ -461,7 +461,7 @@ def _generate_limbs(
                     [math.cos(math.radians(angle)), math.sin(math.radians(angle)), side_sign * lateral_angle],
                     dtype=np.float64,
                 )
-                norm = float(np.linalg.norm(direction))
+                norm = np.linalg.norm(direction)
                 if norm > 1e-8:
                     direction = direction / norm
                 length = float(segment["length"])
