@@ -31,6 +31,12 @@ from procengine.world.chunk import (
     ChunkManager,
     ChunkedHeightField,
 )
+from procengine.world.creature_templates import (
+    CreatureTemplate,
+    CREATURE_TEMPLATES,
+    BIOME_SPECIES,
+    generate_creature_from_template,
+)
 
 __all__ = [
     "generate_terrain_maps",
@@ -54,4 +60,9 @@ __all__ = [
     "ChunkCoord",
     "ChunkManager",
     "ChunkedHeightField",
+    # Creature templates
+    "CreatureTemplate",
+    "CREATURE_TEMPLATES",
+    "BIOME_SPECIES",
+    "generate_creature_from_template",
 ]
