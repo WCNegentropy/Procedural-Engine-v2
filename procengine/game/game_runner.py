@@ -1663,7 +1663,7 @@ class GameRunner:
                 if isinstance(entity, Creature):
                     mesh_name = self._get_or_create_entity_mesh(
                         entity.entity_id, "creature",
-                        {"skeleton": entity.skeleton, "metaballs": entity.metaballs},
+                        {"skeleton": entity.skeleton, "metaballs": entity.metaballs, "limbs": entity.limbs},
                     )
                     self._graphics_bridge.draw_entity(
                         mesh_name,
@@ -1699,7 +1699,7 @@ class GameRunner:
             for entity in self._world.get_entities_by_type(Creature):
                 mesh_name = self._get_or_create_entity_mesh(
                     entity.entity_id, "creature",
-                    {"skeleton": entity.skeleton, "metaballs": entity.metaballs},
+                    {"skeleton": entity.skeleton, "metaballs": entity.metaballs, "limbs": entity.limbs},
                 )
                 self._graphics_bridge.draw_entity(
                     mesh_name,
