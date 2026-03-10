@@ -20,7 +20,8 @@ Prop Types
 """
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+import math
+from typing import Dict, List, Optional, Sequence
 
 import numpy as np
 
@@ -51,6 +52,11 @@ COLD_BIOMES = {BIOME_TUNDRA, BIOME_TAIGA, BIOME_SNOWY_MOUNTAIN, BIOME_GLACIER,
                BIOME_FROZEN_OCEAN}
 WET_BIOMES = {BIOME_SWAMP, BIOME_JUNGLE}
 BARREN_BIOMES = {BIOME_DEEP_OCEAN, BIOME_OCEAN, BIOME_FROZEN_OCEAN, BIOME_GLACIER}
+
+QUADRUPED_START_HEIGHT = 0.6
+TORSO_LATERAL_OFFSET_MIN = 0.42
+TORSO_LATERAL_OFFSET_MAX = 0.58
+METABALL_BRIDGE_RADIUS_EPSILON = 1e-3
 
 __all__ = [
     "generate_rock_descriptors",
@@ -228,40 +234,393 @@ def generate_creature_descriptors(
     *,
     bones_range: tuple[int, int] = (3, 5),
     metaball_count_range: tuple[int, int] = (3, 6),
+    body_plans: tuple[str, ...] = ("quadruped", "biped"),
 ) -> List[Dict[str, object]]:
     """Return ``count`` deterministic creature descriptors.
 
-    Each descriptor contains a parameterized skeleton of ``bones`` segments and
-    a set of metaballs defining the creature's implicit surface.  The output is
-    a lightweight stand-in for a more sophisticated C++ implementation.
+    Each descriptor contains a skeleton-guided body plan, a coherent set of
+    connected metaballs, and limb metadata for future animation/runtime use.
     """
 
     if count < 0:
         raise ValueError("count must be non-negative")
+    if not body_plans:
+        raise ValueError("body_plans must not be empty")
 
     rng = registry.get_rng("props_creature")
     descriptors: List[Dict[str, object]] = []
     for _ in range(count):
-        bone_count = int(rng.integers(bones_range[0], bones_range[1] + 1))
-        skeleton = []
-        for _ in range(bone_count):
-            length = float(rng.uniform(0.5, 2.0))
-            angle = float(rng.uniform(-45.0, 45.0))
-            skeleton.append({"length": length, "angle": angle})
-
-        metaball_count = int(
-            rng.integers(metaball_count_range[0], metaball_count_range[1] + 1)
-        )
-        metaballs = []
-        for _ in range(metaball_count):
-            center = rng.random(3).tolist()
-            radius = float(rng.uniform(0.1, 0.5))
-            metaballs.append({"center": center, "radius": radius})
-
         descriptors.append(
-            {"type": "creature", "skeleton": skeleton, "metaballs": metaballs}
+            _generate_creature_descriptor_from_rng(
+                rng,
+                bones_range=bones_range,
+                metaball_count_range=metaball_count_range,
+                body_plans=body_plans,
+            )
         )
     return descriptors
+
+
+def _generate_spine_skeleton(
+    rng: np.random.Generator, bone_count: int, body_plan: str
+) -> tuple[list[dict[str, float]], list[np.ndarray]]:
+    """Build a deterministic spine chain.
+
+    Returns a tuple of ``(skeleton, joints)`` where ``skeleton`` is a list of
+    ``{"length", "angle"}`` bone descriptors and ``joints`` contains the 3D
+    joint positions traced by that chain.
+    """
+    if body_plan == "biped":
+        heading = 90.0
+        angle_jitter = 16.0
+        length_range = (0.28, 0.48)
+        start = np.array([0.0, 0.0, 0.0], dtype=np.float64)
+    else:
+        heading = 4.0
+        angle_jitter = 12.0
+        length_range = (0.32, 0.56)
+        start = np.array([0.0, QUADRUPED_START_HEIGHT, 0.0], dtype=np.float64)
+
+    joints = [start]
+    skeleton: list[dict[str, float]] = []
+    for _ in range(bone_count):
+        heading += float(rng.uniform(-angle_jitter, angle_jitter))
+        length = float(rng.uniform(*length_range))
+        direction = np.array(
+            [math.cos(math.radians(heading)), math.sin(math.radians(heading)), 0.0],
+            dtype=np.float64,
+        )
+        joints.append(joints[-1] + direction * length)
+        skeleton.append({"length": length, "angle": heading})
+
+    return skeleton, joints
+
+
+def _body_radius_profile(index: int, count: int, body_plan: str) -> float:
+    """Return a torso radius profile that peaks near the spine center.
+
+    The profile narrows toward the head/tail ends and uses a slightly larger
+    peak for quadrupeds than bipeds so both body plans stay readable after
+    normalization.
+    """
+    if count <= 1:
+        return 0.2 if body_plan == "biped" else 0.24
+    center = (count - 1) * 0.5
+    distance = abs(float(index) - center) / max(center, 1.0)
+    fullness = 1.0 - 0.55 * distance
+    base = 0.16 if body_plan == "biped" else 0.2
+    peak = 0.28 if body_plan == "biped" else 0.34
+    return base + (peak - base) * fullness
+
+
+def _append_metaball(
+    metaballs: list[dict[str, object]], center: np.ndarray, radius: float
+) -> None:
+    metaballs.append({"center": center.astype(float).tolist(), "radius": float(radius)})
+
+
+def _place_spine_metaballs(
+    rng: np.random.Generator,
+    joints: Sequence[np.ndarray],
+    body_plan: str,
+    detail_count: int,
+) -> list[dict[str, object]]:
+    """Place torso metaballs along the spine with symmetric width."""
+    metaballs: list[dict[str, object]] = []
+    segment_count = max(len(joints) - 1, 1)
+
+    for index in range(segment_count):
+        start = joints[index]
+        end = joints[index + 1]
+        midpoint = (start + end) * 0.5
+        radius = _body_radius_profile(index, segment_count, body_plan)
+        _append_metaball(metaballs, midpoint, radius)
+
+        if segment_count > 1:
+            fullness = radius / (
+                0.28 if body_plan == "biped" else 0.34
+            )
+            if fullness > 0.72:
+                lateral = radius * float(
+                    rng.uniform(TORSO_LATERAL_OFFSET_MIN, TORSO_LATERAL_OFFSET_MAX)
+                )
+                vertical = float(rng.uniform(-0.03, 0.03))
+                for side in (-1.0, 1.0):
+                    side_center = midpoint + np.array([0.0, vertical, side * lateral])
+                    _append_metaball(metaballs, side_center, radius * 0.82)
+
+    if detail_count > 0:
+        spine_points = np.linspace(0.1, 0.9, num=detail_count)
+        for fraction in spine_points:
+            position = float(fraction) * segment_count
+            index = min(int(position), segment_count - 1)
+            local_t = position - float(index)
+            point = joints[index] + (joints[index + 1] - joints[index]) * local_t
+            radius = _body_radius_profile(index, segment_count, body_plan) * 0.72
+            point = point + np.array(
+                [
+                    float(rng.uniform(-0.025, 0.025)),
+                    float(rng.uniform(-0.025, 0.025)),
+                    0.0,
+                ]
+            )
+            _append_metaball(metaballs, point, radius)
+
+    return metaballs
+
+
+def _make_limb_descriptor(
+    attach_bone: int,
+    side: str,
+    segments: Sequence[dict[str, float]],
+    radii: Sequence[float],
+) -> dict[str, object]:
+    return {
+        "attach_bone": attach_bone,
+        "side": side,
+        "segments": [{"length": float(s["length"]), "angle": float(s["angle"])} for s in segments],
+        "metaballs": [
+            {
+                "offset": float(index / max(len(radii) - 1, 1)),
+                "radius": float(radius),
+            }
+            for index, radius in enumerate(radii)
+        ],
+    }
+
+
+def _generate_limbs(
+    rng: np.random.Generator,
+    joints: Sequence[np.ndarray],
+    body_plan: str,
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    """Generate symmetric limb metadata and connected limb metaballs."""
+    limbs: list[dict[str, object]] = []
+    metaballs: list[dict[str, object]] = []
+    bone_count = max(len(joints) - 1, 1)
+
+    if body_plan == "biped":
+        attach_pairs = [
+            (max(0, min(1, bone_count - 1)), "arm"),
+            (max(0, bone_count - 1), "leg"),
+        ]
+        lateral_base = 0.12
+    else:
+        attach_pairs = [
+            (max(0, min(1, bone_count - 1)), "foreleg"),
+            (max(0, bone_count - 2), "hindleg"),
+        ]
+        lateral_base = 0.16
+
+    for attach_bone, limb_kind in attach_pairs:
+        attach_joint = joints[min(attach_bone, len(joints) - 1)]
+        if limb_kind == "arm":
+            segment_angles = (-118.0, -78.0)
+            segment_lengths = (
+                float(rng.uniform(0.18, 0.26)),
+                float(rng.uniform(0.16, 0.24)),
+            )
+            base_radius = 0.11
+        elif limb_kind == "leg":
+            segment_angles = (-92.0, -80.0)
+            segment_lengths = (
+                float(rng.uniform(0.26, 0.38)),
+                float(rng.uniform(0.22, 0.32)),
+            )
+            base_radius = 0.13
+        elif limb_kind == "hindleg":
+            segment_angles = (-100.0, -82.0)
+            segment_lengths = (
+                float(rng.uniform(0.24, 0.34)),
+                float(rng.uniform(0.2, 0.28)),
+            )
+            base_radius = 0.12
+        else:
+            segment_angles = (-82.0, -94.0)
+            segment_lengths = (
+                float(rng.uniform(0.22, 0.3)),
+                float(rng.uniform(0.18, 0.26)),
+            )
+            base_radius = 0.12
+
+        segment_defs = [
+            {"length": segment_lengths[0], "angle": segment_angles[0]},
+            {"length": segment_lengths[1], "angle": segment_angles[1]},
+        ]
+        radius_profile = [base_radius, base_radius * 0.9, base_radius * 0.72]
+
+        for side_name, side_sign in (("left", -1.0), ("right", 1.0)):
+            lateral = lateral_base + float(rng.uniform(-0.015, 0.015))
+            current = attach_joint + np.array([0.0, -0.03, side_sign * lateral])
+            _append_metaball(metaballs, current, radius_profile[0])
+
+            for segment_index, segment in enumerate(segment_defs):
+                angle = float(segment["angle"]) + float(rng.uniform(-8.0, 8.0))
+                direction = np.array(
+                    [math.cos(math.radians(angle)), math.sin(math.radians(angle)), 0.0],
+                    dtype=np.float64,
+                )
+                length = float(segment["length"])
+                next_point = current + direction * length
+                midpoint = (current + next_point) * 0.5
+                _append_metaball(metaballs, midpoint, radius_profile[segment_index + 1])
+                current = next_point
+
+            limbs.append(_make_limb_descriptor(attach_bone, side_name, segment_defs, radius_profile))
+
+    return limbs, metaballs
+
+
+def _normalize_creature_scale(
+    skeleton: list[dict[str, float]],
+    metaballs: list[dict[str, object]],
+    limbs: list[dict[str, object]],
+    target_major_axis: float,
+) -> tuple[list[dict[str, float]], list[dict[str, object]], list[dict[str, object]]]:
+    """Center and scale creature geometry into a stable world-space range."""
+    centers = np.array([ball["center"] for ball in metaballs], dtype=np.float64)
+    radii = np.array([float(ball["radius"]) for ball in metaballs], dtype=np.float64)
+    mins = centers - radii[:, None]
+    maxs = centers + radii[:, None]
+
+    min_bound = mins.min(axis=0)
+    max_bound = maxs.max(axis=0)
+    span = np.maximum(max_bound - min_bound, 1e-6)
+    scale = float(target_major_axis / float(span.max()))
+    offset = np.array(
+        [
+            -0.5 * (min_bound[0] + max_bound[0]),
+            -min_bound[1],
+            -0.5 * (min_bound[2] + max_bound[2]),
+        ],
+        dtype=np.float64,
+    )
+
+    normalized_metaballs = []
+    for ball in metaballs:
+        center = (np.array(ball["center"], dtype=np.float64) + offset) * scale
+        normalized_metaballs.append(
+            {"center": center.astype(float).tolist(), "radius": float(ball["radius"]) * scale}
+        )
+
+    normalized_skeleton = [
+        {"length": float(bone["length"]) * scale, "angle": float(bone["angle"])}
+        for bone in skeleton
+    ]
+    normalized_limbs = []
+    for limb in limbs:
+        normalized_limb = {
+            "attach_bone": int(limb["attach_bone"]),
+            "side": str(limb["side"]),
+            "segments": [
+                {"length": float(segment["length"]) * scale, "angle": float(segment["angle"])}
+                for segment in limb["segments"]
+            ],
+            "metaballs": [
+                {"offset": float(ball["offset"]), "radius": float(ball["radius"]) * scale}
+                for ball in limb["metaballs"]
+            ],
+        }
+        normalized_limbs.append(normalized_limb)
+
+    return normalized_skeleton, normalized_metaballs, normalized_limbs
+
+
+def _connect_metaball_components(metaballs: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Bridge disconnected metaball clusters with greedy linking balls.
+
+    This mutates ``metaballs`` in place by appending the smallest bridge ball
+    found between disconnected components, then returns the same list for
+    convenience.
+    """
+
+    def build_components() -> list[set[int]]:
+        components: list[set[int]] = []
+        visited: set[int] = set()
+        centers = [np.array(ball["center"], dtype=np.float64) for ball in metaballs]
+        radii = [float(ball["radius"]) for ball in metaballs]
+
+        for start in range(len(metaballs)):
+            if start in visited:
+                continue
+            frontier = [start]
+            component = {start}
+            visited.add(start)
+            while frontier:
+                index = frontier.pop()
+                for other in range(len(metaballs)):
+                    if other in visited:
+                        continue
+                    distance = float(np.linalg.norm(centers[index] - centers[other]))
+                    if distance <= radii[index] + radii[other] + 1e-6:
+                        visited.add(other)
+                        component.add(other)
+                        frontier.append(other)
+            components.append(component)
+        return components
+
+    components = build_components()
+    while len(components) > 1:
+        centers = [np.array(ball["center"], dtype=np.float64) for ball in metaballs]
+        radii = [float(ball["radius"]) for ball in metaballs]
+        best_pair: tuple[int, int] | None = None
+        best_distance = float("inf")
+
+        for left_index in components[0]:
+            for component in components[1:]:
+                for right_index in component:
+                    distance = float(np.linalg.norm(centers[left_index] - centers[right_index]))
+                    gap = distance - (radii[left_index] + radii[right_index])
+                    if gap < best_distance:
+                        best_distance = gap
+                        best_pair = (left_index, right_index)
+
+        if best_pair is None:
+            break
+
+        left_index, right_index = best_pair
+        midpoint = (centers[left_index] + centers[right_index]) * 0.5
+        half_distance = float(np.linalg.norm(centers[left_index] - centers[right_index])) * 0.5
+        bridge_radius = max(
+            half_distance - radii[left_index] + METABALL_BRIDGE_RADIUS_EPSILON,
+            half_distance - radii[right_index] + METABALL_BRIDGE_RADIUS_EPSILON,
+            min(radii[left_index], radii[right_index]) * 0.8,
+        )
+        metaballs.append({"center": midpoint.astype(float).tolist(), "radius": float(bridge_radius)})
+        components = build_components()
+
+    return metaballs
+
+
+def _generate_creature_descriptor_from_rng(
+    rng: np.random.Generator,
+    *,
+    bones_range: tuple[int, int],
+    metaball_count_range: tuple[int, int],
+    body_plans: Sequence[str],
+) -> dict[str, object]:
+    """Generate one coherent creature descriptor from an existing RNG."""
+    body_plan = str(body_plans[int(rng.integers(0, len(body_plans)))])
+    bone_count = int(rng.integers(bones_range[0], bones_range[1] + 1))
+    skeleton, joints = _generate_spine_skeleton(rng, bone_count, body_plan)
+    detail_count = int(rng.integers(metaball_count_range[0], metaball_count_range[1] + 1))
+    torso_metaballs = _place_spine_metaballs(rng, joints, body_plan, detail_count)
+    limbs, limb_metaballs = _generate_limbs(rng, joints, body_plan)
+    all_metaballs = _connect_metaball_components(torso_metaballs + limb_metaballs)
+    skeleton, metaballs, limbs = _normalize_creature_scale(
+        skeleton,
+        all_metaballs,
+        limbs,
+        target_major_axis=float(rng.uniform(0.8, 2.0)),
+    )
+
+    return {
+        "type": "creature",
+        "body_plan": body_plan,
+        "skeleton": skeleton,
+        "metaballs": metaballs,
+        "limbs": limbs,
+    }
 
 
 # =========================================================================
@@ -935,25 +1294,13 @@ def generate_chunk_props(
         if rng.random() > 0.15:
             continue
 
-        bone_count = int(rng.integers(3, 6))
-        skeleton = []
-        for _ in range(bone_count):
-            skeleton.append({
-                "length": float(rng.uniform(0.5, 2.0)),
-                "angle": float(rng.uniform(-45.0, 45.0)),
-            })
-        metaball_count = int(rng.integers(3, 7))
-        metaballs = []
-        for _ in range(metaball_count):
-            metaballs.append({
-                "center": rng.random(3).tolist(),
-                "radius": float(rng.uniform(0.1, 0.5)),
-            })
-        descriptors.append({
-            "type": "creature",
-            "position": [pos_x, terrain_y, pos_z],
-            "skeleton": skeleton,
-            "metaballs": metaballs,
-        })
+        creature = _generate_creature_descriptor_from_rng(
+            rng,
+            bones_range=(3, 5),
+            metaball_count_range=(3, 6),
+            body_plans=("quadruped", "biped"),
+        )
+        creature["position"] = [pos_x, terrain_y, pos_z]
+        descriptors.append(creature)
 
     return descriptors

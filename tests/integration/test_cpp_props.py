@@ -8,6 +8,16 @@ import pytest
 procengine_cpp = pytest.importorskip("procengine_cpp")
 
 
+def _edge_use_counts(mesh) -> dict[tuple[int, int], int]:
+    counts: dict[tuple[int, int], int] = {}
+    for index in range(0, len(mesh.indices), 3):
+        tri = mesh.indices[index:index + 3]
+        for start, end in ((tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])):
+            edge = tuple(sorted((int(start), int(end))))
+            counts[edge] = counts.get(edge, 0) + 1
+    return counts
+
+
 # ============================================================================
 # Vec3 Tests
 # ============================================================================
@@ -250,6 +260,7 @@ def test_evaluate_metaball_field() -> None:
 def test_generate_creature_mesh() -> None:
     """Creature mesh generation produces valid mesh."""
     desc = procengine_cpp.CreatureDescriptor()
+    desc.body_plan = "quadruped"
 
     # Add skeleton bones
     bone1 = procengine_cpp.Bone()
@@ -274,12 +285,39 @@ def test_generate_creature_mesh() -> None:
 
     # Should produce some geometry (metaballs create implicit surface)
     assert mesh.vertex_count() > 0
+    assert mesh.validate()
+
+
+def test_generate_creature_mesh_single_metaball_is_manifold() -> None:
+    """A simple creature sphere should not leave open edges behind."""
+    desc = procengine_cpp.CreatureDescriptor()
+    desc.body_plan = "biped"
+
+    bone = procengine_cpp.Bone()
+    bone.length = 1.0
+    bone.angle = 90.0
+    desc.skeleton = [bone]
+
+    ball = procengine_cpp.Metaball()
+    ball.center = procengine_cpp.Vec3(0.0, 0.6, 0.0)
+    ball.radius = 0.45
+    ball.strength = 1.0
+    desc.metaballs = [ball]
+
+    mesh = procengine_cpp.generate_creature_mesh(desc, grid_resolution=20)
+
+    assert mesh.validate()
+    assert mesh.triangle_count() > 0
+    edge_counts = _edge_use_counts(mesh)
+    assert edge_counts
+    assert all(count == 2 for count in edge_counts.values())
 
 
 def test_creature_mesh_from_python_dict() -> None:
     """Creature mesh can be created from Python descriptor dict."""
     py_desc = {
         "type": "creature",
+        "body_plan": "quadruped",
         "skeleton": [
             {"length": 1.0, "angle": 0.0},
             {"length": 0.8, "angle": 15.0}
@@ -287,15 +325,68 @@ def test_creature_mesh_from_python_dict() -> None:
         "metaballs": [
             {"center": [0.5, 0.5, 0.5], "radius": 0.3},
             {"center": [0.7, 0.5, 0.5], "radius": 0.2}
-        ]
+        ],
+        "limbs": [
+            {
+                "attach_bone": 0,
+                "side": "left",
+                "segments": [
+                    {"length": 0.3, "angle": -80.0},
+                    {"length": 0.25, "angle": -95.0},
+                ],
+                "metaballs": [
+                    {"offset": 0.0, "radius": 0.12},
+                    {"offset": 0.5, "radius": 0.08},
+                ],
+            },
+            {
+                "attach_bone": 0,
+                "side": "right",
+                "segments": [
+                    {"length": 0.3, "angle": -80.0},
+                    {"length": 0.25, "angle": -95.0},
+                ],
+                "metaballs": [
+                    {"offset": 0.0, "radius": 0.12},
+                    {"offset": 0.5, "radius": 0.08},
+                ],
+            },
+        ],
     }
 
     cpp_desc = procengine_cpp.create_creature_from_dict(py_desc)
     mesh = procengine_cpp.generate_creature_mesh(cpp_desc, grid_resolution=16)
 
+    assert cpp_desc.body_plan == "quadruped"
     assert len(cpp_desc.skeleton) == 2
     assert len(cpp_desc.metaballs) == 2
+    assert len(cpp_desc.limbs) == 2
     assert mesh.vertex_count() > 0
+
+
+def test_creature_mesh_deterministic() -> None:
+    """Same creature descriptor should always extract the same mesh."""
+    py_desc = {
+        "body_plan": "biped",
+        "skeleton": [
+            {"length": 0.9, "angle": 92.0},
+            {"length": 0.7, "angle": 84.0},
+        ],
+        "metaballs": [
+            {"center": [0.0, 0.7, 0.0], "radius": 0.32},
+            {"center": [0.0, 1.1, 0.0], "radius": 0.24},
+            {"center": [0.12, 0.72, 0.18], "radius": 0.12},
+            {"center": [0.12, 0.72, -0.18], "radius": 0.12},
+        ],
+        "limbs": [],
+    }
+
+    desc = procengine_cpp.create_creature_from_dict(py_desc)
+    mesh1 = procengine_cpp.generate_creature_mesh(desc, grid_resolution=18)
+    mesh2 = procengine_cpp.generate_creature_mesh(desc, grid_resolution=18)
+
+    assert np.allclose(mesh1.get_vertices_numpy(), mesh2.get_vertices_numpy())
+    assert np.array_equal(mesh1.indices, mesh2.indices)
 
 
 # ============================================================================
