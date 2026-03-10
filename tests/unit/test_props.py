@@ -164,6 +164,40 @@ def test_generate_creature_descriptors_support_body_plan_filter():
     assert {creature["body_plan"] for creature in creatures} == {"biped"}
 
 
+def test_creature_limb_count_never_exceeds_four():
+    """No creature should ever have more than 4 limbs, across many seeds."""
+    for seed in range(50):
+        reg = SeedRegistry(seed)
+        for creature in generate_creature_descriptors(reg, 2):
+            assert len(creature["limbs"]) <= 4
+            assert len(creature["limbs"]) % 2 == 0  # always bilaterally symmetric
+
+
+def test_creature_torso_metaballs_exclude_limb_positions():
+    """Body metaballs should belong to the torso only.
+
+    Previously limb metaballs were mixed into the body field, causing
+    holes in the torso surface.  After the fix, limb geometry is carried
+    exclusively by desc.limbs and the body metaballs stay on the spine.
+    """
+    for seed in range(20):
+        reg = SeedRegistry(seed)
+        creature = generate_creature_descriptors(reg, 1)[0]
+        body_centers = np.array([b["center"] for b in creature["metaballs"]])
+        body_radii = np.array([float(b["radius"]) for b in creature["metaballs"]])
+        # All torso metaballs should have modest |Z| (the spine lies in
+        # the XY plane at Z=0).  Torso lateral metaballs have |Z| ≈ radius,
+        # but limb metaballs extend much further.  Check that no body
+        # metaball sits more than twice the body's maximum radius away
+        # from the spine centreline.
+        max_radius = float(body_radii.max())
+        max_abs_z = float(np.abs(body_centers[:, 2]).max())
+        assert max_abs_z <= max_radius * 2.5, (
+            f"seed={seed}: body metaball at |Z|={max_abs_z:.3f} exceeds "
+            f"2.5× max body radius ({max_radius:.3f})"
+        )
+
+
 # =============================================================================
 # Chunk Props Tests
 # =============================================================================

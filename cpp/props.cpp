@@ -818,7 +818,89 @@ Mesh generate_creature_mesh(
         }
     }
 
-    return finalize_creature_mesh(mesh, desc.metaballs, cell_size);
+    Mesh body = finalize_creature_mesh(mesh, desc.metaballs, cell_size);
+
+    // ----------------------------------------------------------------
+    // Append limb geometry as tapered cylinders (same pattern as cactus
+    // arms / tree branches).  The limb descriptor already carries segment
+    // lengths, angles and a radius profile — we just need to resolve
+    // the attachment position from the skeleton and walk each segment.
+    // ----------------------------------------------------------------
+    if (!desc.limbs.empty() && !desc.skeleton.empty() && !desc.metaballs.empty()) {
+        // 1. Reconstruct spine joint positions from the normalised skeleton.
+        //    The first torso metaball sits at the midpoint of the first spine
+        //    segment, so we can derive the starting joint from it.
+        std::vector<Vec3> joints;
+        float bone0_rad = desc.skeleton[0].angle * DEG_TO_RAD;
+        Vec3 bone0_dir(std::cos(bone0_rad), std::sin(bone0_rad), 0.0f);
+        joints.push_back(desc.metaballs[0].center - bone0_dir * (desc.skeleton[0].length * 0.5f));
+
+        for (const auto& bone : desc.skeleton) {
+            float rad = bone.angle * DEG_TO_RAD;
+            Vec3 dir(std::cos(rad), std::sin(rad), 0.0f);
+            joints.push_back(joints.back() + dir * bone.length);
+        }
+
+        // 2. For each limb, generate tapered cylinder segments and append.
+        constexpr uint32_t LIMB_CYL_SEGMENTS = 6;
+
+        for (const auto& limb : desc.limbs) {
+            uint32_t bone_idx = std::min(
+                limb.attach_bone,
+                static_cast<uint32_t>(joints.size() - 1));
+            Vec3 attach = joints[bone_idx];
+            float side_sign = (limb.side == "left") ? -1.0f : 1.0f;
+
+            // Estimate lateral (Z) offset from nearby torso metaballs so
+            // the limb starts at the body surface rather than inside it.
+            float body_half_width = 0.0f;
+            for (const auto& ball : desc.metaballs) {
+                Vec3 diff = ball.center - attach;
+                float xy_dist = std::sqrt(diff.x * diff.x + diff.y * diff.y);
+                if (xy_dist < ball.radius * 2.0f) {
+                    body_half_width = std::max(body_half_width, ball.radius);
+                }
+            }
+            if (body_half_width < 0.01f) body_half_width = 0.1f;
+
+            Vec3 current = attach + Vec3(0.0f, 0.0f, side_sign * body_half_width * 0.85f);
+
+            for (size_t si = 0; si < limb.segments.size(); ++si) {
+                const auto& seg = limb.segments[si];
+                float angle_rad = seg.angle * DEG_TO_RAD;
+
+                // Lateral component — stronger for the proximal segment,
+                // weaker for distal ones, matching the Python generator.
+                float lat = (si == 0) ? 0.6f : 0.3f;
+                Vec3 dir(std::cos(angle_rad), std::sin(angle_rad), side_sign * lat);
+                float len = dir.length();
+                if (len > 1e-6f) dir = dir / len;
+
+                Vec3 next = current + dir * seg.length;
+
+                // Radii from the limb metaball profile: metaball[i] gives the
+                // radius at the start of segment i; metaball[N] at the end of
+                // the last segment.
+                float start_r = 0.05f;
+                float end_r   = 0.03f;
+                if (si < limb.metaballs.size()) {
+                    start_r = limb.metaballs[si].radius;
+                }
+                if (si + 1 < limb.metaballs.size()) {
+                    end_r = limb.metaballs[si + 1].radius;
+                } else if (!limb.metaballs.empty()) {
+                    end_r = limb.metaballs.back().radius;
+                }
+
+                Mesh cyl = generate_cylinder(current, next, start_r, end_r,
+                                             LIMB_CYL_SEGMENTS);
+                body.append(cyl);
+                current = next;
+            }
+        }
+    }
+
+    return body;
 }
 
 // ============================================================================

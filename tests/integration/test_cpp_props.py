@@ -389,6 +389,64 @@ def test_creature_mesh_deterministic() -> None:
     assert np.array_equal(mesh1.indices, mesh2.indices)
 
 
+def test_creature_limbs_produce_mesh_geometry() -> None:
+    """Limb descriptors should produce additional cylinder vertices in the mesh."""
+    # Creature with torso only (no limbs)
+    py_no_limbs = {
+        "body_plan": "quadruped",
+        "skeleton": [
+            {"length": 1.0, "angle": 0.0},
+            {"length": 0.8, "angle": 10.0},
+        ],
+        "metaballs": [
+            {"center": [0.5, 0.5, 0.0], "radius": 0.3},
+            {"center": [1.3, 0.5, 0.0], "radius": 0.25},
+        ],
+        "limbs": [],
+    }
+
+    # Same creature with limbs
+    py_with_limbs = dict(py_no_limbs, limbs=[
+        {
+            "attach_bone": 0,
+            "side": "left",
+            "segments": [
+                {"length": 0.4, "angle": -90.0},
+                {"length": 0.3, "angle": -85.0},
+            ],
+            "metaballs": [
+                {"offset": 0.0, "radius": 0.10},
+                {"offset": 0.5, "radius": 0.08},
+                {"offset": 1.0, "radius": 0.06},
+            ],
+        },
+        {
+            "attach_bone": 0,
+            "side": "right",
+            "segments": [
+                {"length": 0.4, "angle": -90.0},
+                {"length": 0.3, "angle": -85.0},
+            ],
+            "metaballs": [
+                {"offset": 0.0, "radius": 0.10},
+                {"offset": 0.5, "radius": 0.08},
+                {"offset": 1.0, "radius": 0.06},
+            ],
+        },
+    ])
+
+    desc_no = procengine_cpp.create_creature_from_dict(py_no_limbs)
+    desc_with = procengine_cpp.create_creature_from_dict(py_with_limbs)
+
+    mesh_no = procengine_cpp.generate_creature_mesh(desc_no, grid_resolution=16)
+    mesh_with = procengine_cpp.generate_creature_mesh(desc_with, grid_resolution=16)
+
+    # The mesh with limbs should have strictly more vertices than the
+    # torso-only mesh because cylinders are appended.
+    assert mesh_with.vertex_count() > mesh_no.vertex_count()
+    assert mesh_with.triangle_count() > mesh_no.triangle_count()
+
+
 # ============================================================================
 # LOD Tests
 # ============================================================================

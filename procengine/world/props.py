@@ -394,7 +394,13 @@ def _generate_limbs(
     joints: Sequence[np.ndarray],
     body_plan: str,
 ) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
-    """Generate symmetric limb metadata and connected limb metaballs."""
+    """Generate symmetric limb metadata and connected limb metaballs.
+
+    Each attach pair produces two limbs (left + right) for bilateral symmetry.
+    The maximum number of attach pairs is capped at 2 so that no creature
+    exceeds 4 limbs total.
+    """
+    _MAX_LIMB_PAIRS = 2  # 2 pairs × 2 sides = 4 limbs max
     limbs: list[dict[str, object]] = []
     metaballs: list[dict[str, object]] = []
     bone_count = max(len(joints) - 1, 1)
@@ -411,6 +417,8 @@ def _generate_limbs(
             (max(0, bone_count - 2), "hindleg"),
         ]
         lateral_base = 0.50
+
+    attach_pairs = attach_pairs[:_MAX_LIMB_PAIRS]
 
     for attach_bone, limb_kind in attach_pairs:
         attach_joint = joints[min(attach_bone, len(joints) - 1)]
@@ -617,7 +625,7 @@ def _generate_creature_descriptor_from_rng(
     detail_count = int(rng.integers(metaball_count_range[0], metaball_count_range[1] + 1))
     torso_metaballs = _place_spine_metaballs(rng, joints, body_plan, detail_count)
     limbs, limb_metaballs = _generate_limbs(rng, joints, body_plan)
-    all_metaballs = _connect_metaball_components(torso_metaballs + limb_metaballs)
+    all_metaballs = _connect_metaball_components(torso_metaballs)
     skeleton, metaballs, limbs = _normalize_creature_scale(
         skeleton,
         all_metaballs,
