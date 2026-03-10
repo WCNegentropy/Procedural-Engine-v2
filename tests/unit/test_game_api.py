@@ -25,6 +25,7 @@ from procengine.game.game_api import (
     Character,
     Player,
     NPC,
+    Creature,
     Prop,
     Item,
     # Inventory
@@ -315,6 +316,127 @@ class TestProp:
 
         prop.state["open"] = True
         assert prop.state["open"] is True
+
+
+class TestCreature:
+    """Test Creature class."""
+
+    def test_creature_creation(self):
+        creature = Creature(
+            creature_type="deer",
+            body_plan="quadruped",
+            skeleton=[{"length": 1.0, "angle": 0.0}],
+            metaballs=[{"center": [0.5, 0.5, 0.5], "radius": 0.3}],
+        )
+        assert creature.creature_type == "deer"
+        assert creature.body_plan == "quadruped"
+        assert len(creature.skeleton) == 1
+        assert len(creature.metaballs) == 1
+
+    def test_creature_inherits_character(self):
+        creature = Creature(health=50.0, mass=30.0, radius=0.5)
+        assert isinstance(creature, Character)
+        assert isinstance(creature, Entity)
+        assert creature.health == 50.0
+        assert creature.mass == 30.0
+        assert creature.radius == 0.5
+
+    def test_creature_not_npc_or_prop(self):
+        creature = Creature()
+        assert not isinstance(creature, NPC)
+        assert not isinstance(creature, Prop)
+
+    def test_creature_defaults(self):
+        creature = Creature()
+        assert creature.creature_type == "generic"
+        assert creature.body_plan == "quadruped"
+        assert creature.behavior == "wander"
+        assert creature.awareness_range == 15.0
+        assert creature.flee_range == 8.0
+        assert creature.move_speed == 2.5
+
+    def test_creature_behavior_tree(self):
+        from procengine.game.behavior_tree import create_creature_wander_behavior
+
+        creature = Creature(position=Vec3(5, 0, 5))
+        tree = create_creature_wander_behavior(origin=creature.position)
+        creature.set_behavior_tree(tree)
+        assert creature.get_behavior_tree() is tree
+
+    def test_creature_tick_behavior(self):
+        from procengine.game.behavior_tree import NodeStatus, create_creature_wander_behavior
+
+        world = GameWorld()
+        creature = Creature(
+            entity_id="test_creature",
+            position=Vec3(5, 0, 5),
+        )
+        tree = create_creature_wander_behavior(origin=creature.position)
+        creature.set_behavior_tree(tree)
+
+        status = creature.tick_behavior(world, dt=1.0 / 60.0)
+        assert status in (NodeStatus.SUCCESS, NodeStatus.FAILURE, NodeStatus.RUNNING)
+
+    def test_creature_tick_behavior_no_tree(self):
+        world = GameWorld()
+        creature = Creature(entity_id="no_tree")
+        assert creature.tick_behavior(world, dt=1.0 / 60.0) is None
+
+    def test_creature_physics_body(self):
+        creature = Creature(
+            position=Vec3(10, 5, 10),
+            velocity=Vec3(1, 0, 0),
+            mass=30.0,
+            radius=0.5,
+        )
+        body = creature.to_rigid_body()
+        assert body.position.x == 10.0
+        assert body.mass == 30.0
+        assert body.radius == 0.5
+
+    def test_creature_serialization(self):
+        creature = Creature(
+            entity_id="deer_01",
+            creature_type="deer",
+            body_plan="quadruped",
+            skeleton=[{"length": 1.0, "angle": 0.0}],
+            metaballs=[{"center": [0.5, 0.5, 0.5], "radius": 0.3}],
+            limbs=[{"type": "leg", "side": "left"}],
+            health=50.0,
+            mass=30.0,
+            move_speed=3.0,
+            awareness_range=12.0,
+            flee_range=6.0,
+        )
+        data = creature.to_dict()
+        assert data["type"] == "Creature"
+        assert data["creature_type"] == "deer"
+        assert data["body_plan"] == "quadruped"
+        assert len(data["skeleton"]) == 1
+        assert len(data["metaballs"]) == 1
+        assert data["health"] == 50.0
+        assert data["move_speed"] == 3.0
+
+    def test_creature_deserialization(self):
+        data = {
+            "type": "Creature",
+            "entity_id": "deer_01",
+            "position": {"x": 10.0, "y": 5.0, "z": 10.0},
+            "creature_type": "deer",
+            "body_plan": "quadruped",
+            "skeleton": [{"length": 1.0, "angle": 0.0}],
+            "metaballs": [{"center": [0.5, 0.5, 0.5], "radius": 0.3}],
+            "limbs": [{"type": "leg"}],
+            "health": 50.0,
+            "mass": 30.0,
+            "move_speed": 3.0,
+        }
+        creature = Creature.from_dict(data)
+        assert creature.entity_id == "deer_01"
+        assert creature.creature_type == "deer"
+        assert creature.position.x == 10.0
+        assert creature.health == 50.0
+        assert len(creature.skeleton) == 1
 
 
 # =============================================================================
@@ -1149,3 +1271,147 @@ class TestBehaviorTreeIntegration:
         # NPC should have moved from start position
         distance_moved = (npc.position - start_pos).length()
         assert distance_moved > 1.0  # Should have moved at least 1 meter
+
+
+# =============================================================================
+# Creature Integration Tests
+# =============================================================================
+
+class TestCreatureIntegration:
+    """Test creature integration with GameWorld."""
+
+    def test_creature_spawn_emits_event(self):
+        """Spawning a creature should emit CREATURE_SPAWNED event."""
+        world = GameWorld()
+        events = []
+        world.events.subscribe(EventType.CREATURE_SPAWNED, lambda e: events.append(e))
+
+        creature = Creature(
+            entity_id="creature_01",
+            creature_type="deer",
+        )
+        world.spawn_entity(creature)
+
+        assert len(events) == 1
+        assert events[0].data["creature_id"] == "creature_01"
+        assert events[0].data["type"] == "deer"
+
+    def test_creature_gets_behavior_tree_on_spawn(self):
+        """Creatures should get a behavior tree assigned on spawn."""
+        world = GameWorld()
+
+        creature = Creature(
+            entity_id="wander_creature",
+            position=Vec3(5, 0, 5),
+            behavior="wander",
+        )
+        world.spawn_entity(creature)
+
+        assert creature.get_behavior_tree() is not None
+
+    def test_creature_flee_behavior_on_spawn(self):
+        """Creatures with flee behavior should get a flee tree."""
+        world = GameWorld()
+
+        creature = Creature(
+            entity_id="flee_creature",
+            position=Vec3(5, 0, 5),
+            behavior="flee",
+        )
+        world.spawn_entity(creature)
+
+        assert creature.get_behavior_tree() is not None
+
+    def test_creature_included_in_physics(self):
+        """Creatures should be picked up by physics_step as Characters."""
+        world = GameWorld()
+        world.create_player()
+
+        creature = Creature(
+            entity_id="physics_creature",
+            position=Vec3(5, 10, 5),
+            mass=30.0,
+        )
+        world.spawn_entity(creature)
+
+        characters = world.get_entities_by_type(Character)
+        creature_in_chars = any(
+            e.entity_id == "physics_creature" for e in characters
+        )
+        assert creature_in_chars
+
+    def test_game_step_ticks_creature_behavior(self):
+        """Game step should tick creature behavior trees."""
+        world = GameWorld()
+        world.create_player()
+
+        creature = Creature(
+            entity_id="step_creature",
+            position=Vec3(5, 0, 5),
+            behavior="wander",
+        )
+        world.spawn_entity(creature)
+
+        # Running step should not error
+        for _ in range(10):
+            world.step(dt=1.0 / 60.0)
+
+    def test_wander_behavior_moves_creature(self):
+        """Wander behavior should move creature from its origin."""
+        world = GameWorld()
+        start_pos = Vec3(5, 0, 5)
+
+        creature = Creature(
+            entity_id="wander_creature",
+            position=Vec3(start_pos.x, start_pos.y, start_pos.z),
+            behavior="wander",
+            move_speed=5.0,
+        )
+        world.spawn_entity(creature)
+
+        dt = 1.0 / 60.0
+        for _ in range(120):
+            creature.tick_behavior(world, dt)
+
+        distance_moved = (creature.position - start_pos).length()
+        assert distance_moved > 0.5
+
+    def test_creature_save_and_load(self):
+        """Creatures should survive save/load round-trip."""
+        world1 = GameWorld()
+        world1.create_player()
+
+        creature = Creature(
+            entity_id="save_creature",
+            creature_type="wolf",
+            body_plan="quadruped",
+            skeleton=[{"length": 1.0, "angle": 0.0}],
+            metaballs=[{"center": [0.5, 0.5, 0.5], "radius": 0.3}],
+            health=50.0,
+            mass=30.0,
+            position=Vec3(10, 2, 10),
+        )
+        world1.spawn_entity(creature)
+
+        save_data = world1.save_to_dict()
+
+        world2 = GameWorld()
+        world2.load_from_dict(save_data)
+
+        loaded = world2.get_entity("save_creature")
+        assert isinstance(loaded, Creature)
+        assert loaded.creature_type == "wolf"
+        assert loaded.body_plan == "quadruped"
+        assert len(loaded.skeleton) == 1
+        assert loaded.health == 50.0
+        assert loaded.position.x == pytest.approx(10.0, abs=0.5)
+
+    def test_creature_not_treated_as_npc(self):
+        """Creature should not end up in get_npcs() or get NPC treatment."""
+        world = GameWorld()
+
+        creature = Creature(entity_id="not_npc", creature_type="rabbit")
+        world.spawn_entity(creature)
+
+        npcs = world.get_npcs()
+        assert not any(e.entity_id == "not_npc" for e in npcs)

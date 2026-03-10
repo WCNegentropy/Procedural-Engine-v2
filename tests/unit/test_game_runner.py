@@ -1068,7 +1068,11 @@ class TestDynamicChunks:
 
         runner._spawn_chunk_props(chunk, world_x=10.0, world_z=20.0)
 
-        assert [entity.prop_type for entity in spawned_entities] == ["flower_patch", "creature"]
+        from procengine.game.game_api import Prop, Creature
+        assert isinstance(spawned_entities[0], Prop)
+        assert spawned_entities[0].prop_type == "flower_patch"
+        assert isinstance(spawned_entities[1], Creature)
+        assert spawned_entities[1].creature_type == "quadruped"
         assert spawned_entities[0].position.y == pytest.approx(0.5 * runner.HEIGHT_SCALE + 0.05)
         assert spawned_entities[1].position.y == pytest.approx(0.5 * runner.HEIGHT_SCALE + 0.15)
         assert chunk.pending_props == []
