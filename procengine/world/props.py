@@ -53,6 +53,11 @@ COLD_BIOMES = {BIOME_TUNDRA, BIOME_TAIGA, BIOME_SNOWY_MOUNTAIN, BIOME_GLACIER,
 WET_BIOMES = {BIOME_SWAMP, BIOME_JUNGLE}
 BARREN_BIOMES = {BIOME_DEEP_OCEAN, BIOME_OCEAN, BIOME_FROZEN_OCEAN, BIOME_GLACIER}
 
+QUADRUPED_START_HEIGHT = 0.6
+TORSO_LATERAL_OFFSET_MIN = 0.42
+TORSO_LATERAL_OFFSET_MAX = 0.58
+METABALL_BRIDGE_RADIUS_EPSILON = 1e-3
+
 __all__ = [
     "generate_rock_descriptors",
     "generate_tree_descriptors",
@@ -259,7 +264,12 @@ def generate_creature_descriptors(
 def _generate_spine_skeleton(
     rng: np.random.Generator, bone_count: int, body_plan: str
 ) -> tuple[list[dict[str, float]], list[np.ndarray]]:
-    """Build a simple deterministic spine chain and its joint positions."""
+    """Build a deterministic spine chain.
+
+    Returns a tuple of ``(skeleton, joints)`` where ``skeleton`` is a list of
+    ``{"length", "angle"}`` bone descriptors and ``joints`` contains the 3D
+    joint positions traced by that chain.
+    """
     if body_plan == "biped":
         heading = 90.0
         angle_jitter = 16.0
@@ -269,7 +279,7 @@ def _generate_spine_skeleton(
         heading = 4.0
         angle_jitter = 12.0
         length_range = (0.32, 0.56)
-        start = np.array([0.0, 0.6, 0.0], dtype=np.float64)
+        start = np.array([0.0, QUADRUPED_START_HEIGHT, 0.0], dtype=np.float64)
 
     joints = [start]
     skeleton: list[dict[str, float]] = []
@@ -287,7 +297,12 @@ def _generate_spine_skeleton(
 
 
 def _body_radius_profile(index: int, count: int, body_plan: str) -> float:
-    """Return a tapered torso radius profile along the spine."""
+    """Return a torso radius profile that peaks near the spine center.
+
+    The profile narrows toward the head/tail ends and uses a slightly larger
+    peak for quadrupeds than bipeds so both body plans stay readable after
+    normalization.
+    """
     if count <= 1:
         return 0.2 if body_plan == "biped" else 0.24
     center = (count - 1) * 0.5
@@ -326,7 +341,9 @@ def _place_spine_metaballs(
                 0.28 if body_plan == "biped" else 0.34
             )
             if fullness > 0.72:
-                lateral = radius * float(rng.uniform(0.42, 0.58))
+                lateral = radius * float(
+                    rng.uniform(TORSO_LATERAL_OFFSET_MIN, TORSO_LATERAL_OFFSET_MAX)
+                )
                 vertical = float(rng.uniform(-0.03, 0.03))
                 for side in (-1.0, 1.0):
                     side_center = midpoint + np.array([0.0, vertical, side * lateral])
@@ -510,7 +527,12 @@ def _normalize_creature_scale(
 
 
 def _connect_metaball_components(metaballs: list[dict[str, object]]) -> list[dict[str, object]]:
-    """Bridge disconnected metaball clusters with the smallest linking balls."""
+    """Bridge disconnected metaball clusters with greedy linking balls.
+
+    This mutates ``metaballs`` in place by appending the smallest bridge ball
+    found between disconnected components, then returns the same list for
+    convenience.
+    """
 
     def build_components() -> list[set[int]]:
         components: list[set[int]] = []
@@ -560,8 +582,8 @@ def _connect_metaball_components(metaballs: list[dict[str, object]]) -> list[dic
         midpoint = (centers[left_index] + centers[right_index]) * 0.5
         half_distance = float(np.linalg.norm(centers[left_index] - centers[right_index])) * 0.5
         bridge_radius = max(
-            half_distance - radii[left_index] + 1e-3,
-            half_distance - radii[right_index] + 1e-3,
+            half_distance - radii[left_index] + METABALL_BRIDGE_RADIUS_EPSILON,
+            half_distance - radii[right_index] + METABALL_BRIDGE_RADIUS_EPSILON,
             min(radii[left_index], radii[right_index]) * 0.8,
         )
         metaballs.append({"center": midpoint.astype(float).tolist(), "radius": float(bridge_radius)})

@@ -1,6 +1,7 @@
 #include "props.h"
 #include <cmath>
 #include <algorithm>
+#include <sstream>
 #include <stack>
 
 namespace props {
@@ -8,6 +9,9 @@ namespace props {
 // Constants
 static constexpr float PI = 3.14159265358979323846f;
 static constexpr float DEG_TO_RAD = PI / 180.0f;
+// Quantize vertices to 1e-6 world units before hashing so shared surface
+// vertices dedupe reliably without collapsing distinct points at creature scale.
+static constexpr double VERTEX_CACHE_PRECISION_SCALE = 1000000.0;
 
 // ============================================================================
 // Rock Mesh Generation (Noise-displaced Sphere)
@@ -516,10 +520,13 @@ static Vec3 evaluate_field_gradient(
 }
 
 static std::string vertex_key(const Vec3& vertex) {
-    constexpr double scale = 1000000.0;
-    return std::to_string(static_cast<long long>(std::llround(vertex.x * scale))) + ":" +
-           std::to_string(static_cast<long long>(std::llround(vertex.y * scale))) + ":" +
-           std::to_string(static_cast<long long>(std::llround(vertex.z * scale)));
+    std::ostringstream stream;
+    stream << static_cast<long long>(std::llround(vertex.x * VERTEX_CACHE_PRECISION_SCALE))
+           << ':'
+           << static_cast<long long>(std::llround(vertex.y * VERTEX_CACHE_PRECISION_SCALE))
+           << ':'
+           << static_cast<long long>(std::llround(vertex.z * VERTEX_CACHE_PRECISION_SCALE));
+    return stream.str();
 }
 
 static uint32_t get_or_add_vertex(
@@ -629,7 +636,11 @@ static Mesh finalize_creature_mesh(
     mesh.vertices = raw_mesh.vertices;
     mesh.normals.assign(mesh.vertices.size(), Vec3(0.0f, 0.0f, 0.0f));
 
+    // Sample gradients far enough away from the surface to avoid cancellation on
+    // tiny cells, but still within the local neighborhood of the isosurface.
     float epsilon = std::max(cell_size * 0.25f, 1e-4f);
+    // Reject nearly-zero-area triangles created by coplanar or duplicate edge
+    // intersections without stripping legitimate small features.
     float area_epsilon = std::max(cell_size * cell_size * 1e-4f, 1e-8f);
 
     for (size_t i = 0; i + 2 < raw_mesh.indices.size(); i += 3) {

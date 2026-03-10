@@ -1058,6 +1058,8 @@ PYBIND11_MODULE(procengine_cpp, m) {
                     bone_data.length = b["length"].cast<float>();
                     bone_data.angle = b["angle"].cast<float>();
                 } else if (b.contains("start") && b.contains("end")) {
+                    // Backward-compatible path for older descriptors that stored
+                    // bones as 3D line segments instead of length/angle pairs.
                     auto start = b["start"].cast<py::list>();
                     auto end = b["end"].cast<py::list>();
                     if (py::len(start) < 3 || py::len(end) < 3) {
@@ -1070,7 +1072,7 @@ PYBIND11_MODULE(procengine_cpp, m) {
                     float dy = end[1].cast<float>() - start[1].cast<float>();
                     float dz = end[2].cast<float>() - start[2].cast<float>();
                     bone_data.length = std::sqrt(dx * dx + dy * dy + dz * dz);
-                    bone_data.angle = std::atan2(dy, dx) * 180.0f / 3.14159265358979323846f;
+                    bone_data.angle = std::atan2(dy, dx) * 180.0f / std::acos(-1.0f);
                 } else {
                     throw std::runtime_error(
                         "Bone at index " + std::to_string(i) +
