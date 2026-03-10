@@ -46,6 +46,8 @@ __all__ = [
     "create_idle_behavior",
     "create_patrol_behavior",
     "create_guard_behavior",
+    "create_creature_wander_behavior",
+    "create_flee_behavior",
 ]
 
 
@@ -755,4 +757,192 @@ def create_guard_behavior(
                 Wait(3.0, "StandGuard"),
             ]),
         ])
+    )
+
+
+def create_creature_wander_behavior(
+    origin: "Vec3",
+    wander_radius: float = 10.0,
+    speed: float = 2.5,
+    wait_min: float = 3.0,
+    wait_max: float = 8.0,
+    rng: Optional[np.random.Generator] = None,
+) -> BehaviorTree:
+    """Create a wander behavior for creatures.
+
+    The creature picks a random nearby point, walks to it, pauses, then
+    repeats.  Movement is on the XZ plane; the physics system handles Y
+    via gravity and heightfield collision.
+
+    Parameters
+    ----------
+    origin:
+        Starting position around which the creature wanders.
+    wander_radius:
+        Maximum distance from origin for wander targets.
+    speed:
+        Movement speed in meters per second.
+    wait_min:
+        Minimum rest time at each target.
+    wait_max:
+        Maximum rest time at each target.
+    rng:
+        NumPy random generator for deterministic behavior.
+    """
+    from procengine.core.seed_registry import SeedRegistry
+    from procengine.physics import Vec3
+
+    _rng = rng if rng is not None else SeedRegistry(0).get_rng("creature_wander")
+
+    def pick_wander_target(
+        entity: "NPC",
+        world: "GameWorld",
+        bb: Blackboard,
+        dt: float,
+    ) -> NodeStatus:
+        angle = float(_rng.uniform(0, 2 * np.pi))
+        dist = float(_rng.uniform(1.0, wander_radius))
+        target = Vec3(
+            origin.x + dist * np.cos(angle),
+            0.0,
+            origin.z + dist * np.sin(angle),
+        )
+        bb.set("wander_target", target)
+        return NodeStatus.SUCCESS
+
+    def move_to_target(
+        entity: "NPC",
+        world: "GameWorld",
+        bb: Blackboard,
+        dt: float,
+    ) -> NodeStatus:
+        target = bb.get("wander_target")
+        if target is None:
+            return NodeStatus.FAILURE
+
+        direction = target - entity.position
+        direction = Vec3(direction.x, 0, direction.z)
+        distance = direction.length()
+
+        if distance < 0.5:
+            return NodeStatus.SUCCESS
+
+        direction = direction.normalized()
+        move = direction * min(speed * dt, distance)
+        entity.position = entity.position + move
+        return NodeStatus.RUNNING
+
+    def rest(
+        entity: "NPC",
+        world: "GameWorld",
+        bb: Blackboard,
+        dt: float,
+    ) -> NodeStatus:
+        if not bb.has("rest_time"):
+            bb.set("rest_time", float(_rng.uniform(wait_min, wait_max)))
+            bb.set("rested", 0.0)
+
+        rested = bb.get("rested", 0.0) + dt
+        bb.set("rested", rested)
+
+        if rested >= bb.get("rest_time"):
+            bb.remove("rest_time")
+            bb.remove("rested")
+            return NodeStatus.SUCCESS
+        return NodeStatus.RUNNING
+
+    return BehaviorTree(
+        Repeater(
+            Sequence([
+                Action(pick_wander_target, "PickWanderTarget"),
+                Action(move_to_target, "MoveToTarget"),
+                Action(rest, "Rest"),
+            ]),
+            count=-1,
+        )
+    )
+
+
+def create_flee_behavior(
+    flee_range: float = 8.0,
+    speed: float = 4.0,
+    flee_distance: float = 15.0,
+) -> BehaviorTree:
+    """Create a flee behavior that runs from the player when nearby.
+
+    The creature flees when the player is within *flee_range* and reverts
+    to idling otherwise.
+
+    Parameters
+    ----------
+    flee_range:
+        Distance at which the creature starts fleeing.
+    speed:
+        Flee movement speed.
+    flee_distance:
+        How far the creature runs before stopping.
+    """
+    from procengine.physics import Vec3
+
+    def is_threat_nearby(
+        entity: "NPC",
+        world: "GameWorld",
+        bb: Blackboard,
+    ) -> bool:
+        player = world.get_player()
+        if not player:
+            return False
+        distance = (player.position - entity.position).length()
+        return distance < flee_range
+
+    def flee_from_threat(
+        entity: "NPC",
+        world: "GameWorld",
+        bb: Blackboard,
+        dt: float,
+    ) -> NodeStatus:
+        player = world.get_player()
+        if not player:
+            return NodeStatus.FAILURE
+
+        direction = entity.position - player.position
+        direction = Vec3(direction.x, 0, direction.z)
+        distance_to_player = direction.length()
+
+        if distance_to_player > flee_distance:
+            return NodeStatus.SUCCESS
+
+        if distance_to_player < 0.01:
+            direction = Vec3(1.0, 0, 0)
+        else:
+            direction = direction.normalized()
+
+        move = direction * speed * dt
+        entity.position = entity.position + move
+        return NodeStatus.RUNNING
+
+    def idle_wait(
+        entity: "NPC",
+        world: "GameWorld",
+        bb: Blackboard,
+        dt: float,
+    ) -> NodeStatus:
+        waited = bb.get("idle_waited", 0.0) + dt
+        bb.set("idle_waited", waited)
+        if waited >= 2.0:
+            bb.set("idle_waited", 0.0)
+            return NodeStatus.SUCCESS
+        return NodeStatus.RUNNING
+
+    return BehaviorTree(
+        Repeater(
+            Selector([
+                Sequence([
+                    Condition(is_threat_nearby, "ThreatNearby"),
+                    Action(flee_from_threat, "FleeFromThreat"),
+                ]),
+                Action(idle_wait, "IdleWait"),
+            ]),
+            count=-1,
+        )
     )

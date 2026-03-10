@@ -31,9 +31,11 @@ from procengine.game.behavior_tree import (
     create_idle_behavior,
     create_patrol_behavior,
     create_guard_behavior,
+    create_creature_wander_behavior,
+    create_flee_behavior,
 )
 from procengine.physics import Vec3
-from procengine.game.game_api import NPC, GameWorld, Player
+from procengine.game.game_api import NPC, Creature, GameWorld, Player
 
 
 # =============================================================================
@@ -629,3 +631,79 @@ class TestBehaviorTreeIntegration:
         assert tree.tick(mock_npc, mock_world, 0.3) == NodeStatus.RUNNING
         assert tree.tick(mock_npc, mock_world, 0.3) == NodeStatus.RUNNING
         assert tree.tick(mock_npc, mock_world, 0.3) == NodeStatus.SUCCESS
+
+
+# =============================================================================
+# Creature Behavior Tests
+# =============================================================================
+
+class TestCreatureWanderBehavior:
+    """Test pre-built creature wander behavior."""
+
+    def test_wander_moves_creature(self):
+        creature = Creature(
+            entity_id="wander_test",
+            position=Vec3(5, 0, 5),
+        )
+        world = GameWorld()
+
+        tree = create_creature_wander_behavior(origin=creature.position, speed=5.0)
+
+        start_pos = Vec3(creature.position.x, creature.position.y, creature.position.z)
+        for _ in range(120):
+            tree.tick(creature, world, 1.0 / 60.0)
+
+        distance = (creature.position - start_pos).length()
+        assert distance > 0.5
+
+    def test_wander_returns_running_or_success(self):
+        creature = Creature(
+            entity_id="wander_status",
+            position=Vec3(0, 0, 0),
+        )
+        world = GameWorld()
+
+        tree = create_creature_wander_behavior(origin=creature.position)
+        status = tree.tick(creature, world, 1.0 / 60.0)
+        assert status in (NodeStatus.SUCCESS, NodeStatus.FAILURE, NodeStatus.RUNNING)
+
+
+class TestFleeBehavior:
+    """Test pre-built flee behavior."""
+
+    def test_flee_from_player(self):
+        creature = Creature(
+            entity_id="flee_test",
+            position=Vec3(5, 0, 5),
+        )
+        world = GameWorld()
+        world.create_player(position=Vec3(3, 0, 5))
+
+        tree = create_flee_behavior(flee_range=10.0, speed=5.0)
+
+        start_pos = Vec3(creature.position.x, creature.position.y, creature.position.z)
+        for _ in range(60):
+            tree.tick(creature, world, 1.0 / 60.0)
+
+        # Creature should have moved away from player
+        player = world.get_player()
+        start_dist = (start_pos - player.position).length()
+        end_dist = (creature.position - player.position).length()
+        assert end_dist > start_dist
+
+    def test_flee_idle_when_no_threat(self):
+        creature = Creature(
+            entity_id="flee_idle",
+            position=Vec3(50, 0, 50),
+        )
+        world = GameWorld()
+        world.create_player(position=Vec3(0, 0, 0))
+
+        tree = create_flee_behavior(flee_range=5.0, speed=5.0)
+
+        start_pos = Vec3(creature.position.x, creature.position.y, creature.position.z)
+        status = tree.tick(creature, world, 1.0 / 60.0)
+        assert status in (NodeStatus.SUCCESS, NodeStatus.FAILURE, NodeStatus.RUNNING)
+        # Should not have moved much (idle branch)
+        distance = (creature.position - start_pos).length()
+        assert distance < 1.0

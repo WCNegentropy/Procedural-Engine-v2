@@ -44,6 +44,7 @@ __all__ = [
     "Character",
     "Player",
     "NPC",
+    "Creature",
     "Prop",
     "Item",
     # Inventory
@@ -108,6 +109,11 @@ class EventType(Enum):
     ITEM_ACQUIRED = auto()
     ITEM_DROPPED = auto()
     ITEM_USED = auto()
+
+    # Creature events
+    CREATURE_SPAWNED = auto()
+    CREATURE_FLED = auto()
+    CREATURE_DIED = auto()
 
     # World events
     WORLD_GENERATED = auto()
@@ -545,6 +551,94 @@ class Prop(Entity):
             interactable=data.get("interactable", False),
             interaction_action=data.get("interaction_action", ""),
             state=data.get("state", {}),
+        )
+
+
+@dataclass
+class Creature(Character):
+    """A procedurally-generated creature with autonomous behavior.
+
+    Creatures are Character entities with metaball-based mesh generation,
+    skeleton data for animation, and creature-specific behavior trees.
+    Unlike NPCs, creatures don't have dialogue or quest systems —
+    they operate on instinct-based AI (wander, flee, etc.).
+    """
+
+    # Creature identity
+    creature_type: str = "generic"
+    body_plan: str = "quadruped"  # "quadruped" or "biped"
+
+    # Mesh descriptor data (drives C++ metaball mesh generation)
+    skeleton: List[Dict[str, Any]] = field(default_factory=list)
+    metaballs: List[Dict[str, Any]] = field(default_factory=list)
+    limbs: List[Dict[str, Any]] = field(default_factory=list)
+
+    # Creature-specific behavior
+    behavior: str = "wander"
+    behavior_params: Dict[str, Any] = field(default_factory=dict)
+    awareness_range: float = 15.0
+    flee_range: float = 8.0
+    move_speed: float = 2.5
+
+    # Internal state
+    _behavior_tree: Optional[BehaviorTree] = field(default=None, repr=False)
+
+    def tick_behavior(self, world: "GameWorld", dt: float) -> Optional[NodeStatus]:
+        """Tick the creature's behavior tree."""
+        if self._behavior_tree is not None:
+            return self._behavior_tree.tick(self, world, dt)
+        return None
+
+    def set_behavior_tree(self, tree: BehaviorTree) -> None:
+        """Set the creature's behavior tree."""
+        self._behavior_tree = tree
+
+    def get_behavior_tree(self) -> Optional[BehaviorTree]:
+        """Get the creature's behavior tree."""
+        return self._behavior_tree
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize creature to dictionary."""
+        data = super().to_dict()
+        data.update({
+            "creature_type": self.creature_type,
+            "body_plan": self.body_plan,
+            "skeleton": [s.copy() for s in self.skeleton],
+            "metaballs": [m.copy() for m in self.metaballs],
+            "limbs": [lm.copy() for lm in self.limbs],
+            "behavior": self.behavior,
+            "behavior_params": self.behavior_params.copy(),
+            "awareness_range": self.awareness_range,
+            "flee_range": self.flee_range,
+            "move_speed": self.move_speed,
+        })
+        return data
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Creature":
+        """Deserialize creature from dictionary."""
+        char = Character.from_dict(data)
+        return cls(
+            entity_id=char.entity_id,
+            position=char.position,
+            rotation=char.rotation,
+            active=char.active,
+            health=char.health,
+            max_health=char.max_health,
+            inventory=char.inventory,
+            velocity=char.velocity,
+            mass=char.mass,
+            radius=char.radius,
+            creature_type=data.get("creature_type", "generic"),
+            body_plan=data.get("body_plan", "quadruped"),
+            skeleton=data.get("skeleton", []),
+            metaballs=data.get("metaballs", []),
+            limbs=data.get("limbs", []),
+            behavior=data.get("behavior", "wander"),
+            behavior_params=data.get("behavior_params", {}),
+            awareness_range=data.get("awareness_range", 15.0),
+            flee_range=data.get("flee_range", 8.0),
+            move_speed=data.get("move_speed", 2.5),
         )
 
 
@@ -1255,7 +1349,14 @@ class GameWorld:
         self._entities[entity.entity_id] = entity
 
         # Emit appropriate event
-        if isinstance(entity, NPC):
+        if isinstance(entity, Creature):
+            self._configure_creature_behavior(entity)
+            self.events.emit(Event(
+                EventType.CREATURE_SPAWNED,
+                {"creature_id": entity.entity_id, "type": entity.creature_type},
+                source_entity=entity.entity_id,
+            ))
+        elif isinstance(entity, NPC):
             entity._agent = self._default_agent
             # Configure behavior tree based on NPC behavior type
             if isinstance(self._default_agent, LocalAgent):
@@ -1873,16 +1974,18 @@ class GameWorld:
         # Physics
         self.physics_step()
 
-        # Update NPC behaviors
+        # Update NPC and creature behaviors
         self._update_npcs(dt)
 
     def _update_npcs(self, dt: float) -> None:
-        """Update NPC behaviors using behavior trees or fallback actions.
+        """Update NPC and creature behaviors using behavior trees or fallback actions.
 
-        Only NPCs within simulation distance are updated when dynamic
-        chunks are active.  In static mode all NPCs are updated.
+        Only entities within simulation distance are updated when dynamic
+        chunks are active.  In static mode all entities are updated.
         """
         sim_entities = self.get_entities_in_sim_range()
+
+        # Tick NPCs
         npcs = [e for e in sim_entities if isinstance(e, NPC)]
         for npc in npcs:
             if not npc.active:
@@ -1898,6 +2001,12 @@ class GameWorld:
 
                 if action:
                     self._execute_npc_action(npc, action, dt)
+
+        # Tick creatures
+        creatures = [e for e in sim_entities if isinstance(e, Creature)]
+        for creature in creatures:
+            if creature.active and creature.get_behavior_tree() is not None:
+                creature.tick_behavior(self, dt)
 
     def _execute_npc_action(
         self,
@@ -1938,6 +2047,38 @@ class GameWorld:
                     npc.position = npc.position + move
 
         # "idle" action doesn't need handling
+
+    def _configure_creature_behavior(self, creature: Creature) -> None:
+        """Assign a behavior tree to a newly spawned creature.
+
+        Parameters
+        ----------
+        creature:
+            The creature to configure.
+        """
+        from procengine.game.behavior_tree import (
+            create_creature_wander_behavior,
+            create_flee_behavior,
+        )
+
+        behavior = creature.behavior
+
+        if behavior == "flee":
+            creature.set_behavior_tree(
+                create_flee_behavior(
+                    flee_range=creature.flee_range,
+                    speed=creature.move_speed * 1.5,
+                )
+            )
+        else:
+            # Default: wander
+            creature.set_behavior_tree(
+                create_creature_wander_behavior(
+                    origin=creature.position,
+                    wander_radius=10.0,
+                    speed=creature.move_speed,
+                )
+            )
 
     # -------------------------------------------------------------------------
     # Save/Load
@@ -1993,6 +2134,8 @@ class GameWorld:
             if entity_type == "NPC":
                 entity = NPC.from_dict(edata)
                 entity._agent = self._default_agent
+            elif entity_type == "Creature":
+                entity = Creature.from_dict(edata)
             elif entity_type == "Prop":
                 entity = Prop.from_dict(edata)
             elif entity_type == "Item":

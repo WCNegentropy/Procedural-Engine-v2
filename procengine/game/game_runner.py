@@ -37,6 +37,7 @@ from procengine.commands.commands import registry as command_registry
 from procengine.commands.console import Console
 from procengine.game.game_api import (
     NPC,
+    Creature,
     Entity,
     Event,
     EventType,
@@ -1659,7 +1660,19 @@ class GameRunner:
             for entity in visible_entities.values():
                 if entity is None:
                     continue
-                if isinstance(entity, NPC):
+                if isinstance(entity, Creature):
+                    mesh_name = self._get_or_create_entity_mesh(
+                        entity.entity_id, "creature",
+                        {"skeleton": entity.skeleton, "metaballs": entity.metaballs},
+                    )
+                    self._graphics_bridge.draw_entity(
+                        mesh_name,
+                        "default",
+                        entity.position,
+                        rotation=entity.rotation,
+                        scale=1.0,
+                    )
+                elif isinstance(entity, NPC):
                     mesh_name = self._get_or_create_entity_mesh(entity.entity_id, "npc")
                     self._graphics_bridge.draw_entity(
                         mesh_name,
@@ -1683,6 +1696,19 @@ class GameRunner:
                     )
         else:
             # Static mode: render all entities (original behavior)
+            for entity in self._world.get_entities_by_type(Creature):
+                mesh_name = self._get_or_create_entity_mesh(
+                    entity.entity_id, "creature",
+                    {"skeleton": entity.skeleton, "metaballs": entity.metaballs},
+                )
+                self._graphics_bridge.draw_entity(
+                    mesh_name,
+                    "default",
+                    entity.position,
+                    rotation=entity.rotation,
+                    scale=1.0,
+                )
+
             for entity in self._world.get_entities_by_type(NPC):
                 mesh_name = self._get_or_create_entity_mesh(entity.entity_id, "npc")
                 self._graphics_bridge.draw_entity(
@@ -2243,15 +2269,25 @@ class GameRunner:
                     },
                 )
             elif prop_type == "creature":
-                prop = Prop(
+                creature = Creature(
                     entity_id=entity_id,
                     position=Vec3(global_x, global_y + CREATURE_Y_OFFSET, global_z),
-                    prop_type="creature",
-                    state={
-                        "skeleton": prop_desc.get("skeleton", []),
-                        "metaballs": prop_desc.get("metaballs", []),
-                    },
+                    creature_type=prop_desc.get("body_plan", "quadruped"),
+                    body_plan=prop_desc.get("body_plan", "quadruped"),
+                    skeleton=prop_desc.get("skeleton", []),
+                    metaballs=prop_desc.get("metaballs", []),
+                    limbs=prop_desc.get("limbs", []),
+                    health=50.0,
+                    max_health=50.0,
+                    mass=30.0,
+                    radius=0.5,
+                    move_speed=2.0 if prop_desc.get("body_plan") == "quadruped" else 1.5,
                 )
+                spawned_id = self._world.spawn_entity(creature)
+                if spawned_id:
+                    chunk.entity_ids.add(spawned_id)
+                    prop_count += 1
+                continue
             else:
                 # Generic prop fallback
                 print(
