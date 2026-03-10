@@ -2269,19 +2269,33 @@ class GameRunner:
                     },
                 )
             elif prop_type == "creature":
+                # Read species info from template-driven descriptors
+                creature_type = prop_desc.get("creature_type", prop_desc.get("body_plan", "quadruped"))
+                body_plan = prop_desc.get("body_plan", "quadruped")
+
+                # Derive stats from template (single source of truth)
+                from procengine.world.creature_templates import CREATURE_TEMPLATES
+                _tpl = CREATURE_TEMPLATES.get(creature_type)
+                if _tpl is not None:
+                    _beh, _spd, _mass = _tpl.behavior, _tpl.move_speed, _tpl.mass
+                else:
+                    _beh = "wander"
+                    _spd = 2.0 if body_plan == "quadruped" else 1.5
+                    _mass = 30.0
+
                 creature = Creature(
                     entity_id=entity_id,
                     position=Vec3(global_x, global_y + CREATURE_Y_OFFSET, global_z),
-                    creature_type=prop_desc.get("body_plan", "quadruped"),
-                    body_plan=prop_desc.get("body_plan", "quadruped"),
+                    creature_type=creature_type,
+                    body_plan=body_plan,
                     skeleton=prop_desc.get("skeleton", []),
                     metaballs=prop_desc.get("metaballs", []),
                     limbs=prop_desc.get("limbs", []),
                     health=50.0,
                     max_health=50.0,
-                    mass=30.0,
+                    mass=_mass,
                     radius=0.5,
-                    move_speed=2.0 if prop_desc.get("body_plan") == "quadruped" else 1.5,
+                    move_speed=_spd,
                 )
                 spawned_id = self._world.spawn_entity(creature)
                 if spawned_id:

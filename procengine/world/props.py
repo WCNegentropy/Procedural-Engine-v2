@@ -1298,6 +1298,12 @@ def generate_chunk_props(
     # -----------------------------------------------------------------
     # Creature spawning (rare, biome-dependent)
     # -----------------------------------------------------------------
+    from procengine.world.creature_templates import (
+        BIOME_SPECIES,
+        CREATURE_TEMPLATES,
+        generate_creature_from_template,
+    )
+
     creature_attempts = 2
     for _ in range(creature_attempts):
         pos_x, pos_z = _random_pos()
@@ -1313,12 +1319,21 @@ def generate_chunk_props(
         if rng.random() > 0.15:
             continue
 
-        creature = _generate_creature_descriptor_from_rng(
-            rng,
-            bones_range=(3, 5),
-            metaball_count_range=(3, 6),
-            body_plans=("quadruped", "biped"),
-        )
+        # 50 % original pipeline, 50 % template-driven (if biome has species)
+        use_template = float(rng.random()) < 0.5
+        species_list = BIOME_SPECIES.get(biome)
+
+        if use_template and species_list:
+            species_name = species_list[int(rng.integers(0, len(species_list)))]
+            template = CREATURE_TEMPLATES[species_name]
+            creature = generate_creature_from_template(rng, template)
+        else:
+            creature = _generate_creature_descriptor_from_rng(
+                rng,
+                bones_range=(3, 5),
+                metaball_count_range=(3, 6),
+                body_plans=("quadruped", "biped"),
+            )
         creature["position"] = [pos_x, terrain_y, pos_z]
         descriptors.append(creature)
 
