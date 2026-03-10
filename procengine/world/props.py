@@ -509,6 +509,67 @@ def _normalize_creature_scale(
     return normalized_skeleton, normalized_metaballs, normalized_limbs
 
 
+def _connect_metaball_components(metaballs: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Bridge disconnected metaball clusters with the smallest linking balls."""
+
+    def build_components() -> list[set[int]]:
+        components: list[set[int]] = []
+        visited: set[int] = set()
+        centers = [np.array(ball["center"], dtype=np.float64) for ball in metaballs]
+        radii = [float(ball["radius"]) for ball in metaballs]
+
+        for start in range(len(metaballs)):
+            if start in visited:
+                continue
+            frontier = [start]
+            component = {start}
+            visited.add(start)
+            while frontier:
+                index = frontier.pop()
+                for other in range(len(metaballs)):
+                    if other in visited:
+                        continue
+                    distance = float(np.linalg.norm(centers[index] - centers[other]))
+                    if distance <= radii[index] + radii[other] + 1e-6:
+                        visited.add(other)
+                        component.add(other)
+                        frontier.append(other)
+            components.append(component)
+        return components
+
+    components = build_components()
+    while len(components) > 1:
+        centers = [np.array(ball["center"], dtype=np.float64) for ball in metaballs]
+        radii = [float(ball["radius"]) for ball in metaballs]
+        best_pair: tuple[int, int] | None = None
+        best_distance = float("inf")
+
+        for left_index in components[0]:
+            for component in components[1:]:
+                for right_index in component:
+                    distance = float(np.linalg.norm(centers[left_index] - centers[right_index]))
+                    gap = distance - (radii[left_index] + radii[right_index])
+                    if gap < best_distance:
+                        best_distance = gap
+                        best_pair = (left_index, right_index)
+
+        if best_pair is None:
+            break
+
+        left_index, right_index = best_pair
+        midpoint = (centers[left_index] + centers[right_index]) * 0.5
+        half_distance = float(np.linalg.norm(centers[left_index] - centers[right_index])) * 0.5
+        bridge_radius = max(
+            half_distance - radii[left_index] + 1e-3,
+            half_distance - radii[right_index] + 1e-3,
+            min(radii[left_index], radii[right_index]) * 0.8,
+        )
+        metaballs.append({"center": midpoint.astype(float).tolist(), "radius": float(bridge_radius)})
+        components = build_components()
+
+    return metaballs
+
+
 def _generate_creature_descriptor_from_rng(
     rng: np.random.Generator,
     *,
@@ -523,9 +584,10 @@ def _generate_creature_descriptor_from_rng(
     detail_count = int(rng.integers(metaball_count_range[0], metaball_count_range[1] + 1))
     torso_metaballs = _place_spine_metaballs(rng, joints, body_plan, detail_count)
     limbs, limb_metaballs = _generate_limbs(rng, joints, body_plan)
+    all_metaballs = _connect_metaball_components(torso_metaballs + limb_metaballs)
     skeleton, metaballs, limbs = _normalize_creature_scale(
         skeleton,
-        torso_metaballs + limb_metaballs,
+        all_metaballs,
         limbs,
         target_major_axis=float(rng.uniform(0.8, 2.0)),
     )

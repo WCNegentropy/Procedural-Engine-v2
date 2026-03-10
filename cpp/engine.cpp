@@ -1053,12 +1053,30 @@ PYBIND11_MODULE(procengine_cpp, m) {
             auto skeleton = d["skeleton"].cast<py::list>();
             for (size_t i = 0; i < py::len(skeleton); ++i) {
                 auto b = skeleton[i].cast<py::dict>();
-                if (!b.contains("length") || !b.contains("angle")) {
-                    throw std::runtime_error("Bone at index " + std::to_string(i) + " missing 'length' or 'angle'");
-                }
                 props::Bone bone_data;
-                bone_data.length = b["length"].cast<float>();
-                bone_data.angle = b["angle"].cast<float>();
+                if (b.contains("length") && b.contains("angle")) {
+                    bone_data.length = b["length"].cast<float>();
+                    bone_data.angle = b["angle"].cast<float>();
+                } else if (b.contains("start") && b.contains("end")) {
+                    auto start = b["start"].cast<py::list>();
+                    auto end = b["end"].cast<py::list>();
+                    if (py::len(start) < 3 || py::len(end) < 3) {
+                        throw std::runtime_error(
+                            "Bone at index " + std::to_string(i) +
+                            " must provide 3D 'start' and 'end' points"
+                        );
+                    }
+                    float dx = end[0].cast<float>() - start[0].cast<float>();
+                    float dy = end[1].cast<float>() - start[1].cast<float>();
+                    float dz = end[2].cast<float>() - start[2].cast<float>();
+                    bone_data.length = std::sqrt(dx * dx + dy * dy + dz * dz);
+                    bone_data.angle = std::atan2(dy, dx) * 180.0f / 3.14159265358979323846f;
+                } else {
+                    throw std::runtime_error(
+                        "Bone at index " + std::to_string(i) +
+                        " missing 'length'/'angle' or 'start'/'end'"
+                    );
+                }
                 desc.skeleton.push_back(bone_data);
             }
 
@@ -1079,6 +1097,9 @@ PYBIND11_MODULE(procengine_cpp, m) {
                     center[2].cast<float>()
                 );
                 ball.radius = m_dict["radius"].cast<float>();
+                if (m_dict.contains("strength")) {
+                    ball.strength = m_dict["strength"].cast<float>();
+                }
                 desc.metaballs.push_back(ball);
             }
 
