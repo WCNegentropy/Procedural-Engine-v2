@@ -404,44 +404,44 @@ def _generate_limbs(
             (max(0, min(1, bone_count - 1)), "arm"),
             (max(0, bone_count - 1), "leg"),
         ]
-        lateral_base = 0.12
+        lateral_base = 0.25
     else:
         attach_pairs = [
             (max(0, min(1, bone_count - 1)), "foreleg"),
             (max(0, bone_count - 2), "hindleg"),
         ]
-        lateral_base = 0.16
+        lateral_base = 0.30
 
     for attach_bone, limb_kind in attach_pairs:
         attach_joint = joints[min(attach_bone, len(joints) - 1)]
         if limb_kind == "arm":
             segment_angles = (-118.0, -78.0)
             segment_lengths = (
-                float(rng.uniform(0.18, 0.26)),
-                float(rng.uniform(0.16, 0.24)),
+                float(rng.uniform(0.32, 0.44)),
+                float(rng.uniform(0.28, 0.40)),
             )
-            base_radius = 0.11
+            base_radius = 0.19
         elif limb_kind == "leg":
             segment_angles = (-92.0, -80.0)
             segment_lengths = (
-                float(rng.uniform(0.26, 0.38)),
-                float(rng.uniform(0.22, 0.32)),
+                float(rng.uniform(0.42, 0.58)),
+                float(rng.uniform(0.36, 0.50)),
             )
-            base_radius = 0.13
+            base_radius = 0.22
         elif limb_kind == "hindleg":
             segment_angles = (-100.0, -82.0)
             segment_lengths = (
-                float(rng.uniform(0.24, 0.34)),
-                float(rng.uniform(0.2, 0.28)),
+                float(rng.uniform(0.40, 0.54)),
+                float(rng.uniform(0.34, 0.46)),
             )
-            base_radius = 0.12
+            base_radius = 0.21
         else:
             segment_angles = (-82.0, -94.0)
             segment_lengths = (
-                float(rng.uniform(0.22, 0.3)),
-                float(rng.uniform(0.18, 0.26)),
+                float(rng.uniform(0.36, 0.50)),
+                float(rng.uniform(0.30, 0.42)),
             )
-            base_radius = 0.12
+            base_radius = 0.20
 
         segment_defs = [
             {"length": segment_lengths[0], "angle": segment_angles[0]},
@@ -456,10 +456,14 @@ def _generate_limbs(
 
             for segment_index, segment in enumerate(segment_defs):
                 angle = float(segment["angle"]) + float(rng.uniform(-8.0, 8.0))
+                lateral_angle = float(rng.uniform(0.15, 0.35))
                 direction = np.array(
-                    [math.cos(math.radians(angle)), math.sin(math.radians(angle)), 0.0],
+                    [math.cos(math.radians(angle)), math.sin(math.radians(angle)), side_sign * lateral_angle],
                     dtype=np.float64,
                 )
+                norm = float(np.linalg.norm(direction))
+                if norm > 1e-8:
+                    direction = direction / norm
                 length = float(segment["length"])
                 next_point = current + direction * length
                 midpoint = (current + next_point) * 0.5
