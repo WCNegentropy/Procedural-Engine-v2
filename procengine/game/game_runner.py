@@ -2273,21 +2273,15 @@ class GameRunner:
                 creature_type = prop_desc.get("creature_type", prop_desc.get("body_plan", "quadruped"))
                 body_plan = prop_desc.get("body_plan", "quadruped")
 
-                # Species-specific behavior and stats
-                _SPECIES_DEFAULTS: dict[str, tuple[str, float, float]] = {
-                    # species: (behavior, move_speed, mass)
-                    "deer":      ("flee",   3.5,  45.0),
-                    "wolf":      ("wander", 3.0,  35.0),
-                    "lizard":    ("wander", 1.5,  15.0),
-                    "goat":      ("wander", 2.5,  40.0),
-                    "humanoid":  ("wander", 1.5,  60.0),
-                    "goblin":    ("wander", 2.0,  25.0),
-                    "bird":      ("wander", 2.0,   5.0),
-                }
-                _beh, _spd, _mass = _SPECIES_DEFAULTS.get(
-                    creature_type,
-                    ("wander", 2.0 if body_plan == "quadruped" else 1.5, 30.0),
-                )
+                # Derive stats from template (single source of truth)
+                from procengine.world.creature_templates import CREATURE_TEMPLATES
+                _tpl = CREATURE_TEMPLATES.get(creature_type)
+                if _tpl is not None:
+                    _beh, _spd, _mass = _tpl.behavior, _tpl.move_speed, _tpl.mass
+                else:
+                    _beh = "wander"
+                    _spd = 2.0 if body_plan == "quadruped" else 1.5
+                    _mass = 30.0
 
                 creature = Creature(
                     entity_id=entity_id,
