@@ -54,8 +54,8 @@ WET_BIOMES = {BIOME_SWAMP, BIOME_JUNGLE}
 BARREN_BIOMES = {BIOME_DEEP_OCEAN, BIOME_OCEAN, BIOME_FROZEN_OCEAN, BIOME_GLACIER}
 
 QUADRUPED_START_HEIGHT = 0.6
-TORSO_LATERAL_OFFSET_MIN = 0.42
-TORSO_LATERAL_OFFSET_MAX = 0.58
+TORSO_LATERAL_OFFSET_MIN = 0.60
+TORSO_LATERAL_OFFSET_MAX = 0.75
 METABALL_BRIDGE_RADIUS_EPSILON = 1e-3
 
 __all__ = [
@@ -347,7 +347,7 @@ def _place_spine_metaballs(
                 vertical = float(rng.uniform(-0.03, 0.03))
                 for side in (-1.0, 1.0):
                     side_center = midpoint + np.array([0.0, vertical, side * lateral])
-                    _append_metaball(metaballs, side_center, radius * 0.82)
+                    _append_metaball(metaballs, side_center, radius * 0.55)
 
     if detail_count > 0:
         spine_points = np.linspace(0.1, 0.9, num=detail_count)
@@ -404,13 +404,13 @@ def _generate_limbs(
             (max(0, min(1, bone_count - 1)), "arm"),
             (max(0, bone_count - 1), "leg"),
         ]
-        lateral_base = 0.25
+        lateral_base = 0.40
     else:
         attach_pairs = [
             (max(0, min(1, bone_count - 1)), "foreleg"),
             (max(0, bone_count - 2), "hindleg"),
         ]
-        lateral_base = 0.30
+        lateral_base = 0.50
 
     for attach_bone, limb_kind in attach_pairs:
         attach_joint = joints[min(attach_bone, len(joints) - 1)]
@@ -420,28 +420,28 @@ def _generate_limbs(
                 float(rng.uniform(0.32, 0.44)),
                 float(rng.uniform(0.28, 0.40)),
             )
-            base_radius = 0.19
+            base_radius = 0.24
         elif limb_kind == "leg":
             segment_angles = (-92.0, -80.0)
             segment_lengths = (
                 float(rng.uniform(0.42, 0.58)),
                 float(rng.uniform(0.36, 0.50)),
             )
-            base_radius = 0.22
+            base_radius = 0.28
         elif limb_kind == "hindleg":
             segment_angles = (-100.0, -82.0)
             segment_lengths = (
                 float(rng.uniform(0.40, 0.54)),
                 float(rng.uniform(0.34, 0.46)),
             )
-            base_radius = 0.21
+            base_radius = 0.27
         else:
             segment_angles = (-82.0, -94.0)
             segment_lengths = (
                 float(rng.uniform(0.36, 0.50)),
                 float(rng.uniform(0.30, 0.42)),
             )
-            base_radius = 0.20
+            base_radius = 0.26
 
         segment_defs = [
             {"length": segment_lengths[0], "angle": segment_angles[0]},
@@ -456,7 +456,10 @@ def _generate_limbs(
 
             for segment_index, segment in enumerate(segment_defs):
                 angle = float(segment["angle"]) + float(rng.uniform(-8.0, 8.0))
-                lateral_angle = float(rng.uniform(0.15, 0.35))
+                if segment_index == 0:
+                    lateral_angle = float(rng.uniform(0.50, 0.70))
+                else:
+                    lateral_angle = float(rng.uniform(0.25, 0.40))
                 direction = np.array(
                     [math.cos(math.radians(angle)), math.sin(math.radians(angle)), side_sign * lateral_angle],
                     dtype=np.float64,
@@ -466,8 +469,12 @@ def _generate_limbs(
                     direction = direction / norm
                 length = float(segment["length"])
                 next_point = current + direction * length
-                midpoint = (current + next_point) * 0.5
-                _append_metaball(metaballs, midpoint, radius_profile[segment_index + 1])
+                seg_radius = radius_profile[segment_index + 1]
+                # Place 3 metaballs along the segment for continuous limb shape
+                for frac in (0.25, 0.5, 0.75):
+                    interp = current + (next_point - current) * frac
+                    taper = 1.0 - 0.15 * abs(frac - 0.5)
+                    _append_metaball(metaballs, interp, seg_radius * taper)
                 current = next_point
 
             limbs.append(_make_limb_descriptor(attach_bone, side_name, segment_defs, radius_profile))

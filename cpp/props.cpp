@@ -636,12 +636,23 @@ static Mesh finalize_creature_mesh(
     mesh.vertices = raw_mesh.vertices;
     mesh.normals.assign(mesh.vertices.size(), Vec3(0.0f, 0.0f, 0.0f));
 
-    // Sample gradients far enough away from the surface to avoid cancellation on
-    // tiny cells, but still within the local neighborhood of the isosurface.
-    float epsilon = std::max(cell_size * 0.25f, 1e-4f);
+    // Use a larger gradient epsilon (0.5x cell_size, up from 0.25x) to avoid
+    // cancellation artifacts at metaball junctions where multiple field
+    // contributions cancel out.  0.5x provides a wider sampling span that
+    // averages over junction zones while staying within one cell of the surface.
+    float epsilon = std::max(cell_size * 0.5f, 1e-4f);
     // Reject nearly-zero-area triangles created by coplanar or duplicate edge
     // intersections without stripping legitimate small features.
     float area_epsilon = std::max(cell_size * cell_size * 1e-4f, 1e-8f);
+    // Minimum gradient strength to trust for winding correction — at metaball
+    // junctions the gradient can become arbitrarily small as field contributions
+    // cancel.  A threshold of 0.1x cell_size ensures the gradient spans at
+    // least ~10% of a cell before we trust its direction for a winding flip.
+    float winding_grad_threshold = cell_size * 0.1f;
+
+    // Precompute a relaxed area threshold for triangles near metaball centers
+    // where small but valid surface triangles are expected at junctions.
+    float relaxed_area_epsilon = area_epsilon * 0.1f;
 
     for (size_t i = 0; i + 2 < raw_mesh.indices.size(); i += 3) {
         uint32_t i0 = raw_mesh.indices[i];
@@ -654,13 +665,30 @@ static Mesh finalize_creature_mesh(
 
         Vec3 face = (v1 - v0).cross(v2 - v0);
         float area = face.length();
-        if (area <= area_epsilon) {
+
+        // Check if centroid is in a junction zone between multiple metaballs —
+        // relax area threshold only there where legitimate small triangles form.
+        Vec3 centroid = (v0 + v1 + v2) / 3.0f;
+        float effective_area_epsilon = area_epsilon;
+        int nearby_balls = 0;
+        for (const auto& ball : metaballs) {
+            Vec3 diff = centroid - ball.center;
+            float dist = diff.length();
+            if (dist < ball.radius * 2.0f) {
+                nearby_balls++;
+                if (nearby_balls >= 2) {
+                    effective_area_epsilon = relaxed_area_epsilon;
+                    break;
+                }
+            }
+        }
+        if (area <= effective_area_epsilon) {
             continue;
         }
 
-        Vec3 centroid = (v0 + v1 + v2) / 3.0f;
         Vec3 outward = evaluate_field_gradient(metaballs, centroid, epsilon) * -1.0f;
-        if (outward.length() > 1e-6f && face.dot(outward) < 0.0f) {
+        // Only flip winding when the gradient is strong enough to be reliable.
+        if (outward.length() > winding_grad_threshold && face.dot(outward) < 0.0f) {
             std::swap(i1, i2);
             face = face * -1.0f;
         }
@@ -717,9 +745,20 @@ Mesh generate_creature_mesh(
     Vec3 size = max_bound - min_bound;
     float cell_size = std::max({size.x, size.y, size.z}) / static_cast<float>(grid_resolution);
 
-    uint32_t nx = static_cast<uint32_t>(std::ceil(size.x / cell_size)) + 1;
-    uint32_t ny = static_cast<uint32_t>(std::ceil(size.y / cell_size)) + 1;
-    uint32_t nz = static_cast<uint32_t>(std::ceil(size.z / cell_size)) + 1;
+    // Ensure at least 16 cells per axis so narrow axes (e.g. the Z-span of
+    // a quadruped whose limbs create only modest lateral spread) still get
+    // enough marching-cubes resolution to resolve limb surfaces.
+    uint32_t nx = std::max(static_cast<uint32_t>(std::ceil(size.x / cell_size)) + 1, 16u);
+    uint32_t ny = std::max(static_cast<uint32_t>(std::ceil(size.y / cell_size)) + 1, 16u);
+    uint32_t nz = std::max(static_cast<uint32_t>(std::ceil(size.z / cell_size)) + 1, 16u);
+
+    // Recompute effective cell_size per axis when the minimum forced a
+    // higher count, so that grid coordinates still cover the full bounding box.
+    float cx = size.x / static_cast<float>(nx - 1);
+    float cy = size.y / static_cast<float>(ny - 1);
+    float cz = size.z / static_cast<float>(nz - 1);
+    // Use the finest cell_size for the finalization pass (gradient sampling).
+    cell_size = std::min({cx, cy, cz});
 
     // Evaluate field at grid points
     std::vector<float> field(nx * ny * nz);
@@ -727,9 +766,9 @@ Mesh generate_creature_mesh(
         for (uint32_t iy = 0; iy < ny; ++iy) {
             for (uint32_t ix = 0; ix < nx; ++ix) {
                 Vec3 pos = min_bound + Vec3(
-                    static_cast<float>(ix) * cell_size,
-                    static_cast<float>(iy) * cell_size,
-                    static_cast<float>(iz) * cell_size
+                    static_cast<float>(ix) * cx,
+                    static_cast<float>(iy) * cy,
+                    static_cast<float>(iz) * cz
                 );
                 size_t idx = ix + iy * nx + iz * nx * ny;
                 field[idx] = evaluate_metaball_field(desc.metaballs, pos);
@@ -747,16 +786,16 @@ Mesh generate_creature_mesh(
                 Vec3 positions[8];
 
                 for (int c = 0; c < 8; ++c) {
-                    uint32_t cx = ix + static_cast<uint32_t>(cube_vertices[c][0]);
-                    uint32_t cy = iy + static_cast<uint32_t>(cube_vertices[c][1]);
-                    uint32_t cz = iz + static_cast<uint32_t>(cube_vertices[c][2]);
+                    uint32_t gx = ix + static_cast<uint32_t>(cube_vertices[c][0]);
+                    uint32_t gy = iy + static_cast<uint32_t>(cube_vertices[c][1]);
+                    uint32_t gz = iz + static_cast<uint32_t>(cube_vertices[c][2]);
 
-                    size_t idx = cx + cy * nx + cz * nx * ny;
+                    size_t idx = gx + gy * nx + gz * nx * ny;
                     values[c] = field[idx];
                     positions[c] = min_bound + Vec3(
-                        static_cast<float>(cx) * cell_size,
-                        static_cast<float>(cy) * cell_size,
-                        static_cast<float>(cz) * cell_size
+                        static_cast<float>(gx) * cx,
+                        static_cast<float>(gy) * cy,
+                        static_cast<float>(gz) * cz
                     );
                 }
 
