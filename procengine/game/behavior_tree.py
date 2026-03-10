@@ -21,7 +21,7 @@ from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 import numpy as np
 
 if TYPE_CHECKING:
-    from procengine.game.game_api import NPC, GameWorld
+    from procengine.game.game_api import Character, NPC, GameWorld
     from procengine.physics import Vec3
 
 __all__ = [
@@ -795,7 +795,7 @@ def create_creature_wander_behavior(
     _rng = rng if rng is not None else SeedRegistry(0).get_rng("creature_wander")
 
     def pick_wander_target(
-        entity: "NPC",
+        entity: "Character",
         world: "GameWorld",
         bb: Blackboard,
         dt: float,
@@ -811,7 +811,7 @@ def create_creature_wander_behavior(
         return NodeStatus.SUCCESS
 
     def move_to_target(
-        entity: "NPC",
+        entity: "Character",
         world: "GameWorld",
         bb: Blackboard,
         dt: float,
@@ -833,7 +833,7 @@ def create_creature_wander_behavior(
         return NodeStatus.RUNNING
 
     def rest(
-        entity: "NPC",
+        entity: "Character",
         world: "GameWorld",
         bb: Blackboard,
         dt: float,
@@ -885,7 +885,7 @@ def create_flee_behavior(
     from procengine.physics import Vec3
 
     def is_threat_nearby(
-        entity: "NPC",
+        entity: "Character",
         world: "GameWorld",
         bb: Blackboard,
     ) -> bool:
@@ -896,7 +896,7 @@ def create_flee_behavior(
         return distance < flee_range
 
     def flee_from_threat(
-        entity: "NPC",
+        entity: "Character",
         world: "GameWorld",
         bb: Blackboard,
         dt: float,
@@ -922,7 +922,7 @@ def create_flee_behavior(
         return NodeStatus.RUNNING
 
     def idle_wait(
-        entity: "NPC",
+        entity: "Character",
         world: "GameWorld",
         bb: Blackboard,
         dt: float,
