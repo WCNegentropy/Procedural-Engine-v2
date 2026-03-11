@@ -741,7 +741,7 @@ class PlayerController:
         if state.was_just_pressed(InputAction.ATTACK):
             if self._harvesting_system:
                 result = self._harvesting_system.try_harvest(player, world)
-                if result.hit or result.on_cooldown:
+                if result.hit:
                     self._last_harvest_result = result
 
     def _handle_ui_input(self, state: InputState) -> None:
