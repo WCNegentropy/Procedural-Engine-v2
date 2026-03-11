@@ -2278,10 +2278,16 @@ class GameRunner:
                 _tpl = CREATURE_TEMPLATES.get(creature_type)
                 if _tpl is not None:
                     _beh, _spd, _mass = _tpl.behavior, _tpl.move_speed, _tpl.mass
+                    _vis_half = _tpl.vision_half_angle_deg
+                    _vis_range = _tpl.vision_range
+                    _turn_spd = _tpl.turn_speed
                 else:
                     _beh = "wander"
                     _spd = 2.0 if body_plan == "quadruped" else 1.5
                     _mass = 30.0
+                    _vis_half = 60.0
+                    _vis_range = 15.0
+                    _turn_spd = 4.0
 
                 creature = Creature(
                     entity_id=entity_id,
@@ -2296,6 +2302,10 @@ class GameRunner:
                     mass=_mass,
                     radius=0.5,
                     move_speed=_spd,
+                    behavior=_beh,
+                    vision_half_angle_deg=_vis_half,
+                    vision_range=_vis_range,
+                    turn_speed=_turn_spd,
                 )
                 spawned_id = self._world.spawn_entity(creature)
                 if spawned_id:

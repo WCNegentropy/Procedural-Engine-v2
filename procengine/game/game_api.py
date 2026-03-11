@@ -580,6 +580,11 @@ class Creature(Character):
     flee_range: float = 8.0
     move_speed: float = 2.5
 
+    # Vision cone parameters (set from CreatureTemplate at spawn time)
+    vision_half_angle_deg: float = 60.0
+    vision_range: float = 15.0
+    turn_speed: float = 4.0
+
     # Internal state
     _behavior_tree: Optional[BehaviorTree] = field(default=None, repr=False)
 
@@ -611,6 +616,9 @@ class Creature(Character):
             "awareness_range": self.awareness_range,
             "flee_range": self.flee_range,
             "move_speed": self.move_speed,
+            "vision_half_angle_deg": self.vision_half_angle_deg,
+            "vision_range": self.vision_range,
+            "turn_speed": self.turn_speed,
         })
         return data
 
@@ -639,6 +647,9 @@ class Creature(Character):
             awareness_range=data.get("awareness_range", 15.0),
             flee_range=data.get("flee_range", 8.0),
             move_speed=data.get("move_speed", 2.5),
+            vision_half_angle_deg=data.get("vision_half_angle_deg", 60.0),
+            vision_range=data.get("vision_range", 15.0),
+            turn_speed=data.get("turn_speed", 4.0),
         )
 
 
@@ -2056,14 +2067,50 @@ class GameWorld:
         creature:
             The creature to configure.
         """
+        import math as _math
         from procengine.game.behavior_tree import (
             create_creature_wander_behavior,
             create_flee_behavior,
+            create_creature_prey_behavior,
+            create_creature_predator_behavior,
+            create_creature_grazer_behavior,
         )
 
         behavior = creature.behavior
+        vision_half = _math.radians(creature.vision_half_angle_deg)
+        vision_range = creature.vision_range
 
-        if behavior == "flee":
+        if behavior == "prey":
+            creature.set_behavior_tree(
+                create_creature_prey_behavior(
+                    origin=creature.position,
+                    wander_radius=10.0,
+                    speed=creature.move_speed,
+                    flee_range=creature.flee_range,
+                    flee_speed_multiplier=1.5,
+                    vision_half_angle=vision_half,
+                    vision_range=vision_range,
+                )
+            )
+        elif behavior == "predator":
+            creature.set_behavior_tree(
+                create_creature_predator_behavior(
+                    origin=creature.position,
+                    patrol_radius=15.0,
+                    speed=creature.move_speed,
+                    vision_half_angle=vision_half,
+                    vision_range=vision_range,
+                )
+            )
+        elif behavior == "grazer":
+            creature.set_behavior_tree(
+                create_creature_grazer_behavior(
+                    origin=creature.position,
+                    graze_radius=8.0,
+                    speed=creature.move_speed,
+                )
+            )
+        elif behavior == "flee":
             creature.set_behavior_tree(
                 create_flee_behavior(
                     flee_range=creature.flee_range,

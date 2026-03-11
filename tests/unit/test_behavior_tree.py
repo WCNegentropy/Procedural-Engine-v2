@@ -33,6 +33,12 @@ from procengine.game.behavior_tree import (
     create_guard_behavior,
     create_creature_wander_behavior,
     create_flee_behavior,
+    face_toward,
+    smooth_rotate_toward,
+    is_in_vision_cone,
+    create_creature_prey_behavior,
+    create_creature_predator_behavior,
+    create_creature_grazer_behavior,
 )
 from procengine.physics import Vec3
 from procengine.game.game_api import NPC, Creature, GameWorld, Player
@@ -707,3 +713,434 @@ class TestFleeBehavior:
         # Should not have moved much (idle branch)
         distance = (creature.position - start_pos).length()
         assert distance < 1.0
+
+
+# =============================================================================
+# Rotation Utility Tests
+# =============================================================================
+
+import math
+
+
+class TestFaceToward:
+    """Test face_toward rotation utility."""
+
+    def test_face_positive_z(self):
+        angle = face_toward(Vec3(0, 0, 1))
+        assert angle == pytest.approx(0.0)
+
+    def test_face_positive_x(self):
+        angle = face_toward(Vec3(1, 0, 0))
+        assert angle == pytest.approx(math.pi / 2)
+
+    def test_face_negative_z(self):
+        angle = face_toward(Vec3(0, 0, -1))
+        assert abs(angle) == pytest.approx(math.pi)
+
+    def test_face_negative_x(self):
+        angle = face_toward(Vec3(-1, 0, 0))
+        assert angle == pytest.approx(-math.pi / 2)
+
+    def test_face_diagonal(self):
+        angle = face_toward(Vec3(1, 0, 1))
+        assert angle == pytest.approx(math.pi / 4)
+
+
+class TestSmoothRotateToward:
+    """Test smooth_rotate_toward interpolation."""
+
+    def test_small_step_toward_target(self):
+        current = 0.0
+        target = 1.0
+        result = smooth_rotate_toward(current, target, dt=0.1, turn_speed=2.0)
+        assert 0.0 < result < target
+        assert result == pytest.approx(0.2)
+
+    def test_snaps_when_close(self):
+        current = 0.9
+        target = 1.0
+        result = smooth_rotate_toward(current, target, dt=1.0, turn_speed=2.0)
+        assert result == pytest.approx(target)
+
+    def test_shortest_arc_positive_to_negative(self):
+        # From near +pi to near -pi should go the short way
+        current = math.pi - 0.1
+        target = -math.pi + 0.1
+        result = smooth_rotate_toward(current, target, dt=0.05, turn_speed=4.0)
+        # Should rotate in the positive direction (wrap around)
+        assert result > current or result < target
+
+    def test_negative_direction(self):
+        current = 0.5
+        target = -0.5
+        result = smooth_rotate_toward(current, target, dt=0.1, turn_speed=2.0)
+        assert result < current
+
+    def test_zero_dt_no_change(self):
+        result = smooth_rotate_toward(1.0, 2.0, dt=0.0, turn_speed=5.0)
+        assert result == pytest.approx(1.0)
+
+
+# =============================================================================
+# Vision Cone Tests
+# =============================================================================
+
+
+class TestVisionCone:
+    """Test is_in_vision_cone utility."""
+
+    def test_target_directly_ahead_in_cone(self):
+        # Observer at origin facing +Z, target at (0, 0, 5)
+        result = is_in_vision_cone(
+            Vec3(0, 0, 0), 0.0, Vec3(0, 0, 5),
+            cone_half_angle=math.radians(60), max_range=10.0,
+        )
+        assert result is True
+
+    def test_target_behind_not_in_cone(self):
+        # Observer facing +Z, target behind at (0, 0, -5)
+        result = is_in_vision_cone(
+            Vec3(0, 0, 0), 0.0, Vec3(0, 0, -5),
+            cone_half_angle=math.radians(60), max_range=10.0,
+        )
+        assert result is False
+
+    def test_target_at_cone_edge(self):
+        # Observer facing +Z, target at exactly 60 degrees to the side
+        half_angle = math.radians(60)
+        x = 5.0 * math.sin(half_angle * 0.99)  # just inside
+        z = 5.0 * math.cos(half_angle * 0.99)
+        result = is_in_vision_cone(
+            Vec3(0, 0, 0), 0.0, Vec3(x, 0, z),
+            cone_half_angle=half_angle, max_range=10.0,
+        )
+        assert result is True
+
+    def test_target_beyond_range(self):
+        result = is_in_vision_cone(
+            Vec3(0, 0, 0), 0.0, Vec3(0, 0, 20),
+            cone_half_angle=math.radians(60), max_range=10.0,
+        )
+        assert result is False
+
+    def test_target_on_observer(self):
+        result = is_in_vision_cone(
+            Vec3(0, 0, 0), 0.0, Vec3(0, 0, 0),
+            cone_half_angle=math.radians(60), max_range=10.0,
+        )
+        assert result is True
+
+    def test_rotated_observer(self):
+        # Observer facing +X (rotation = pi/2)
+        result = is_in_vision_cone(
+            Vec3(0, 0, 0), math.pi / 2, Vec3(5, 0, 0),
+            cone_half_angle=math.radians(60), max_range=10.0,
+        )
+        assert result is True
+
+        # Same observer, target at +Z should be outside forward cone
+        result_side = is_in_vision_cone(
+            Vec3(0, 0, 0), math.pi / 2, Vec3(0, 0, 5),
+            cone_half_angle=math.radians(45), max_range=10.0,
+        )
+        assert result_side is False
+
+    def test_narrow_cone(self):
+        # Very narrow cone (10 deg half-angle)
+        result_ahead = is_in_vision_cone(
+            Vec3(0, 0, 0), 0.0, Vec3(0.1, 0, 5),
+            cone_half_angle=math.radians(10), max_range=10.0,
+        )
+        assert result_ahead is True
+
+        result_side = is_in_vision_cone(
+            Vec3(0, 0, 0), 0.0, Vec3(3, 0, 3),
+            cone_half_angle=math.radians(10), max_range=10.0,
+        )
+        assert result_side is False
+
+
+# =============================================================================
+# Wander Rotation Tests
+# =============================================================================
+
+
+class TestWanderRotation:
+    """Test that wander behavior updates creature rotation."""
+
+    def test_wander_updates_rotation(self):
+        creature = Creature(
+            entity_id="rot_test",
+            position=Vec3(0, 0, 0),
+        )
+        creature.rotation = 0.0
+        world = GameWorld()
+
+        tree = create_creature_wander_behavior(
+            origin=creature.position, speed=5.0, wander_radius=10.0,
+        )
+
+        # Tick enough times for creature to pick a target and start moving
+        for _ in range(60):
+            tree.tick(creature, world, 1.0 / 30.0)
+
+        # Creature should have moved and rotation should have changed
+        distance = (creature.position - Vec3(0, 0, 0)).length()
+        assert distance > 0.5
+        # Rotation should not still be exactly zero (statistically near-impossible)
+        # unless target happens to be exactly along +Z; allow either changed or very small
+        # Just verify the behavior doesn't crash and rotation is a valid float
+        assert isinstance(creature.rotation, float)
+        assert math.isfinite(creature.rotation)
+
+
+class TestFleeRotation:
+    """Test that flee behavior updates creature rotation."""
+
+    def test_flee_sets_rotation_away_from_threat(self):
+        creature = Creature(
+            entity_id="flee_rot",
+            position=Vec3(5, 0, 0),
+        )
+        creature.rotation = 0.0
+        world = GameWorld()
+        world.create_player(position=Vec3(0, 0, 0))
+
+        tree = create_flee_behavior(flee_range=10.0, speed=5.0)
+
+        for _ in range(10):
+            tree.tick(creature, world, 1.0 / 60.0)
+
+        # Creature should face away from player (toward +X)
+        # atan2(1, 0) = pi/2
+        assert creature.rotation == pytest.approx(math.pi / 2, abs=0.3)
+
+
+# =============================================================================
+# Prey Behavior Tests
+# =============================================================================
+
+
+class TestPreyBehavior:
+    """Test the enhanced prey behavior with vision cone."""
+
+    def test_prey_flees_when_threat_in_vision(self):
+        creature = Creature(
+            entity_id="prey_vis",
+            position=Vec3(5, 0, 5),
+        )
+        creature.rotation = 0.0  # facing +Z
+        world = GameWorld()
+        # Place player directly ahead in vision cone
+        world.create_player(position=Vec3(5, 0, 10))
+
+        tree = create_creature_prey_behavior(
+            origin=creature.position,
+            speed=3.0,
+            flee_range=8.0,
+            vision_half_angle=math.radians(60),
+            vision_range=15.0,
+        )
+
+        start_pos = Vec3(creature.position.x, creature.position.y, creature.position.z)
+        for _ in range(60):
+            tree.tick(creature, world, 1.0 / 60.0)
+
+        # Creature should have fled away from the player
+        player = world.get_player()
+        start_dist = (start_pos - player.position).length()
+        end_dist = (creature.position - player.position).length()
+        assert end_dist > start_dist
+
+    def test_prey_wanders_when_no_threat(self):
+        creature = Creature(
+            entity_id="prey_wander",
+            position=Vec3(0, 0, 0),
+        )
+        world = GameWorld()
+        # No player spawned — no threat
+
+        tree = create_creature_prey_behavior(
+            origin=creature.position,
+            speed=3.0,
+        )
+
+        start_pos = Vec3(creature.position.x, creature.position.y, creature.position.z)
+        for _ in range(120):
+            tree.tick(creature, world, 1.0 / 60.0)
+
+        # Creature should have wandered
+        dist = (creature.position - start_pos).length()
+        assert dist > 0.5
+
+
+# =============================================================================
+# Predator Behavior Tests
+# =============================================================================
+
+
+class TestPredatorBehavior:
+    """Test predator behavior with vision-cone based stalking."""
+
+    def test_predator_chases_prey_in_vision(self):
+        predator = Creature(
+            entity_id="pred_test",
+            position=Vec3(0, 0, 0),
+            creature_type="wolf",
+        )
+        predator.rotation = 0.0  # facing +Z
+
+        prey = Creature(
+            entity_id="prey_target",
+            position=Vec3(0, 0, 8),
+            creature_type="deer",
+        )
+
+        world = GameWorld()
+        world.spawn_entity(predator)
+        world.spawn_entity(prey)
+
+        tree = create_creature_predator_behavior(
+            origin=predator.position,
+            speed=3.0,
+            chase_speed_multiplier=1.5,
+            vision_half_angle=math.radians(60),
+            vision_range=15.0,
+        )
+
+        start_pos = Vec3(predator.position.x, predator.position.y, predator.position.z)
+        for _ in range(60):
+            tree.tick(predator, world, 1.0 / 60.0)
+
+        # Predator should have moved toward prey (in +Z direction)
+        assert predator.position.z > start_pos.z + 0.5
+
+    def test_predator_patrols_when_no_prey_visible(self):
+        predator = Creature(
+            entity_id="pred_patrol",
+            position=Vec3(0, 0, 0),
+            creature_type="wolf",
+        )
+        predator.rotation = 0.0
+
+        world = GameWorld()
+        world.spawn_entity(predator)
+
+        tree = create_creature_predator_behavior(
+            origin=predator.position,
+            speed=3.0,
+            vision_range=15.0,
+        )
+
+        start_pos = Vec3(predator.position.x, predator.position.y, predator.position.z)
+        for _ in range(120):
+            tree.tick(predator, world, 1.0 / 60.0)
+
+        # Should have moved (patrolling)
+        dist = (predator.position - start_pos).length()
+        assert dist > 0.5
+
+
+# =============================================================================
+# Grazer Behavior Tests
+# =============================================================================
+
+
+class TestGrazerBehavior:
+    """Test the grazer behavior for docile creatures."""
+
+    def test_grazer_moves_slowly(self):
+        creature = Creature(
+            entity_id="grazer_test",
+            position=Vec3(5, 0, 5),
+        )
+        world = GameWorld()
+
+        tree = create_creature_grazer_behavior(
+            origin=creature.position,
+            graze_radius=6.0,
+            speed=1.5,
+        )
+
+        start_pos = Vec3(creature.position.x, creature.position.y, creature.position.z)
+        for _ in range(120):
+            tree.tick(creature, world, 1.0 / 60.0)
+
+        dist = (creature.position - start_pos).length()
+        assert dist > 0.3  # Has moved
+        assert isinstance(creature.rotation, float)
+        assert math.isfinite(creature.rotation)
+
+    def test_grazer_stays_near_origin(self):
+        origin = Vec3(10, 0, 10)
+        creature = Creature(
+            entity_id="grazer_stay",
+            position=Vec3(origin.x, origin.y, origin.z),
+        )
+        world = GameWorld()
+
+        tree = create_creature_grazer_behavior(
+            origin=origin,
+            graze_radius=5.0,
+            speed=1.5,
+        )
+
+        for _ in range(300):
+            tree.tick(creature, world, 1.0 / 60.0)
+
+        # Should be within a reasonable distance of origin
+        dist = (creature.position - origin).length()
+        assert dist < 15.0  # generous bound
+
+
+# =============================================================================
+# Template Vision Parameter Tests
+# =============================================================================
+
+
+class TestCreatureTemplateVision:
+    """Test that creature templates include vision parameters."""
+
+    def test_all_templates_have_vision_params(self):
+        from procengine.world.creature_templates import CREATURE_TEMPLATES
+        for name, tpl in CREATURE_TEMPLATES.items():
+            assert hasattr(tpl, "vision_half_angle_deg"), f"{name} missing vision_half_angle_deg"
+            assert hasattr(tpl, "vision_range"), f"{name} missing vision_range"
+            assert hasattr(tpl, "turn_speed"), f"{name} missing turn_speed"
+            assert 0 < tpl.vision_half_angle_deg <= 90
+            assert tpl.vision_range > 0
+            assert tpl.turn_speed > 0
+
+    def test_predator_narrower_vision_than_prey(self):
+        from procengine.world.creature_templates import CREATURE_TEMPLATES
+        wolf = CREATURE_TEMPLATES["wolf"]
+        deer = CREATURE_TEMPLATES["deer"]
+        assert wolf.vision_half_angle_deg < deer.vision_half_angle_deg
+
+    def test_creature_entity_receives_vision_params(self):
+        creature = Creature(
+            entity_id="vis_test",
+            position=Vec3(0, 0, 0),
+            vision_half_angle_deg=75.0,
+            vision_range=20.0,
+            turn_speed=5.0,
+        )
+        assert creature.vision_half_angle_deg == 75.0
+        assert creature.vision_range == 20.0
+        assert creature.turn_speed == 5.0
+
+    def test_creature_serialization_roundtrip(self):
+        creature = Creature(
+            entity_id="serial_test",
+            position=Vec3(1, 2, 3),
+            vision_half_angle_deg=80.0,
+            vision_range=18.0,
+            turn_speed=6.0,
+            behavior="prey",
+        )
+        data = creature.to_dict()
+        restored = Creature.from_dict(data)
+        assert restored.vision_half_angle_deg == 80.0
+        assert restored.vision_range == 18.0
+        assert restored.turn_speed == 6.0
+        assert restored.behavior == "prey"

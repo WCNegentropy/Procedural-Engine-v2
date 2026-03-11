@@ -68,6 +68,11 @@ class CreatureTemplate:
     move_speed: float = 2.0
     mass: float = 30.0
 
+    # Vision cone parameters (standardized across species, tunable per-template)
+    vision_half_angle_deg: float = 60.0  # half-angle in degrees (120° total FOV)
+    vision_range: float = 15.0  # maximum sight distance in world units
+    turn_speed: float = 4.0  # radians per second for smooth rotation
+
 
 # ---------------------------------------------------------------------------
 # Built-in templates
@@ -118,9 +123,12 @@ _register(CreatureTemplate(
     target_size_range=(1.2, 1.8),
     head_scale=0.45,
     neck_length_scale=1.8,
-    behavior="flee",
+    behavior="prey",
     move_speed=3.5,
     mass=45.0,
+    vision_half_angle_deg=75.0,  # wide FOV — prey animal
+    vision_range=18.0,
+    turn_speed=5.0,
 ))
 
 _register(CreatureTemplate(
@@ -140,9 +148,12 @@ _register(CreatureTemplate(
     target_size_range=(0.9, 1.4),
     head_scale=0.65,
     neck_length_scale=1.3,
-    behavior="wander",
+    behavior="predator",
     move_speed=3.0,
     mass=35.0,
+    vision_half_angle_deg=55.0,  # forward-focused predator vision
+    vision_range=20.0,
+    turn_speed=5.0,
 ))
 
 _register(CreatureTemplate(
@@ -162,9 +173,12 @@ _register(CreatureTemplate(
     target_size_range=(0.6, 1.0),
     head_scale=0.55,
     neck_length_scale=1.0,
-    behavior="wander",
+    behavior="grazer",
     move_speed=1.5,
     mass=15.0,
+    vision_half_angle_deg=80.0,  # nearly panoramic side-mounted eyes
+    vision_range=10.0,
+    turn_speed=3.0,
 ))
 
 _register(CreatureTemplate(
@@ -184,9 +198,12 @@ _register(CreatureTemplate(
     target_size_range=(0.8, 1.2),
     head_scale=0.55,
     neck_length_scale=1.4,
-    behavior="wander",
+    behavior="grazer",
     move_speed=2.5,
     mass=40.0,
+    vision_half_angle_deg=70.0,
+    vision_range=12.0,
+    turn_speed=3.5,
 ))
 
 _register(CreatureTemplate(
@@ -250,9 +267,12 @@ _register(CreatureTemplate(
     target_size_range=(0.4, 0.8),
     head_scale=0.50,
     neck_length_scale=1.1,
-    behavior="wander",
+    behavior="prey",
     move_speed=2.0,
     mass=5.0,
+    vision_half_angle_deg=85.0,  # very wide FOV — bird lateral eyes
+    vision_range=20.0,
+    turn_speed=6.0,  # fast head turns
 ))
 
 
