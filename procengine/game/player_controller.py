@@ -632,6 +632,10 @@ class PlayerController:
         # Interaction context - tracks the currently focused entity for UI prompts
         self._focused_entity: Optional[InteractionTarget] = None
 
+        # Harvesting system (optionally injected by GameRunner)
+        self._harvesting_system: Optional[Any] = None
+        self._last_harvest_result: Optional[Any] = None
+
         # Callbacks for UI events
         self.on_inventory_toggle: Optional[Callable[[], None]] = None
         self.on_journal_toggle: Optional[Callable[[], None]] = None
@@ -732,6 +736,13 @@ class PlayerController:
         # Handle interaction
         if state.was_just_pressed(InputAction.INTERACT):
             self._handle_interaction(player, world)
+
+        # Handle attack / harvesting (MOUSE1)
+        if state.was_just_pressed(InputAction.ATTACK):
+            if self._harvesting_system:
+                result = self._harvesting_system.try_harvest(player, world)
+                if result.hit or result.on_cooldown:
+                    self._last_harvest_result = result
 
     def _handle_ui_input(self, state: InputState) -> None:
         """Handle UI toggle inputs."""
@@ -834,6 +845,9 @@ class PlayerController:
                             best_action_text = "Pick up"
                         elif action == "activate":
                             best_action_text = "Activate"
+                        elif action == "harvest":
+                            hits = entity.state.get("hits_remaining", "?")
+                            best_action_text = f"Harvest ({hits} hits)"
                         else:
                             best_action_text = "Interact"
 

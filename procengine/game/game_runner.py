@@ -854,6 +854,10 @@ class GameRunner:
         # Chunk management (for dynamic chunks mode)
         self._chunk_manager: Optional[Any] = None
 
+        # Resource harvesting
+        self._drop_tables: Dict[str, Any] = {}
+        self._harvesting_system: Optional[Any] = None
+
         # C++ GameManager for async chunk gen + dynamic tuning
         from procengine.managers.game_manager import GameManagerBridge, ManagerConfig
         self._game_manager = GameManagerBridge(
@@ -1285,6 +1289,24 @@ class GameRunner:
             for item in items:
                 self._world.register_item_definition(item)
 
+            # Load drop tables and initialise harvesting system
+            try:
+                drop_tables = loader.load_drop_tables("items/resource_drops.json")
+                self._drop_tables = drop_tables
+
+                from procengine.game.harvesting import HarvestingSystem
+                from procengine.core.seed_registry import SeedRegistry
+
+                harvest_seed = SeedRegistry(self.config.world_seed).get_subseed("harvest")
+                self._harvesting_system = HarvestingSystem(
+                    drop_tables=drop_tables,
+                    seed=harvest_seed,
+                )
+                if self._player_controller:
+                    self._player_controller._harvesting_system = self._harvesting_system
+            except FileNotFoundError:
+                self._drop_tables = {}
+
         except Exception as e:
             print(f"Warning: Could not load game content: {e}")
 
@@ -1436,6 +1458,10 @@ class GameRunner:
             player = self._world.get_player()
             if player and self._player_controller:
                 self._player_controller.update(player, self._world, dt)
+
+            # Tick harvest cooldown
+            if self._harvesting_system:
+                self._harvesting_system.update(dt)
 
             # === GameManager-driven frame ===
             if self._game_manager.available and self.config.enable_dynamic_chunks and player:
@@ -2325,6 +2351,13 @@ class GameRunner:
                     state=prop_desc.get("state", {}),
                 )
 
+            # Mark resource props as harvestable if drop table exists
+            if prop_type in self._drop_tables:
+                table = self._drop_tables[prop_type]
+                prop.interactable = True
+                prop.interaction_action = "harvest"
+                prop.state["hits_remaining"] = table.get("hits_required", 1)
+
             spawned_id = self._world.spawn_entity(prop)
             if spawned_id:
                 chunk.entity_ids.add(spawned_id)
@@ -2652,7 +2685,10 @@ class GameRunner:
                 self._ui_manager.render_save_load()
 
             elif self._state == GameState.PLAYING:
-                self._ui_manager.render_hud(player, interaction_target)
+                harvest_result = None
+                if self._player_controller:
+                    harvest_result = self._player_controller._last_harvest_result
+                self._ui_manager.render_hud(player, interaction_target, harvest_result)
 
             elif self._state == GameState.PAUSED:
                 self._ui_manager.render_hud(player)

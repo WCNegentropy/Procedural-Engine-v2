@@ -619,6 +619,11 @@ class HUD(UIComponent):
         if interaction_target:
             self._render_interaction_prompt(interaction_target)
 
+        # Harvest feedback (bottom-center, above interaction prompt)
+        harvest_result = kwargs.get("harvest_result")
+        if harvest_result:
+            self._render_harvest_feedback(harvest_result)
+
         # Status bar (bottom-left)
         time_of_day = kwargs.get("time_of_day")
         biome_name = kwargs.get("biome_name")
@@ -692,7 +697,12 @@ class HUD(UIComponent):
         target:
             The interaction target with entity_name, action_text, entity_type.
         """
-        prompt_text = f"[E] {target.action_text} {target.entity_name}"
+        # Use [LMB] for harvest prompts, [E] for other interactions
+        if target.action_text.startswith("Harvest"):
+            key_hint = "[LMB]"
+        else:
+            key_hint = "[E]"
+        prompt_text = f"{key_hint} {target.action_text} {target.entity_name}"
         prompt_width = max(
             _PROMPT_MIN_WIDTH,
             len(prompt_text) * _CHAR_WIDTH_ESTIMATE + _PROMPT_PADDING,
@@ -715,6 +725,28 @@ class HUD(UIComponent):
         color = color_map.get(target.entity_type, (1.0, 1.0, 1.0))
         self._backend.text_colored(prompt_text, *color)
 
+        self._backend.end_window()
+
+    def _render_harvest_feedback(self, result: Any) -> None:
+        """Render harvest hit / drop feedback above the interaction prompt."""
+        if not result or not getattr(result, "hit", False):
+            return
+
+        if result.destroyed and result.drops:
+            parts = [f"{d['item_id'].replace('_', ' ').title()} x{d['count']}" for d in result.drops]
+            text = "  ".join(parts)
+        else:
+            text = f"{result.target_name} — {result.hits_remaining} hits left"
+
+        width = max(200, len(text) * _CHAR_WIDTH_ESTIMATE + 30)
+        self._backend.begin_window(
+            "##HarvestFeedback",
+            (self._screen_width - width) / 2,
+            self._screen_height - 150,
+            width, 35,
+            flags=_NO_DECORATION_FLAGS,
+        )
+        self._backend.text_colored(text, 1.0, 0.9, 0.3)  # gold-ish
         self._backend.end_window()
 
     def _render_status_bar(
@@ -2050,6 +2082,7 @@ class UIManager:
         self,
         player: Optional["Player"] = None,
         interaction_target: Optional["InteractionTarget"] = None,
+        harvest_result: Optional[Any] = None,
     ) -> None:
         """Render HUD elements.
 
@@ -2060,6 +2093,8 @@ class UIManager:
         interaction_target:
             Optional InteractionTarget from PlayerController for showing
             "Press E to interact" prompts.
+        harvest_result:
+            Optional HarvestResult for showing harvest feedback.
         """
         if not player:
             return
@@ -2082,6 +2117,7 @@ class UIManager:
             active_quests=active_quests,
             interaction_target=interaction_target,
             time_of_day=time_of_day,
+            harvest_result=harvest_result,
         )
 
     def render_dialogue(self) -> None:

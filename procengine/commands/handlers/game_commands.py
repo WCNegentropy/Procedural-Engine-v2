@@ -330,6 +330,65 @@ def cmd_player_drop(item_id: str, count: int = 1) -> CommandResult:
     )
 
 
+@command(
+    name="player.equip",
+    description="Equip a weapon or tool from inventory",
+    category=Category.PLAYER,
+    access=AccessLevel.PUBLIC,
+    examples=["player.equip iron_sword"],
+)
+def cmd_player_equip(item_id: str) -> CommandResult:
+    """Equip a weapon or tool."""
+    ctx = registry.get_context()
+    if not ctx or not hasattr(ctx, "world"):
+        return CommandResult.error("No game context")
+
+    player = ctx.world.get_player()
+    if not player:
+        return CommandResult.error("No player")
+
+    if not player.inventory.has_item(item_id):
+        return CommandResult.error(f"No {item_id} in inventory")
+
+    item_def = ctx.world.get_item_definition(item_id)
+    if not item_def:
+        return CommandResult.error(f"Unknown item: {item_id}")
+
+    if item_def.item_type not in ("weapon", "tool"):
+        return CommandResult.error(f"{item_def.name} is not a weapon or tool")
+
+    player.equipped_weapon = item_id
+    return CommandResult.ok(
+        f"Equipped {item_def.name}",
+        data={"item_id": item_id},
+    )
+
+
+@command(
+    name="player.unequip",
+    description="Unequip the current weapon or tool",
+    category=Category.PLAYER,
+    access=AccessLevel.PUBLIC,
+)
+def cmd_player_unequip() -> CommandResult:
+    """Unequip the current weapon."""
+    ctx = registry.get_context()
+    if not ctx or not hasattr(ctx, "world"):
+        return CommandResult.error("No game context")
+
+    player = ctx.world.get_player()
+    if not player:
+        return CommandResult.error("No player")
+
+    if not player.equipped_weapon:
+        return CommandResult.ok("Nothing equipped")
+
+    item_def = ctx.world.get_item_definition(player.equipped_weapon)
+    name = item_def.name if item_def else player.equipped_weapon
+    player.equipped_weapon = None
+    return CommandResult.ok(f"Unequipped {name}")
+
+
 # =============================================================================
 # NPC Commands
 # =============================================================================
