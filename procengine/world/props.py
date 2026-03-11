@@ -407,14 +407,14 @@ def _generate_limbs(
 
     if body_plan == "biped":
         attach_pairs = [
-            (max(0, min(1, bone_count - 1)), "arm"),
+            (0, "arm"),
             (max(0, bone_count - 1), "leg"),
         ]
         lateral_base = 0.40
     else:
         attach_pairs = [
-            (max(0, min(1, bone_count - 1)), "foreleg"),
-            (max(0, bone_count - 2), "hindleg"),
+            (0, "foreleg"),
+            (max(0, bone_count - 1), "hindleg"),
         ]
         lateral_base = 0.50
 
