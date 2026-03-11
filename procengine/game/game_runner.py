@@ -760,6 +760,7 @@ class GameState(Enum):
     PAUSED = auto()
     DIALOGUE = auto()
     INVENTORY = auto()
+    CRAFTING = auto()
     MENU = auto()
 
 
@@ -930,6 +931,7 @@ class GameRunner:
         # Set up UI callbacks
         self._player_controller.on_pause_toggle = self._on_pause_pressed
         self._player_controller.on_inventory_toggle = self._on_inventory_pressed
+        self._player_controller.on_crafting_toggle = self._on_crafting_pressed
         self._player_controller.on_dialogue_advance = self._on_dialogue_advance
         self._player_controller.on_dialogue_option = self._on_dialogue_option
         self._player_controller.on_console_toggle = self._on_console_toggle
@@ -1135,6 +1137,11 @@ class GameRunner:
             self._ui_manager.set_inventory_callbacks(
                 on_use=lambda item_id: self.execute_command(f"player.use {item_id}"),
                 on_drop=lambda item_id: self.execute_command(f"player.drop {item_id}"),
+            )
+
+            # Wire crafting Craft button to command registry
+            self._ui_manager.set_crafting_callbacks(
+                on_craft=lambda recipe_id: self.execute_command(f"player.craft {recipe_id}"),
             )
 
             # Wire dialogue callbacks
@@ -2698,6 +2705,10 @@ class GameRunner:
                 self._ui_manager.render_hud(player)
                 self._ui_manager.render_inventory(player)
 
+            elif self._state == GameState.CRAFTING:
+                self._ui_manager.render_hud(player)
+                self._ui_manager.render_crafting(player)
+
             elif self._state == GameState.DIALOGUE:
                 self._ui_manager.render_hud(player)
                 self._ui_manager.render_dialogue()
@@ -2887,7 +2898,7 @@ class GameRunner:
             if self._world:
                 self._world.paused = False
             self._backend.set_mouse_capture(True)
-        elif self._state in (GameState.INVENTORY, GameState.DIALOGUE):
+        elif self._state in (GameState.INVENTORY, GameState.CRAFTING, GameState.DIALOGUE):
             # Close current UI
             self._state = GameState.PLAYING
             if self._player_controller:
@@ -2903,6 +2914,19 @@ class GameRunner:
                 self._player_controller.in_menu = True
             self._backend.set_mouse_capture(False)
         elif self._state == GameState.INVENTORY:
+            self._state = GameState.PLAYING
+            if self._player_controller:
+                self._player_controller.in_menu = False
+            self._backend.set_mouse_capture(True)
+
+    def _on_crafting_pressed(self) -> None:
+        """Handle crafting button press."""
+        if self._state == GameState.PLAYING:
+            self._state = GameState.CRAFTING
+            if self._player_controller:
+                self._player_controller.in_menu = True
+            self._backend.set_mouse_capture(False)
+        elif self._state == GameState.CRAFTING:
             self._state = GameState.PLAYING
             if self._player_controller:
                 self._player_controller.in_menu = False

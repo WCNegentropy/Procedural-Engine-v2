@@ -1,0 +1,213 @@
+{
+  "recipes": [
+    {
+      "recipe_id": "craft_rope",
+      "name": "Rope",
+      "description": "Weave plant fiber into sturdy rope.",
+      "ingredients": {
+        "plant_fiber": 3
+      },
+      "result_item": "rope",
+      "result_count": 1,
+      "category": "materials"
+    },
+    {
+      "recipe_id": "craft_planks",
+      "name": "Wooden Planks",
+      "description": "Cut raw wood into smooth planks.",
+      "ingredients": {
+        "wood": 2
+      },
+      "result_item": "planks",
+      "result_count": 4,
+      "category": "materials"
+    },
+    {
+      "recipe_id": "craft_iron_ingot",
+      "name": "Iron Ingot",
+      "description": "Smelt iron ore into a usable ingot.",
+      "ingredients": {
+        "iron_ore": 2,
+        "wood": 1
+      },
+      "result_item": "iron_ingot",
+      "result_count": 1,
+      "category": "materials"
+    },
+    {
+      "recipe_id": "craft_torch",
+      "name": "Torch",
+      "description": "A simple torch for lighting the way.",
+      "ingredients": {
+        "wood": 1,
+        "bark": 1,
+        "plant_fiber": 1
+      },
+      "result_item": "torch",
+      "result_count": 2,
+      "category": "tools"
+    },
+    {
+      "recipe_id": "craft_wooden_club",
+      "name": "Wooden Club",
+      "description": "Shape a piece of wood into a crude weapon.",
+      "ingredients": {
+        "wood": 3
+      },
+      "result_item": "wooden_club",
+      "result_count": 1,
+      "category": "weapons"
+    },
+    {
+      "recipe_id": "craft_stone_axe",
+      "name": "Stone Axe",
+      "description": "Lash a sharp stone to a wooden handle.",
+      "ingredients": {
+        "stone": 3,
+        "wood": 2,
+        "plant_fiber": 2
+      },
+      "result_item": "stone_axe",
+      "result_count": 1,
+      "category": "tools"
+    },
+    {
+      "recipe_id": "craft_stone_pickaxe",
+      "name": "Stone Pickaxe",
+      "description": "Fashion a pointed stone into a pickaxe head.",
+      "ingredients": {
+        "stone": 3,
+        "wood": 2,
+        "plant_fiber": 2
+      },
+      "result_item": "stone_pickaxe",
+      "result_count": 1,
+      "category": "tools"
+    },
+    {
+      "recipe_id": "craft_wooden_shield",
+      "name": "Wooden Shield",
+      "description": "Bind planks together into a basic shield.",
+      "ingredients": {
+        "planks": 4,
+        "rope": 2
+      },
+      "result_item": "wooden_shield",
+      "result_count": 1,
+      "category": "armor"
+    },
+    {
+      "recipe_id": "craft_bandage",
+      "name": "Bandage",
+      "description": "Tear cloth into strips for dressing wounds.",
+      "ingredients": {
+        "old_clothes": 1,
+        "plant_fiber": 1
+      },
+      "result_item": "bandage",
+      "result_count": 3,
+      "category": "consumables"
+    },
+    {
+      "recipe_id": "craft_herbal_remedy",
+      "name": "Herbal Remedy",
+      "description": "Grind healing herbs into a restorative poultice.",
+      "ingredients": {
+        "thornroot": 2,
+        "flower_petal": 2
+      },
+      "result_item": "herbal_remedy",
+      "result_count": 1,
+      "category": "consumables"
+    },
+    {
+      "recipe_id": "craft_mushroom_stew",
+      "name": "Mushroom Stew",
+      "description": "Cook wild mushrooms into a hearty stew.",
+      "ingredients": {
+        "mushroom": 3,
+        "wood": 1
+      },
+      "result_item": "mushroom_stew",
+      "result_count": 1,
+      "category": "consumables"
+    },
+    {
+      "recipe_id": "craft_health_potion",
+      "name": "Health Potion",
+      "description": "Brew a potent healing draught from rare herbs.",
+      "ingredients": {
+        "moonflower": 1,
+        "thornroot": 1,
+        "flower_petal": 2
+      },
+      "result_item": "health_potion",
+      "result_count": 1,
+      "category": "consumables"
+    },
+    {
+      "recipe_id": "craft_iron_sword",
+      "name": "Iron Sword",
+      "description": "Forge iron ingots into a reliable blade.",
+      "ingredients": {
+        "iron_ingot": 3,
+        "wood": 1,
+        "rope": 1
+      },
+      "result_item": "iron_sword",
+      "result_count": 1,
+      "category": "weapons"
+    },
+    {
+      "recipe_id": "craft_iron_axe",
+      "name": "Iron Axe",
+      "description": "Forge an iron axe head and fit it to a handle.",
+      "ingredients": {
+        "iron_ingot": 2,
+        "wood": 2,
+        "rope": 1
+      },
+      "result_item": "iron_axe",
+      "result_count": 1,
+      "category": "tools"
+    },
+    {
+      "recipe_id": "craft_iron_pickaxe",
+      "name": "Iron Pickaxe",
+      "description": "Forge an iron pickaxe for serious mining.",
+      "ingredients": {
+        "iron_ingot": 2,
+        "wood": 2,
+        "rope": 1
+      },
+      "result_item": "iron_pickaxe",
+      "result_count": 1,
+      "category": "tools"
+    },
+    {
+      "recipe_id": "craft_steel_shield",
+      "name": "Steel Shield",
+      "description": "Hammer iron ingots into a sturdy steel shield.",
+      "ingredients": {
+        "iron_ingot": 4,
+        "planks": 2,
+        "rope": 1
+      },
+      "result_item": "steel_shield",
+      "result_count": 1,
+      "category": "armor"
+    },
+    {
+      "recipe_id": "craft_antidote",
+      "name": "Antidote",
+      "description": "Mix a cure for poisons from rare flowers.",
+      "ingredients": {
+        "moonflower": 1,
+        "cactus_flesh": 2
+      },
+      "result_item": "antidote",
+      "result_count": 1,
+      "category": "consumables"
+    }
+  ]
+}

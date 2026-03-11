@@ -389,6 +389,83 @@ def cmd_player_unequip() -> CommandResult:
     return CommandResult.ok(f"Unequipped {name}")
 
 
+@command(
+    name="player.craft",
+    description="Craft an item from a recipe",
+    category=Category.PLAYER,
+    access=AccessLevel.PUBLIC,
+    examples=["player.craft craft_stone_axe", "player.craft craft_rope"],
+)
+def cmd_player_craft(recipe_id: str) -> CommandResult:
+    """Craft an item using a recipe."""
+    ctx = registry.get_context()
+    if not ctx or not hasattr(ctx, "world"):
+        return CommandResult.error("No game context")
+
+    player = ctx.world.get_player()
+    if not player:
+        return CommandResult.error("No player")
+
+    recipe = ctx.world.get_recipe(recipe_id)
+    if not recipe:
+        return CommandResult.error(f"Unknown recipe: {recipe_id}")
+
+    if not recipe.can_craft(player.inventory):
+        missing = []
+        for item_id, needed in recipe.ingredients.items():
+            have = player.inventory.get_count(item_id)
+            if have < needed:
+                item_def = ctx.world.get_item_definition(item_id)
+                name = item_def.name if item_def else item_id
+                missing.append(f"{name} ({have}/{needed})")
+        return CommandResult.error(f"Missing: {', '.join(missing)}")
+
+    success = ctx.world.craft_item(recipe_id, player)
+    if not success:
+        return CommandResult.error("Crafting failed")
+
+    result_def = ctx.world.get_item_definition(recipe.result_item)
+    result_name = result_def.name if result_def else recipe.result_item
+    count_str = f" x{recipe.result_count}" if recipe.result_count > 1 else ""
+
+    return CommandResult.ok(
+        f"Crafted {result_name}{count_str}",
+        data={"recipe_id": recipe_id, "item_id": recipe.result_item, "count": recipe.result_count},
+    )
+
+
+@command(
+    name="player.recipes",
+    description="List available crafting recipes",
+    category=Category.PLAYER,
+    access=AccessLevel.PUBLIC,
+)
+def cmd_player_recipes() -> CommandResult:
+    """List all crafting recipes."""
+    ctx = registry.get_context()
+    if not ctx or not hasattr(ctx, "world"):
+        return CommandResult.error("No game context")
+
+    recipes = ctx.world.get_all_recipes()
+    if not recipes:
+        return CommandResult.ok("No recipes available")
+
+    player = ctx.world.get_player()
+    lines = []
+    for recipe in recipes.values():
+        result_def = ctx.world.get_item_definition(recipe.result_item)
+        result_name = result_def.name if result_def else recipe.result_item
+        count_str = f" x{recipe.result_count}" if recipe.result_count > 1 else ""
+        can_craft = recipe.can_craft(player.inventory) if player else False
+        status = "[*]" if can_craft else "[ ]"
+        lines.append(f"  {status} {recipe.recipe_id}: {result_name}{count_str}")
+
+    return CommandResult.ok(
+        f"Recipes ({len(recipes)}):\n" + "\n".join(lines),
+        data={"count": len(recipes)},
+    )
+
+
 # =============================================================================
 # NPC Commands
 # =============================================================================

@@ -295,6 +295,177 @@
       "stackable": true,
       "max_stack": 99,
       "properties": {}
+    },
+    {
+      "item_id": "rope",
+      "name": "Rope",
+      "description": "A sturdy length of rope woven from plant fiber.",
+      "item_type": "material",
+      "value": 5,
+      "stackable": true,
+      "max_stack": 30,
+      "properties": {}
+    },
+    {
+      "item_id": "planks",
+      "name": "Wooden Planks",
+      "description": "Smooth planks cut from raw wood. A refined building material.",
+      "item_type": "material",
+      "value": 6,
+      "stackable": true,
+      "max_stack": 99,
+      "properties": {}
+    },
+    {
+      "item_id": "iron_ingot",
+      "name": "Iron Ingot",
+      "description": "A bar of smelted iron, ready for smithing.",
+      "item_type": "material",
+      "value": 12,
+      "stackable": true,
+      "max_stack": 50,
+      "properties": {}
+    },
+    {
+      "item_id": "stone_axe",
+      "name": "Stone Axe",
+      "description": "A crude axe with a stone head lashed to a wooden handle. Gets the job done.",
+      "item_type": "tool",
+      "value": 10,
+      "stackable": false,
+      "max_stack": 1,
+      "properties": {
+        "damage": 5,
+        "durability": 50,
+        "tool_type": "axe",
+        "harvest_bonus": 1.5
+      }
+    },
+    {
+      "item_id": "stone_pickaxe",
+      "name": "Stone Pickaxe",
+      "description": "A rough pickaxe fashioned from stone and wood. Chips away at rock slowly but surely.",
+      "item_type": "tool",
+      "value": 10,
+      "stackable": false,
+      "max_stack": 1,
+      "properties": {
+        "damage": 4,
+        "durability": 50,
+        "tool_type": "pickaxe",
+        "harvest_bonus": 1.5
+      }
+    },
+    {
+      "item_id": "wooden_club",
+      "name": "Wooden Club",
+      "description": "A heavy stick shaped into a basic weapon. Better than bare fists.",
+      "item_type": "weapon",
+      "value": 5,
+      "stackable": false,
+      "max_stack": 1,
+      "properties": {
+        "damage": 4,
+        "durability": 30,
+        "weapon_type": "mace"
+      }
+    },
+    {
+      "item_id": "torch",
+      "name": "Torch",
+      "description": "A wooden stick wrapped in bark and fiber. Provides light in dark places.",
+      "item_type": "tool",
+      "value": 3,
+      "stackable": true,
+      "max_stack": 10,
+      "properties": {
+        "light_radius": 8.0,
+        "burn_duration": 300.0
+      }
+    },
+    {
+      "item_id": "bandage",
+      "name": "Bandage",
+      "description": "A simple dressing made from cloth strips. Stops bleeding and heals minor wounds.",
+      "item_type": "consumable",
+      "value": 8,
+      "stackable": true,
+      "max_stack": 20,
+      "properties": {
+        "heal_amount": 20,
+        "use_time": 2.0
+      }
+    },
+    {
+      "item_id": "herbal_remedy",
+      "name": "Herbal Remedy",
+      "description": "A poultice of crushed herbs and roots. Provides steady healing over time.",
+      "item_type": "consumable",
+      "value": 15,
+      "stackable": true,
+      "max_stack": 10,
+      "properties": {
+        "heal_amount": 35,
+        "heal_over_time": true,
+        "duration": 10.0
+      }
+    },
+    {
+      "item_id": "mushroom_stew",
+      "name": "Mushroom Stew",
+      "description": "A hearty stew of wild mushrooms. Filling and restorative.",
+      "item_type": "consumable",
+      "value": 10,
+      "stackable": true,
+      "max_stack": 10,
+      "properties": {
+        "heal_amount": 30,
+        "stamina_restore": 15
+      }
+    },
+    {
+      "item_id": "iron_axe",
+      "name": "Iron Axe",
+      "description": "A proper axe with a forged iron head. Fells trees with ease.",
+      "item_type": "tool",
+      "value": 35,
+      "stackable": false,
+      "max_stack": 1,
+      "properties": {
+        "damage": 8,
+        "durability": 120,
+        "tool_type": "axe",
+        "harvest_bonus": 2.0
+      }
+    },
+    {
+      "item_id": "iron_pickaxe",
+      "name": "Iron Pickaxe",
+      "description": "A forged iron pickaxe. Breaks stone and ore efficiently.",
+      "item_type": "tool",
+      "value": 35,
+      "stackable": false,
+      "max_stack": 1,
+      "properties": {
+        "damage": 6,
+        "durability": 120,
+        "tool_type": "pickaxe",
+        "harvest_bonus": 2.0
+      }
+    },
+    {
+      "item_id": "wooden_shield",
+      "name": "Wooden Shield",
+      "description": "A simple shield of bound planks. Offers basic protection.",
+      "item_type": "armor",
+      "value": 15,
+      "stackable": false,
+      "max_stack": 1,
+      "properties": {
+        "defense": 8,
+        "durability": 60,
+        "armor_slot": "offhand"
+      }
     }
   ]
 }
