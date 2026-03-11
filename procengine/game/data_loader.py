@@ -17,6 +17,7 @@ from procengine.game.game_api import (
     QuestState,
     ObjectiveType,
     ItemDefinition,
+    CraftingRecipe,
     GameWorld,
     Inventory,
 )
@@ -29,6 +30,7 @@ __all__ = [
     "load_quests_from_file",
     "load_items_from_file",
     "load_drop_tables_from_file",
+    "load_recipes_from_file",
     "load_all_game_data",
     "DataLoader",
 ]
@@ -200,6 +202,38 @@ def load_drop_tables_from_file(path: Path) -> Dict[str, Any]:
     return data.get("drop_tables", {})
 
 
+def load_recipes_from_file(path: Path) -> List[CraftingRecipe]:
+    """Load crafting recipes from a JSON file.
+
+    Parameters
+    ----------
+    path:
+        Path to JSON file containing recipe definitions.
+
+    Returns
+    -------
+    List[CraftingRecipe]:
+        List of CraftingRecipe objects ready to be registered.
+    """
+    with open(path, "r") as f:
+        data = json.load(f)
+
+    recipes = []
+    for recipe_data in data.get("recipes", []):
+        recipe = CraftingRecipe(
+            recipe_id=recipe_data["recipe_id"],
+            name=recipe_data["name"],
+            description=recipe_data.get("description", ""),
+            ingredients=recipe_data.get("ingredients", {}),
+            result_item=recipe_data.get("result_item", ""),
+            result_count=recipe_data.get("result_count", 1),
+            category=recipe_data.get("category", "misc"),
+        )
+        recipes.append(recipe)
+
+    return recipes
+
+
 class DataLoader:
     """Utility class for loading and registering game data.
 
@@ -235,6 +269,12 @@ class DataLoader:
         """Load resource drop tables from a file relative to data_dir."""
         return load_drop_tables_from_file(self.data_dir / filename)
 
+    def load_recipes(
+        self, filename: str = "items/recipes.json"
+    ) -> List[CraftingRecipe]:
+        """Load crafting recipes from a file relative to data_dir."""
+        return load_recipes_from_file(self.data_dir / filename)
+
     def load_all(self, world: GameWorld) -> Dict[str, int]:
         """Load all game data and register with world.
 
@@ -248,7 +288,7 @@ class DataLoader:
         Dict[str, int]:
             Counts of loaded content by type.
         """
-        counts = {"npcs": 0, "quests": 0, "items": 0}
+        counts = {"npcs": 0, "quests": 0, "items": 0, "recipes": 0}
 
         # Load items first (needed for inventory references)
         try:
@@ -256,6 +296,15 @@ class DataLoader:
             for item in items:
                 world.register_item_definition(item)
             counts["items"] = len(items)
+        except FileNotFoundError:
+            pass
+
+        # Load crafting recipes (after items so definitions exist)
+        try:
+            recipes = self.load_recipes()
+            for recipe in recipes:
+                world.register_recipe(recipe)
+            counts["recipes"] = len(recipes)
         except FileNotFoundError:
             pass
 

@@ -64,6 +64,7 @@ class InputAction(Enum):
 
     # UI
     INVENTORY = auto()
+    CRAFTING = auto()
     JOURNAL = auto()
     MAP = auto()
     PAUSE = auto()
@@ -203,6 +204,7 @@ class InputManager:
 
         # UI
         (InputAction.INVENTORY, "I"),
+        (InputAction.CRAFTING, "C"),
         (InputAction.JOURNAL, "J"),
         (InputAction.MAP, "M"),
         (InputAction.PAUSE, "ESCAPE"),
@@ -638,6 +640,7 @@ class PlayerController:
 
         # Callbacks for UI events
         self.on_inventory_toggle: Optional[Callable[[], None]] = None
+        self.on_crafting_toggle: Optional[Callable[[], None]] = None
         self.on_journal_toggle: Optional[Callable[[], None]] = None
         self.on_map_toggle: Optional[Callable[[], None]] = None
         self.on_pause_toggle: Optional[Callable[[], None]] = None
@@ -748,6 +751,8 @@ class PlayerController:
         """Handle UI toggle inputs."""
         if state.was_just_pressed(InputAction.INVENTORY) and self.on_inventory_toggle:
             self.on_inventory_toggle()
+        if state.was_just_pressed(InputAction.CRAFTING) and self.on_crafting_toggle:
+            self.on_crafting_toggle()
 
         if state.was_just_pressed(InputAction.JOURNAL) and self.on_journal_toggle:
             self.on_journal_toggle()

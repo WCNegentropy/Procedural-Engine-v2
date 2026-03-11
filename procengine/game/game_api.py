@@ -47,9 +47,10 @@ __all__ = [
     "Creature",
     "Prop",
     "Item",
-    # Inventory
+    # Inventory & Crafting
     "Inventory",
     "ItemDefinition",
+    "CraftingRecipe",
     # Quest system
     "Quest",
     "QuestObjective",
@@ -109,6 +110,7 @@ class EventType(Enum):
     ITEM_ACQUIRED = auto()
     ITEM_DROPPED = auto()
     ITEM_USED = auto()
+    ITEM_CRAFTED = auto()
 
     # Creature events
     CREATURE_SPAWNED = auto()
@@ -709,6 +711,55 @@ class ItemDefinition:
             stackable=data.get("stackable", True),
             max_stack=data.get("max_stack", 99),
             properties=data.get("properties", {}),
+        )
+
+
+@dataclass
+class CraftingRecipe:
+    """Definition of a crafting recipe."""
+
+    recipe_id: str
+    name: str
+    description: str = ""
+    ingredients: Dict[str, int] = field(default_factory=dict)  # item_id -> count
+    result_item: str = ""  # item_id of crafted item
+    result_count: int = 1
+    category: str = "misc"  # materials, tools, weapons, armor, consumables
+
+    def can_craft(self, inventory: "Inventory") -> bool:
+        """Check if inventory has all required ingredients."""
+        return all(
+            inventory.has_item(item_id, count)
+            for item_id, count in self.ingredients.items()
+        )
+
+    def get_ingredient_ids(self) -> frozenset:
+        """Return the set of ingredient item IDs (for matching)."""
+        return frozenset(self.ingredients.keys())
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize recipe to dictionary."""
+        return {
+            "recipe_id": self.recipe_id,
+            "name": self.name,
+            "description": self.description,
+            "ingredients": self.ingredients.copy(),
+            "result_item": self.result_item,
+            "result_count": self.result_count,
+            "category": self.category,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "CraftingRecipe":
+        """Deserialize recipe from dictionary."""
+        return cls(
+            recipe_id=data["recipe_id"],
+            name=data["name"],
+            description=data.get("description", ""),
+            ingredients=data.get("ingredients", {}),
+            result_item=data.get("result_item", ""),
+            result_count=data.get("result_count", 1),
+            category=data.get("category", "misc"),
         )
 
 
@@ -1345,6 +1396,9 @@ class GameWorld:
         # Quest system
         self._quests: Dict[str, Quest] = {}
         self._item_definitions: Dict[str, ItemDefinition] = {}
+        self._crafting_recipes: Dict[str, CraftingRecipe] = {}
+        # Index: maps frozenset of ingredient IDs to list of recipes
+        self._recipe_by_ingredients: Dict[frozenset, List[CraftingRecipe]] = {}
 
         # Physics
         self._heightfield: Optional[HeightField2D] = None
@@ -1739,6 +1793,79 @@ class GameWorld:
     def get_item_definition(self, item_id: str) -> Optional[ItemDefinition]:
         """Get an item definition by ID."""
         return self._item_definitions.get(item_id)
+
+    # -------------------------------------------------------------------------
+    # Crafting
+    # -------------------------------------------------------------------------
+
+    def register_recipe(self, recipe: CraftingRecipe) -> None:
+        """Register a crafting recipe."""
+        self._crafting_recipes[recipe.recipe_id] = recipe
+        key = recipe.get_ingredient_ids()
+        if key not in self._recipe_by_ingredients:
+            self._recipe_by_ingredients[key] = []
+        self._recipe_by_ingredients[key].append(recipe)
+
+    def get_recipe(self, recipe_id: str) -> Optional[CraftingRecipe]:
+        """Get a recipe by ID."""
+        return self._crafting_recipes.get(recipe_id)
+
+    def get_all_recipes(self) -> Dict[str, CraftingRecipe]:
+        """Get all registered recipes."""
+        return self._crafting_recipes.copy()
+
+    def get_recipes_for_items(self, selected_item_ids: List[str]) -> List[CraftingRecipe]:
+        """Get recipes that can be made using (a subset of) the selected items.
+
+        Returns recipes whose ingredient set is a subset of the selected
+        items.  The recipes are returned regardless of whether the player
+        has enough quantity -- the UI is responsible for showing
+        availability.
+        """
+        selected = frozenset(selected_item_ids)
+        matches: List[CraftingRecipe] = []
+        for ingredient_key, recipes in self._recipe_by_ingredients.items():
+            if ingredient_key <= selected:
+                matches.extend(recipes)
+        return matches
+
+    def craft_item(self, recipe_id: str, player: Optional["Player"] = None) -> bool:
+        """Attempt to craft an item from a recipe.
+
+        Consumes ingredients from the player's inventory and adds the
+        result.  Emits ``ITEM_CRAFTED`` on success.
+
+        Returns ``True`` if crafting succeeded.
+        """
+        recipe = self._crafting_recipes.get(recipe_id)
+        if recipe is None:
+            return False
+
+        target = player or self._player
+        if target is None:
+            return False
+
+        if not recipe.can_craft(target.inventory):
+            return False
+
+        # Consume ingredients
+        for item_id, count in recipe.ingredients.items():
+            target.inventory.remove_item(item_id, count)
+
+        # Add crafted item
+        target.inventory.add_item(recipe.result_item, recipe.result_count)
+
+        # Emit event
+        self.events.emit(Event(
+            EventType.ITEM_CRAFTED,
+            {
+                "recipe_id": recipe.recipe_id,
+                "item_id": recipe.result_item,
+                "count": recipe.result_count,
+            },
+            source_entity=target.entity_id,
+        ))
+        return True
 
     # -------------------------------------------------------------------------
     # Dialogue

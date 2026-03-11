@@ -46,6 +46,7 @@ __all__ = [
     "HUD",
     "DialogueBox",
     "InventoryPanel",
+    "CraftingPanel",
     "QuestLog",
     "PauseMenu",
     "MainMenu",
@@ -1008,6 +1009,268 @@ class InventoryPanel(UIComponent):
         self._backend.same_line()
         if self._backend.button("Close", 90, 30):
             self._visible = False
+
+        self._backend.end_window()
+
+
+# =============================================================================
+# CraftingPanel
+# =============================================================================
+
+# Crafting-specific colors
+_COLOR_CRAFT_AVAILABLE = (0.40, 0.90, 0.40)
+_COLOR_CRAFT_UNAVAILABLE = (0.55, 0.55, 0.55)
+_COLOR_CRAFT_SELECTED = (0.30, 0.85, 1.0)
+_COLOR_INGREDIENT_HAVE = (0.70, 0.90, 0.70)
+_COLOR_INGREDIENT_NEED = (0.90, 0.45, 0.40)
+_COLOR_CRAFT_CATEGORY = (0.90, 0.80, 0.50)
+_COLOR_CRAFT_RESULT = (1.0, 0.95, 0.60)
+
+
+class CraftingPanel(UIComponent):
+    """Crafting panel with multi-item selection and recipe discovery.
+
+    Features:
+    - Left column: inventory items with multi-select checkboxes
+    - Right column: available recipes filtered by selected items
+    - Recipe detail area with ingredients and craft button
+    """
+
+    def __init__(
+        self,
+        backend: UIBackend,
+        screen_width: int,
+        screen_height: int,
+    ) -> None:
+        super().__init__(backend)
+        self._screen_width = screen_width
+        self._screen_height = screen_height
+        self._selected_items: set = set()  # item_ids currently selected
+        self._selected_recipe: Optional[str] = None  # recipe_id
+        self._item_definitions: Dict[str, Any] = {}
+        self._recipes: List[Any] = []  # List of recipe dicts
+        self._on_craft: Optional[Callable[[str], None]] = None  # recipe_id callback
+        self._inventory_snapshot: Dict[str, int] = {}
+
+    def set_item_definitions(self, definitions: Dict[str, Any]) -> None:
+        """Set item definitions for display."""
+        self._item_definitions = definitions
+
+    def set_recipes(self, recipes: List[Any]) -> None:
+        """Set available recipes for the panel.
+
+        Parameters
+        ----------
+        recipes:
+            List of recipe dicts with keys: recipe_id, name, description,
+            ingredients (dict), result_item, result_count, category.
+        """
+        self._recipes = recipes
+
+    def _get_matching_recipes(self) -> List[Any]:
+        """Get recipes whose ingredients are a subset of selected items."""
+        if not self._selected_items:
+            return []
+        selected = frozenset(self._selected_items)
+        matches = []
+        for recipe in self._recipes:
+            ingredients = recipe.get("ingredients", {})
+            if frozenset(ingredients.keys()) <= selected:
+                matches.append(recipe)
+        return matches
+
+    def _can_craft_recipe(self, recipe: Dict[str, Any]) -> bool:
+        """Check if the player has enough of each ingredient."""
+        for item_id, needed in recipe.get("ingredients", {}).items():
+            if self._inventory_snapshot.get(item_id, 0) < needed:
+                return False
+        return True
+
+    def render(self, player: Optional["Player"] = None, **kwargs: Any) -> None:
+        if not self._visible or not player:
+            return
+
+        # Cache current inventory for quantity checks
+        self._inventory_snapshot = player.inventory.get_all_items()
+
+        panel_width = 580
+        panel_height = 520
+        panel_x = (self._screen_width - panel_width) / 2
+        panel_y = (self._screen_height - panel_height) / 2
+
+        self._backend.begin_window(
+            "Crafting",
+            panel_x, panel_y,
+            panel_width, panel_height,
+            flags=0,
+        )
+
+        self._backend.text_colored("Crafting", *_COLOR_TITLE)
+        self._backend.separator()
+
+        content_height = panel_height - 180
+
+        # ---- Left column: item selection ----
+        left_width = 200
+        self._backend.begin_child(
+            "CraftItems", left_width, content_height, border=True,
+        )
+
+        self._backend.text_colored("Select Items", *_COLOR_SUBTITLE)
+        self._backend.separator()
+
+        items = self._inventory_snapshot
+        if not items:
+            self._backend.text_colored("  (Empty)", *_COLOR_SUBTITLE)
+        else:
+            for item_id, count in items.items():
+                # Skip quest items -- they can't be used for crafting
+                item_def = self._item_definitions.get(item_id, {})
+                if isinstance(item_def, dict) and item_def.get("item_type") == "quest":
+                    continue
+
+                if isinstance(item_def, dict):
+                    item_name = item_def.get("name", item_id)
+                else:
+                    item_name = item_id
+
+                is_selected = item_id in self._selected_items
+                label = f"[x] {item_name}  x{count}" if is_selected else f"[ ] {item_name}  x{count}"
+
+                if is_selected:
+                    self._backend.text_colored(label, *_COLOR_ITEM_SELECTED)
+                    # Click to deselect
+                    if self._backend.button(f"Deselect##desel_{item_id}", left_width - 20):
+                        self._selected_items.discard(item_id)
+                        self._selected_recipe = None
+                else:
+                    if self._backend.button(f"{label}##sel_{item_id}", left_width - 20):
+                        self._selected_items.add(item_id)
+                        self._selected_recipe = None
+
+        self._backend.end_child()
+
+        # ---- Right column: matching recipes ----
+        self._backend.same_line()
+        right_width = panel_width - left_width - 30
+        self._backend.begin_child(
+            "CraftRecipes", right_width, content_height, border=True,
+        )
+
+        self._backend.text_colored("Recipes", *_COLOR_SUBTITLE)
+        self._backend.separator()
+
+        matching = self._get_matching_recipes()
+        if not self._selected_items:
+            self._backend.spacing()
+            self._backend.text_colored("  Select items to", *_COLOR_SUBTITLE)
+            self._backend.text_colored("  see recipes", *_COLOR_SUBTITLE)
+        elif not matching:
+            self._backend.spacing()
+            self._backend.text_colored("  No recipes for", *_COLOR_SUBTITLE)
+            self._backend.text_colored("  selected items", *_COLOR_SUBTITLE)
+        else:
+            # Group by category
+            categories: Dict[str, List[Any]] = {}
+            for recipe in matching:
+                cat = recipe.get("category", "misc")
+                if cat not in categories:
+                    categories[cat] = []
+                categories[cat].append(recipe)
+
+            for cat_name, cat_recipes in categories.items():
+                self._backend.text_colored(
+                    f"  -- {cat_name.title()} --", *_COLOR_CRAFT_CATEGORY,
+                )
+                for recipe in cat_recipes:
+                    recipe_id = recipe["recipe_id"]
+                    r_name = recipe["name"]
+                    r_count = recipe.get("result_count", 1)
+                    can_craft = self._can_craft_recipe(recipe)
+                    is_sel = recipe_id == self._selected_recipe
+
+                    count_label = f" x{r_count}" if r_count > 1 else ""
+
+                    if is_sel:
+                        color = _COLOR_CRAFT_SELECTED
+                    elif can_craft:
+                        color = _COLOR_CRAFT_AVAILABLE
+                    else:
+                        color = _COLOR_CRAFT_UNAVAILABLE
+
+                    self._backend.text_colored(
+                        f"  {'>' if is_sel else ' '} {r_name}{count_label}",
+                        *color,
+                    )
+                    if self._backend.button(f"Details##rec_{recipe_id}", right_width - 30):
+                        self._selected_recipe = recipe_id
+
+                self._backend.spacing()
+
+        self._backend.end_child()
+
+        # ---- Bottom: recipe detail and craft button ----
+        self._backend.separator()
+
+        if self._selected_recipe:
+            recipe = None
+            for r in self._recipes:
+                if r["recipe_id"] == self._selected_recipe:
+                    recipe = r
+                    break
+
+            if recipe:
+                result_def = self._item_definitions.get(recipe["result_item"], {})
+                result_name = result_def.get("name", recipe["result_item"]) if isinstance(result_def, dict) else recipe["result_item"]
+                r_count = recipe.get("result_count", 1)
+                count_label = f" x{r_count}" if r_count > 1 else ""
+
+                self._backend.text_colored(
+                    f"Craft: {result_name}{count_label}", *_COLOR_CRAFT_RESULT,
+                )
+
+                # Show description
+                desc = recipe.get("description", "")
+                if desc:
+                    self._backend.text_colored(desc, *_COLOR_ITEM_DESC)
+
+                # Show ingredients with have/need coloring
+                self._backend.text("Requires:")
+                for ing_id, ing_count in recipe.get("ingredients", {}).items():
+                    ing_def = self._item_definitions.get(ing_id, {})
+                    ing_name = ing_def.get("name", ing_id) if isinstance(ing_def, dict) else ing_id
+                    have = self._inventory_snapshot.get(ing_id, 0)
+                    color = _COLOR_INGREDIENT_HAVE if have >= ing_count else _COLOR_INGREDIENT_NEED
+                    self._backend.text_colored(
+                        f"  {ing_name}: {have}/{ing_count}", *color,
+                    )
+
+                self._backend.spacing()
+                can_craft = self._can_craft_recipe(recipe)
+                if can_craft:
+                    if self._backend.button("Craft", 100, 30):
+                        if self._on_craft:
+                            self._on_craft(self._selected_recipe)
+                            # Refresh inventory snapshot after crafting
+                            self._inventory_snapshot = player.inventory.get_all_items()
+                            # Prune selected items no longer in inventory
+                            self._selected_items = {
+                                sid for sid in self._selected_items
+                                if sid in self._inventory_snapshot
+                            }
+                else:
+                    self._backend.text_colored("(Not enough materials)", *_COLOR_CRAFT_UNAVAILABLE)
+        else:
+            self._backend.spacing()
+            self._backend.text_colored("Select a recipe for details", *_COLOR_SUBTITLE)
+
+        self._backend.same_line()
+
+        # Close button (right-aligned)
+        if self._backend.button("Close", 90, 30):
+            self._visible = False
+            self._selected_items.clear()
+            self._selected_recipe = None
 
         self._backend.end_window()
 
@@ -2013,6 +2276,7 @@ class UIManager:
         self._hud = HUD(self._backend, screen_width, screen_height)
         self._dialogue_box = DialogueBox(self._backend, screen_width, screen_height)
         self._inventory_panel = InventoryPanel(self._backend, screen_width, screen_height)
+        self._crafting_panel = CraftingPanel(self._backend, screen_width, screen_height)
         self._quest_log = QuestLog(self._backend, screen_width, screen_height)
         self._pause_menu = PauseMenu(self._backend, screen_width, screen_height)
         self._settings_panel = SettingsPanel(self._backend, screen_width, screen_height)
@@ -2034,7 +2298,7 @@ class UIManager:
         """Set game world reference."""
         self._world = world
 
-        # Update inventory panel with item definitions
+        # Update inventory and crafting panels with item definitions
         if world:
             definitions = {}
             for item_id in world._item_definitions:
@@ -2042,6 +2306,11 @@ class UIManager:
                 if item_def:
                     definitions[item_id] = item_def.to_dict()
             self._inventory_panel.set_item_definitions(definitions)
+            self._crafting_panel.set_item_definitions(definitions)
+
+            # Pass recipes to crafting panel
+            recipes = [r.to_dict() for r in world.get_all_recipes().values()]
+            self._crafting_panel.set_recipes(recipes)
 
     def shutdown(self) -> None:
         """Cleanup UI resources."""
@@ -2129,6 +2398,11 @@ class UIManager:
         """Render inventory panel."""
         self._inventory_panel.visible = True
         self._inventory_panel.render(player=player)
+
+    def render_crafting(self, player: Optional["Player"] = None) -> None:
+        """Render crafting panel."""
+        self._crafting_panel.visible = True
+        self._crafting_panel.render(player=player)
 
     def render_quest_log(self, player: Optional["Player"] = None) -> None:
         """Render quest log."""
@@ -2296,6 +2570,10 @@ class UIManager:
         return self._inventory_panel
 
     @property
+    def crafting_panel(self) -> CraftingPanel:
+        return self._crafting_panel
+
+    @property
     def quest_log(self) -> QuestLog:
         return self._quest_log
 
@@ -2359,6 +2637,13 @@ class UIManager:
         """Set inventory panel callbacks."""
         self._inventory_panel._on_item_use = on_use
         self._inventory_panel._on_item_drop = on_drop
+
+    def set_crafting_callbacks(
+        self,
+        on_craft: Optional[Callable[[str], None]] = None,
+    ) -> None:
+        """Set crafting panel callbacks."""
+        self._crafting_panel._on_craft = on_craft
 
     def set_dialogue_callbacks(
         self,
