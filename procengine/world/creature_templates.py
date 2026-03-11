@@ -59,6 +59,10 @@ class CreatureTemplate:
     # Overall size
     target_size_range: tuple[float, float]
 
+    # Head (torso protrusion)
+    head_scale: float = 0.55  # head radius relative to front torso radius
+    neck_length_scale: float = 1.2  # how far head extends from body edge
+
     # Gameplay defaults
     behavior: str = "wander"
     move_speed: float = 2.0
@@ -112,6 +116,8 @@ _register(CreatureTemplate(
     limb_length_scale=1.4,
     limb_radius_scale=0.75,
     target_size_range=(1.2, 1.8),
+    head_scale=0.45,
+    neck_length_scale=1.8,
     behavior="flee",
     move_speed=3.5,
     mass=45.0,
@@ -132,6 +138,8 @@ _register(CreatureTemplate(
     limb_length_scale=1.0,
     limb_radius_scale=1.0,
     target_size_range=(0.9, 1.4),
+    head_scale=0.65,
+    neck_length_scale=1.3,
     behavior="wander",
     move_speed=3.0,
     mass=35.0,
@@ -152,6 +160,8 @@ _register(CreatureTemplate(
     limb_length_scale=0.6,
     limb_radius_scale=0.9,
     target_size_range=(0.6, 1.0),
+    head_scale=0.55,
+    neck_length_scale=1.0,
     behavior="wander",
     move_speed=1.5,
     mass=15.0,
@@ -172,6 +182,8 @@ _register(CreatureTemplate(
     limb_length_scale=0.8,
     limb_radius_scale=1.0,
     target_size_range=(0.8, 1.2),
+    head_scale=0.55,
+    neck_length_scale=1.4,
     behavior="wander",
     move_speed=2.5,
     mass=40.0,
@@ -192,6 +204,8 @@ _register(CreatureTemplate(
     limb_length_scale=1.0,
     limb_radius_scale=1.0,
     target_size_range=(1.0, 1.8),
+    head_scale=0.60,
+    neck_length_scale=1.0,
     behavior="wander",
     move_speed=1.5,
     mass=60.0,
@@ -212,6 +226,8 @@ _register(CreatureTemplate(
     limb_length_scale=0.85,
     limb_radius_scale=1.1,
     target_size_range=(0.6, 1.0),
+    head_scale=0.65,
+    neck_length_scale=0.9,
     behavior="wander",
     move_speed=2.0,
     mass=25.0,
@@ -232,6 +248,8 @@ _register(CreatureTemplate(
     limb_length_scale=1.2,  # long legs
     limb_radius_scale=0.6,  # thin limbs
     target_size_range=(0.4, 0.8),
+    head_scale=0.50,
+    neck_length_scale=1.1,
     behavior="wander",
     move_speed=2.0,
     mass=5.0,
@@ -389,13 +407,46 @@ def _generate_templated_torso(
             ])
             _append_metaball(metaballs, point, radius)
 
-    # Humanoid head placeholder: single metaball at top joint
-    if template.name in ("humanoid", "goblin") and len(joints) > 1:
-        head_radius = _templated_body_radius_profile(
-            segment_count - 1, segment_count, template
-        ) * 0.6
-        head_center = joints[-1] + np.array([0.0, head_radius * 0.8, 0.0])
-        _append_metaball(metaballs, head_center, head_radius)
+    # Head as torso protrusion — extends from the "front" end of the spine.
+    # Bipeds: head extends upward from the top joint (joints[-1]).
+    # Quadrupeds: head extends forward from the front joint (joints[0]).
+    if len(joints) > 1:
+        if template.body_plan == "biped":
+            # Head extends upward from the top of the vertical spine
+            front_radius = _templated_body_radius_profile(
+                segment_count - 1, segment_count, template
+            )
+            head_radius = front_radius * template.head_scale
+            neck_offset = front_radius * template.neck_length_scale
+            # Neck meatball — overlaps torso for a smooth transition
+            neck_center = joints[-1] + np.array([0.0, neck_offset * 0.5, 0.0])
+            _append_metaball(metaballs, neck_center, head_radius * 0.85)
+            # Head meatball
+            head_center = joints[-1] + np.array([0.0, neck_offset, 0.0])
+            _append_metaball(metaballs, head_center, head_radius)
+        else:
+            # Quadruped: head extends forward from the front joint (joint[0])
+            # Determine forward direction (opposite of spine direction at front)
+            spine_dir = joints[1] - joints[0]
+            spine_norm = float(np.linalg.norm(spine_dir))
+            if spine_norm > 1e-8:
+                spine_dir = spine_dir / spine_norm
+            head_dir = -spine_dir  # forward = away from body interior
+            head_dir[1] += 0.35  # tilt upward for natural head posture
+            head_norm = float(np.linalg.norm(head_dir))
+            if head_norm > 1e-8:
+                head_dir = head_dir / head_norm
+
+            front_radius = _templated_body_radius_profile(0, segment_count, template)
+            head_radius = front_radius * template.head_scale
+            neck_offset = front_radius * template.neck_length_scale
+
+            # Neck meatball — bridges torso to head smoothly
+            neck_center = joints[0] + head_dir * (neck_offset * 0.5)
+            _append_metaball(metaballs, neck_center, head_radius * 0.85)
+            # Head meatball
+            head_center = joints[0] + head_dir * neck_offset
+            _append_metaball(metaballs, head_center, head_radius)
 
     return metaballs
 
@@ -418,14 +469,14 @@ def _generate_templated_limbs(
 
     if template.body_plan == "biped":
         attach_pairs: list[tuple[int, str]] = [
-            (max(0, min(1, bone_count - 1)), "arm"),
+            (0, "arm"),
             (max(0, bone_count - 1), "leg"),
         ]
         lateral_base = 0.40
     else:
         attach_pairs = [
-            (max(0, min(1, bone_count - 1)), "foreleg"),
-            (max(0, bone_count - 2), "hindleg"),
+            (0, "foreleg"),
+            (max(0, bone_count - 1), "hindleg"),
         ]
         lateral_base = 0.50
 
