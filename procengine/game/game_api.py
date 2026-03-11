@@ -330,6 +330,9 @@ class Player(Character):
     sprint_multiplier: float = 1.5
     jump_velocity: float = 5.0  # m/s upward
 
+    # Equipment
+    equipped_weapon: Optional[str] = None  # item_id of held weapon/tool
+
     def get_move_speed(self) -> float:
         """Get current movement speed based on state."""
         speed = self.move_speed
@@ -364,6 +367,7 @@ class Player(Character):
             "move_speed": self.move_speed,
             "sprint_multiplier": self.sprint_multiplier,
             "jump_velocity": self.jump_velocity,
+            "equipped_weapon": self.equipped_weapon,
         })
         return data
 
@@ -390,6 +394,7 @@ class Player(Character):
             move_speed=data.get("move_speed", 5.0),
             sprint_multiplier=data.get("sprint_multiplier", 1.5),
             jump_velocity=data.get("jump_velocity", 5.0),
+            equipped_weapon=data.get("equipped_weapon"),
         )
 
 
@@ -526,6 +531,14 @@ class Prop(Entity):
     interactable: bool = False
     interaction_action: str = ""  # Action when interacted with
     state: Dict[str, Any] = field(default_factory=dict)  # Prop-specific state
+
+    @property
+    def is_harvestable(self) -> bool:
+        """Return ``True`` when this prop can still be harvested."""
+        return (
+            self.interaction_action == "harvest"
+            and self.state.get("hits_remaining", 0) > 0
+        )
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize prop to dictionary."""

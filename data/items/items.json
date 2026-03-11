@@ -221,6 +221,80 @@
         "artifact": true,
         "power": "dispel_darkness"
       }
+    },
+    {
+      "item_id": "wood",
+      "name": "Wood",
+      "description": "A rough-hewn log. Essential for crafting and building.",
+      "item_type": "material",
+      "value": 3,
+      "stackable": true,
+      "max_stack": 99,
+      "properties": {}
+    },
+    {
+      "item_id": "stone",
+      "name": "Stone",
+      "description": "A chunk of solid rock. Used in construction and tool-making.",
+      "item_type": "material",
+      "value": 2,
+      "stackable": true,
+      "max_stack": 99,
+      "properties": {}
+    },
+    {
+      "item_id": "plant_fiber",
+      "name": "Plant Fiber",
+      "description": "Tough fibrous strands stripped from bushes. Useful for rope and bindings.",
+      "item_type": "material",
+      "value": 1,
+      "stackable": true,
+      "max_stack": 99,
+      "properties": {}
+    },
+    {
+      "item_id": "flower_petal",
+      "name": "Flower Petal",
+      "description": "A colorful petal. Ingredient for potions and dyes.",
+      "item_type": "material",
+      "value": 1,
+      "stackable": true,
+      "max_stack": 99,
+      "properties": {}
+    },
+    {
+      "item_id": "mushroom",
+      "name": "Mushroom",
+      "description": "A wild mushroom. Edible, but barely.",
+      "item_type": "consumable",
+      "value": 2,
+      "stackable": true,
+      "max_stack": 50,
+      "properties": {
+        "heal_amount": 5
+      }
+    },
+    {
+      "item_id": "cactus_flesh",
+      "name": "Cactus Flesh",
+      "description": "Moist inner flesh of a cactus. Slightly nourishing.",
+      "item_type": "consumable",
+      "value": 2,
+      "stackable": true,
+      "max_stack": 50,
+      "properties": {
+        "heal_amount": 8
+      }
+    },
+    {
+      "item_id": "bark",
+      "name": "Bark",
+      "description": "Stripped tree bark. Useful for tanning and kindling.",
+      "item_type": "material",
+      "value": 1,
+      "stackable": true,
+      "max_stack": 99,
+      "properties": {}
     }
   ]
 }

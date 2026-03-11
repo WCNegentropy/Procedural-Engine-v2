@@ -28,6 +28,7 @@ __all__ = [
     "load_npcs_from_file",
     "load_quests_from_file",
     "load_items_from_file",
+    "load_drop_tables_from_file",
     "load_all_game_data",
     "DataLoader",
 ]
@@ -178,6 +179,27 @@ def load_items_from_file(path: Path) -> List[ItemDefinition]:
     return items
 
 
+def load_drop_tables_from_file(path: Path) -> Dict[str, Any]:
+    """Load resource drop tables from a JSON file.
+
+    Parameters
+    ----------
+    path:
+        Path to JSON file containing drop table definitions.
+
+    Returns
+    -------
+    Dict[str, Any]:
+        Mapping of prop_type to drop table entries. Each entry has
+        ``hits_required``, ``drops`` (list of ``{item_id, min, max}``),
+        and ``tool_bonus``.
+    """
+    with open(path, "r") as f:
+        data = json.load(f)
+
+    return data.get("drop_tables", {})
+
+
 class DataLoader:
     """Utility class for loading and registering game data.
 
@@ -206,6 +228,12 @@ class DataLoader:
     def load_items(self, filename: str = "items/items.json") -> List[ItemDefinition]:
         """Load items from a file relative to data_dir."""
         return load_items_from_file(self.data_dir / filename)
+
+    def load_drop_tables(
+        self, filename: str = "items/resource_drops.json"
+    ) -> Dict[str, Any]:
+        """Load resource drop tables from a file relative to data_dir."""
+        return load_drop_tables_from_file(self.data_dir / filename)
 
     def load_all(self, world: GameWorld) -> Dict[str, int]:
         """Load all game data and register with world.

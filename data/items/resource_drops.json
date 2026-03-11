@@ -1,0 +1,77 @@
+{
+  "drop_tables": {
+    "tree": {
+      "hits_required": 5,
+      "drops": [
+        {"item_id": "wood", "min": 2, "max": 4}
+      ],
+      "tool_bonus": "axe"
+    },
+    "pine_tree": {
+      "hits_required": 5,
+      "drops": [
+        {"item_id": "wood", "min": 2, "max": 5}
+      ],
+      "tool_bonus": "axe"
+    },
+    "dead_tree": {
+      "hits_required": 3,
+      "drops": [
+        {"item_id": "wood", "min": 1, "max": 2},
+        {"item_id": "bark", "min": 0, "max": 1}
+      ],
+      "tool_bonus": "axe"
+    },
+    "fallen_log": {
+      "hits_required": 2,
+      "drops": [
+        {"item_id": "wood", "min": 1, "max": 3}
+      ],
+      "tool_bonus": "axe"
+    },
+    "rock": {
+      "hits_required": 4,
+      "drops": [
+        {"item_id": "stone", "min": 1, "max": 3}
+      ],
+      "tool_bonus": "pickaxe"
+    },
+    "boulder_cluster": {
+      "hits_required": 6,
+      "drops": [
+        {"item_id": "stone", "min": 2, "max": 5},
+        {"item_id": "iron_ore", "min": 0, "max": 1}
+      ],
+      "tool_bonus": "pickaxe"
+    },
+    "bush": {
+      "hits_required": 2,
+      "drops": [
+        {"item_id": "plant_fiber", "min": 1, "max": 3}
+      ],
+      "tool_bonus": null
+    },
+    "flower_patch": {
+      "hits_required": 1,
+      "drops": [
+        {"item_id": "flower_petal", "min": 1, "max": 2}
+      ],
+      "tool_bonus": null
+    },
+    "mushroom": {
+      "hits_required": 1,
+      "drops": [
+        {"item_id": "mushroom", "min": 1, "max": 3}
+      ],
+      "tool_bonus": null
+    },
+    "cactus": {
+      "hits_required": 3,
+      "drops": [
+        {"item_id": "cactus_flesh", "min": 1, "max": 2},
+        {"item_id": "plant_fiber", "min": 0, "max": 1}
+      ],
+      "tool_bonus": null
+    }
+  }
+}
