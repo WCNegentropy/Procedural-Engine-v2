@@ -1304,7 +1304,7 @@ class GameRunner:
                 for recipe in recipes:
                     self._world.register_recipe(recipe)
             except FileNotFoundError:
-                pass
+                print("Warning: recipes.json not found, no crafting recipes loaded")
 
             # Load drop tables and initialise harvesting system
             try:
