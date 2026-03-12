@@ -1134,3 +1134,106 @@ class TestDynamicChunks:
         assert spawned_entities[0].position.x == pytest.approx(1.5)
         assert spawned_entities[0].position.y == pytest.approx(0.5 * runner.HEIGHT_SCALE + 0.1)
         assert spawned_entities[0].position.z == pytest.approx(2.5)
+
+
+# =============================================================================
+# Item & Crafting Integration Tests
+# =============================================================================
+
+
+class TestItemCraftingIntegration:
+    """Tests for item and crafting system integration in GameRunner."""
+
+    def test_recipes_loaded_after_init_world(self):
+        """Recipes from data/items/recipes.json are registered in GameWorld."""
+        config = RunnerConfig(headless=True, world_seed=42)
+        runner = GameRunner(config)
+        runner.initialize()
+        _init_world_for_test(runner)
+
+        recipes = runner.world.get_all_recipes()
+        assert len(recipes) > 0, "Recipes should be loaded by _load_game_content"
+        assert "craft_rope" in recipes
+        runner.shutdown()
+
+    def test_items_loaded_after_init_world(self):
+        """Item definitions from data/items/items.json are registered."""
+        config = RunnerConfig(headless=True, world_seed=42)
+        runner = GameRunner(config)
+        runner.initialize()
+        _init_world_for_test(runner)
+
+        item_def = runner.world.get_item_definition("health_potion")
+        assert item_def is not None
+        assert item_def.name == "Health Potion"
+        runner.shutdown()
+
+    def test_ui_crafting_panel_has_recipes_after_init_world(self):
+        """CraftingPanel receives recipes when UI is wired after content loading."""
+        config = RunnerConfig(headless=True, world_seed=42, enable_ui=True)
+        runner = GameRunner(config)
+        runner.initialize()
+        _init_world_for_test(runner)
+
+        if runner._ui_manager is None:
+            pytest.skip("UI manager not available in this environment")
+
+        panel = runner._ui_manager.crafting_panel
+        assert len(panel._recipes) > 0, (
+            "CraftingPanel should have recipes after _init_world"
+        )
+        runner.shutdown()
+
+    def test_ui_inventory_panel_has_item_definitions_after_init_world(self):
+        """InventoryPanel receives item definitions after content loading."""
+        config = RunnerConfig(headless=True, world_seed=42, enable_ui=True)
+        runner = GameRunner(config)
+        runner.initialize()
+        _init_world_for_test(runner)
+
+        if runner._ui_manager is None:
+            pytest.skip("UI manager not available in this environment")
+
+        panel = runner._ui_manager.inventory_panel
+        assert len(panel._item_definitions) > 0, (
+            "InventoryPanel should have item definitions after _init_world"
+        )
+        runner.shutdown()
+
+    def test_crafting_via_command_consumes_ingredients(self):
+        """player.craft command consumes ingredients and produces result."""
+        config = RunnerConfig(headless=True, world_seed=42)
+        runner = GameRunner(config)
+        runner.initialize()
+        _init_world_for_test(runner)
+
+        player = runner.player
+        assert player is not None
+        # Give materials for craft_rope: requires plant_fiber x3
+        player.inventory.add_item("plant_fiber", 5)
+
+        result = runner.execute_command("player.craft craft_rope")
+        assert result.success, f"Crafting should succeed: {result.message}"
+        assert player.inventory.get_count("rope") >= 1
+        assert player.inventory.get_count("plant_fiber") == 2  # 5 - 3
+        runner.shutdown()
+
+    def test_item_use_heals_player(self):
+        """player.use health_potion heals using heal_amount property."""
+        config = RunnerConfig(headless=True, world_seed=42)
+        runner = GameRunner(config)
+        runner.initialize()
+        _init_world_for_test(runner)
+
+        player = runner.player
+        assert player is not None
+        player.inventory.add_item("health_potion", 1)
+
+        # Damage the player first
+        player.health = 50
+
+        result = runner.execute_command("player.use health_potion")
+        assert result.success, f"Item use should succeed: {result.message}"
+        assert player.health > 50, "Player should be healed"
+        assert player.inventory.get_count("health_potion") == 0
+        runner.shutdown()
