@@ -283,7 +283,7 @@ def cmd_player_use(item_id: str) -> CommandResult:
     # Apply item effects based on type
     if item_def and hasattr(item_def, "properties"):
         props = item_def.properties if isinstance(item_def.properties, dict) else {}
-        heal_amount = props.get("heal", 0)
+        heal_amount = props.get("heal_amount", 0)
         if heal_amount:
             player.heal(heal_amount)
             player.inventory.remove_item(item_id, 1)

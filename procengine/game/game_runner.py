@@ -1006,10 +1006,6 @@ class GameRunner:
         spawn_z = self.config.chunk_size // 2
         self._world.create_player(name="Hero", position=Vec3(spawn_x, 50, spawn_z))
 
-        # Wire UI to the new world
-        if self._ui_manager:
-            self._ui_manager.set_world(self._world)
-
         # Setup terrain (dynamic chunks or static)
         if self.config.enable_dynamic_chunks:
             self._setup_dynamic_terrain()
@@ -1041,8 +1037,14 @@ class GameRunner:
             self._player_controller.camera.camera.position = Vec3(center, camera_y, center + 30)
             self._player_controller.camera.camera.target = Vec3(center, terrain_target_y, center)
 
-        # Load game content
+        # Load game content (items, recipes, NPCs, quests, etc.)
         self._load_game_content()
+
+        # Wire UI to the new world — done *after* content loading so that
+        # item definitions and crafting recipes are already registered in
+        # the GameWorld when UIManager.set_world() reads them.
+        if self._ui_manager:
+            self._ui_manager.set_world(self._world)
 
         # Update command context to point to this runner (world changed)
         command_registry.set_context(self)
@@ -1295,6 +1297,14 @@ class GameRunner:
             items = loader.load_items("items/items.json")
             for item in items:
                 self._world.register_item_definition(item)
+
+            # Load crafting recipes (after items so definitions exist)
+            try:
+                recipes = loader.load_recipes("items/recipes.json")
+                for recipe in recipes:
+                    self._world.register_recipe(recipe)
+            except FileNotFoundError:
+                print("Warning: recipes.json not found, no crafting recipes loaded")
 
             # Load drop tables and initialise harvesting system
             try:
