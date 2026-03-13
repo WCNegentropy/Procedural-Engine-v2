@@ -35,6 +35,7 @@ procengine/                 # Core Python package
 │   ├── commands.py         # Command registry
 │   ├── console.py          # In-game console
 │   └── handlers/           # Command implementations
+├── utils/                  # Utilities (seed_sweeper)
 └── graphics/               # Rendering bridge
     └── graphics_bridge.py  # Vulkan/headless abstraction
 ```

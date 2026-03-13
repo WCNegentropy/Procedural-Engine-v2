@@ -98,6 +98,7 @@ Engine.snapshot_state(frame:int) -> bytes   # returns deterministic hash
 │   │   └── handlers/           # Command implementations
 │   │       └── game_commands.py # Game-specific commands
 │   ├── agents/                 # NPC AI framework (LocalAgent → MCP)
+│   ├── utils/                  # Utilities (seed_sweeper)
 │   └── graphics/               # Rendering bridge
 │       └── graphics_bridge.py  # Vulkan/headless abstraction
 │
@@ -224,7 +225,8 @@ Headless mode remains fully functional for testing and CI.
 | Push constants | cpp/graphics.cpp | ✅ Complete | Per-draw model transforms and color |
 | Default shaders | cpp/graphics.cpp | ✅ Complete | Basic diffuse lighting shaders |
 | Biome colors | cpp/terrain.cpp | ✅ Complete | 16-biome color palette with vertex colors |
-| Entity meshes | cpp/props.cpp | ✅ Complete | Capsule, cylinder, box, rock, tree mesh generation |
+| Entity meshes | cpp/props.cpp | ✅ Complete | Capsule, cylinder, box, rock, tree, creature, bush, pine tree, dead tree, fallen log, boulder cluster, flower patch, mushroom, cactus mesh generation |
+| Distance fog | cpp/graphics.cpp | ✅ Complete | Exponential fog with dead zone (96 unit start), density 0.0018, max opacity 65% |
 
 ### Rendering Pipeline
 

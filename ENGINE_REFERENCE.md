@@ -637,18 +637,27 @@ adding a single `rng.random()` call) will change all downstream results.
 - `Mesh` -- vertices, normals, colors, indices + validate/ensure/set_uniform_color
 - `RockDescriptor` -- position, radius, noise_seed, noise_scale
 - `TreeDescriptor` -- lsystem (LSystemRules), angle, iterations
+- `CreatureDescriptor` -- skeleton, metaballs, limbs for marching cubes extraction
 - `LSystemRules` -- axiom (string), rules (dict<char, string>)
 
 **Mesh generators**:
 - `generate_rock_mesh(desc, segments=16, rings=12)` -> Mesh
 - `generate_tree_mesh(desc, segments_per_ring=8)` -> Mesh
+- `generate_creature_mesh(desc, grid_resolution=32, threshold=1.0)` -> Mesh
+- `generate_bush_mesh(desc)` -> Mesh
+- `generate_pine_tree_mesh(desc)` -> Mesh
+- `generate_dead_tree_mesh(desc)` -> Mesh
+- `generate_fallen_log_mesh(desc)` -> Mesh
+- `generate_boulder_cluster_mesh(desc)` -> Mesh
+- `generate_flower_patch_mesh(desc)` -> Mesh
+- `generate_mushroom_mesh(desc)` -> Mesh
+- `generate_cactus_mesh(desc)` -> Mesh
 - `generate_capsule_mesh(radius, height, segments, rings)` -> Mesh
 - `generate_cylinder_mesh(radius, height, segments)` -> Mesh
 - `generate_box_mesh(size, center)` -> Mesh
 - `generate_cone_mesh(radius, height, segments)` -> Mesh
 - `generate_terrain_mesh(heightmap, cell_size, height_scale)` -> Mesh
 - `generate_terrain_mesh_with_biomes(heightmap, biome_map, cell_size, height_scale)` -> Mesh
-- `generate_creature_mesh(desc, grid_resolution=32, threshold=1.0)` -> Mesh
 
 **Convenience constructors** (dict -> descriptor):
 - `create_rock_from_dict(d)` -> RockDescriptor
