@@ -74,7 +74,8 @@ Engine.snapshot_state(frame:int) -> bytes   # returns deterministic hash
 │   ├── world/                  # World generation
 │   │   ├── terrain.py          # Heightmap, biomes, erosion
 │   │   ├── chunk.py            # ChunkManager, ChunkedHeightField
-│   │   ├── props.py            # Rock, tree, building generators
+│   │   ├── props.py            # Rock, tree, building, creature generators
+│   │   ├── creature_templates.py # Species template system (8 built-in templates)
 │   │   ├── materials.py        # Material graph DSL
 │   │   └── world.py            # Multi-chunk assembly
 │   ├── physics/                # Physics system
@@ -84,14 +85,15 @@ Engine.snapshot_state(frame:int) -> bytes   # returns deterministic hash
 │   ├── game/                   # Runtime game systems
 │   │   ├── game_api.py         # GameWorld, Entity hierarchy, Events
 │   │   ├── game_runner.py      # Main game loop, menu flow, chunk orchestration, rendering
-│   │   ├── behavior_tree.py    # NPC behavior trees
+│   │   ├── behavior_tree.py    # NPC and creature behavior trees
 │   │   ├── player_controller.py # Input & camera system
 │   │   ├── data_loader.py      # JSON data loading
-│   │   └── ui_system.py        # Dear ImGui UI (main menu, world creation, save/load, HUD, dialogue, inventory, console)
+│   │   ├── harvesting.py       # Resource harvesting with drop tables
+│   │   └── ui_system.py        # Dear ImGui UI (main menu, world creation, save/load, HUD, dialogue, inventory, crafting, console)
 │   ├── managers/               # Runtime scheduling bridge
 │   │   └── game_manager.py     # GameManagerBridge + FrameDirective fallback
 │   ├── commands/               # Command system
-│   │   ├── commands.py         # Command registry (52 registered commands)
+│   │   ├── commands.py         # Command registry (56 registered commands)
 │   │   ├── console.py          # In-game console
 │   │   └── handlers/           # Command implementations
 │   │       └── game_commands.py # Game-specific commands
@@ -117,7 +119,7 @@ Engine.snapshot_state(frame:int) -> bytes   # returns deterministic hash
 ├── data/                       # GAME CONTENT (JSON)
 │   ├── npcs/                   # NPC definitions (6 village NPCs)
 │   ├── quests/                 # Quest definitions (6 quests)
-│   └── items/                  # Item definitions (18 items)
+│   └── items/                  # Item definitions (38 items), crafting recipes (17), resource drop tables (10 prop types)
 │
 ├── tools/                      # DEV UTILITIES
 │   └── seed_sweeper.py
@@ -169,7 +171,7 @@ Bare imports (`from physics import ...`) will fail at runtime due to the namespa
 - ✅ Vulkan rendering pipeline with biome terrain colors
 - ✅ Biome-specific material pipelines generated in Python and compiled/applied via C++
 - ✅ Entity mesh generation and rendering
-- ✅ Dear ImGui UI system with 12 components plus headless backend (`ui_system.py`)
+- ✅ Dear ImGui UI system with 13 components plus headless backend (`ui_system.py`)
 - ✅ Dynamic chunk-based infinite world streaming (`chunk.py`)
 - ✅ `GameManagerBridge` / `FrameDirective` integration for async chunk scheduling and frame-budget hints
 - ✅ MAIN_MENU → WORLD_CREATION → LOADING → PLAYING state machine with two-phase initialization
@@ -182,11 +184,22 @@ Bare imports (`from physics import ...`) will fail at runtime due to the namespa
 - ✅ Entity lifecycle tied to chunk load/unload (no orphaned entities)
 - ✅ ChunkedHeightField for cross-chunk physics
 
+### Phase 2.75: Creatures, Harvesting & Crafting
+- ✅ Creature class promoted from Prop to Character with behavior trees and physics
+- ✅ Species template system with 8 built-in templates (`creature_templates.py`)
+- ✅ Biome-specific creature spawning with density tuning
+- ✅ Creature head morphology, limb generation, vision cones, smooth rotation
+- ✅ Metaball + skeleton mesh pipeline with marching cubes extraction
+- ✅ Resource harvesting system with deterministic drop tables (`harvesting.py`)
+- ✅ Crafting system with 17 recipes and CraftingPanel UI
+- ✅ Player equipment system (equip/unequip weapons and tools)
+- ✅ Expanded item catalog (38 items across weapon, armor, tool, consumable, material, and other types)
+
 ### Phase 3: MCP Integration
 - ⏳ Pending — MCP server, MCPAgent, Game Master mode
 
 ### Phase 4: Command Architecture
-- ✅ Command registry with 52 registered commands across 11 defined categories (`commands.py`)
+- ✅ Command registry with 56 registered commands across 11 defined categories (`commands.py`)
 - ✅ In-game console with autocomplete (`console.py`)
 - ✅ Keybind system with configurable binds
 - ✅ Access control levels: PUBLIC, CONSOLE, CHEAT, DEV
@@ -233,6 +246,7 @@ When `enable_dynamic_chunks` is active, entity rendering is filtered by chunk di
 |------------|------|-------|
 | Player | Capsule | Skin tone (0.85, 0.65, 0.55) |
 | NPC | Capsule | Darker skin tone (0.75, 0.60, 0.50) |
+| Creature | Metaball marching cubes (capsule fallback) | Organic greenish (0.55, 0.70, 0.45) |
 | Rock | Sphere with noise displacement | Gray (0.55, 0.50, 0.45) |
 | Tree | L-system sweep mesh | Brown bark (0.45, 0.35, 0.25) |
 | Building | Box | Stone (0.70, 0.65, 0.60) |

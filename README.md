@@ -52,22 +52,26 @@ module. The commands above mirror the active CI paths for a fresh clone.
 - Prop generation at half render distance for natural density falloff
 
 ### Game Systems
-- **Entity System**: Player, NPC, Prop, Item hierarchy with serialization
+- **Entity System**: Player, NPC, Creature, Prop, Item hierarchy with serialization
+- **Creature System**: Procedurally-generated creatures with species templates (deer, wolf, lizard, goat, humanoid, goblin, bird), biome-specific spawning, vision cones, smooth rotation, and metaball + skeleton mesh generation
+- **Resource Harvesting**: Attack-to-harvest system with deterministic drop tables per prop type, hit counters, and cooldown timing
+- **Crafting System**: Recipe-based item creation (17 recipes) with CraftingPanel UI, ingredient validation, and result production
+- **Player Equipment**: Weapon/tool equip and unequip system with console commands
 - **NPC Agent Framework**: LocalAgent for offline AI, ready for MCP integration
 - **Behavior Trees**: Full implementation with Selector, Sequence, Parallel, decorators
-- **Behavior Tree Integration**: NPCs auto-configured with behavior trees on spawn
+- **Behavior Tree Integration**: NPCs and creatures auto-configured with behavior trees on spawn
 - **Dialogue System**: Context-aware responses with personality support
 - **Quest System**: Objectives, tracking, rewards, and completion
 - **Inventory System**: Items with capacity, stacking, and persistence
 - **Input Abstraction**: Action-based input system independent of physical keys
 - **Camera System**: Third-person camera with terrain collision avoidance
 - **Player Controller**: Input to player action translation layer
-- **Data Loading**: JSON-based content loading for NPCs, quests, items
+- **Data Loading**: JSON-based content loading for NPCs, quests, items, recipes, drop tables
 - **Save/Load**: JSON serialization for full game state
 - **Event System**: Pub/sub for decoupled game systems
 
 ### Command Architecture
-- **Command Registry**: 52 registered commands with typed parameters and access control
+- **Command Registry**: 56 registered commands with typed parameters and access control
 - **In-Game Console**: Toggle with tilde, command history, autocomplete
 - **Keybind System**: Key-to-command mapping with configurable binds
 - **Access Control**: PUBLIC, CONSOLE, CHEAT, and DEV permission levels
@@ -81,6 +85,7 @@ module. The commands above mirror the active CI paths for a fresh clone.
 - **HUD**: Health bar, quest tracker, interaction prompts
 - **Dialogue Box**: NPC conversation display with response options
 - **Inventory Panel**: Grid of items with use/drop actions
+- **Crafting Panel**: Recipe list with ingredient requirements, craft button, and result display
 - **Quest Log**: Active and completed quest tracking
 - **Pause Menu**: Resume, save, load, settings, quit to main menu
 - **Debug Overlay**: FPS counter, player position, entity count, biome info
@@ -102,7 +107,7 @@ module. The commands above mirror the active CI paths for a fresh clone.
 - Trees: L-system skeletons with sweep mesh
 - Bushes, pine trees, dead trees, fallen logs, boulder clusters, flower patches, mushrooms, and cacti have dedicated descriptor and mesh paths
 - Buildings: Shape grammar with BSP mesh synthesis
-- Creatures: Metaball + skeleton with marching cubes, with capsule fallback if generation fails
+- Creatures: Species-templated metaball + skeleton with marching cubes, head morphology, limb generation, and capsule fallback; 8 built-in species templates (deer, wolf, lizard, goat, humanoid, goblin, bird, original)
 - LOD generation with mesh simplification
 
 ### Physics (3D)
@@ -125,7 +130,8 @@ module. The commands above mirror the active CI paths for a fresh clone.
 - **Entity meshes**: Players, NPCs, rocks, trees, buildings
 - **Render-distance entity culling**: only entities in loaded chunks are drawn
 - Three-point lighting model (sun, sky, ground bounce)
-- Exponential fog and tone mapping
+- Distance fog with dead zone (exponential falloff, configurable density and max opacity)
+- Tone mapping
 - Virtual texture system (128KB tiles, LRU paging)
 - Forward+ rendering pipeline
 
@@ -150,17 +156,19 @@ Chunk management         --->     Terrain mesh upload, entity meshes
 | Module | Purpose |
 |--------|---------|
 | `procengine.core.engine` | Core engine with state snapshots, hot-reload |
-| `procengine.game.game_api` | GameWorld, entities, quests, dialogue, inventory |
+| `procengine.game.game_api` | GameWorld, entities (Player, NPC, Creature, Prop, Item), quests, dialogue, inventory |
 | `procengine.game.game_runner` | Main game loop, menu flow, chunk orchestration, rendering |
-| `procengine.game.behavior_tree` | NPC AI with behavior trees |
-| `procengine.game.ui_system` | Dear ImGui UI (main menu, world creation, save/load, HUD, dialogue, inventory, console) |
-| `procengine.commands.commands` | Command registry with 52 registered commands |
+| `procengine.game.behavior_tree` | NPC and creature AI with behavior trees |
+| `procengine.game.ui_system` | Dear ImGui UI (main menu, world creation, save/load, HUD, dialogue, inventory, crafting, console) |
+| `procengine.game.harvesting` | Resource harvesting system with drop tables |
+| `procengine.commands.commands` | Command registry with 56 registered commands |
 | `procengine.commands.console` | In-game console with autocomplete |
 | `procengine.physics.bodies` | RigidBody, RigidBody3D, Vec3 |
 | `procengine.physics.collision` | 2D and 3D physics simulation |
 | `procengine.world.terrain` | FBM noise, erosion, biome generation |
 | `procengine.world.chunk` | ChunkManager, ChunkedHeightField |
-| `procengine.world.props` | Rock, tree, building, creature descriptors |
+| `procengine.world.props` | Rock, tree, building, creature, bush, and other prop descriptors |
+| `procengine.world.creature_templates` | Species template system (8 built-in templates) for creature generation |
 | `procengine.world.materials` | Material graph DSL and node system |
 | `procengine.world.world` | Multi-chunk world assembly |
 | `procengine.managers.game_manager` | C++ `GameManager` bridge and `FrameDirective` fallback |
@@ -401,7 +409,7 @@ This project is actively developing toward v2.0, an AI-native RPG platform.
 
 ### Phase 2: Game Loop & NPC Framework (Complete)
 - [x] GameWorld state management
-- [x] Entity hierarchy (Player, NPC, Prop, Item)
+- [x] Entity hierarchy (Player, NPC, Creature, Prop, Item)
 - [x] NPC agent framework with LocalAgent
 - [x] Behavior tree system
 - [x] Dialogue system with context
@@ -413,14 +421,14 @@ This project is actively developing toward v2.0, an AI-native RPG platform.
 - [x] Camera system
 - [x] Graphics bridge with entity rendering
 - [x] Biome terrain coloring (16 biomes)
-- [x] Entity mesh rendering (players, NPCs, props)
+- [x] Entity mesh rendering (players, NPCs, creatures, props)
 
 ### Phase 2.5: Graphics & UI (Complete)
 - [x] Vulkan rendering pipeline complete
 - [x] Terrain with biome colors
 - [x] Biome-specific material pipelines for terrain rendering
 - [x] Entity mesh generation (capsule, cylinder, box, L-system trees)
-- [x] Dear ImGui UI framework (main menu, world creation, save/load, HUD, dialogue, inventory, console, debug overlay)
+- [x] Dear ImGui UI framework (main menu, world creation, save/load, HUD, dialogue, inventory, crafting, console, debug overlay)
 - [x] Two-phase initialization: app boots to main menu; world created on demand
 - [x] Working save/load screens and world cleanup for return-to-menu flow
 - [x] Dynamic chunk-based world streaming
@@ -434,6 +442,18 @@ This project is actively developing toward v2.0, an AI-native RPG platform.
 - [x] Closest-first chunk load ordering
 - [x] Entity lifecycle tied to chunk load/unload
 
+### Phase 2.75: Creatures, Harvesting & Crafting (Complete)
+- [x] Creature class promoted from Prop to Character with behavior trees
+- [x] Species template system (8 built-in templates: deer, wolf, lizard, goat, humanoid, goblin, bird, original)
+- [x] Biome-specific creature spawning with density tuning
+- [x] Creature head morphology parameters and limb generation
+- [x] Vision cone and smooth rotation for creature AI
+- [x] Metaball + skeleton mesh pipeline with marching cubes extraction
+- [x] Resource harvesting system with deterministic drop tables
+- [x] Crafting system with 17 recipes and CraftingPanel UI
+- [x] Player equipment system (equip/unequip weapons and tools)
+- [x] Expanded item catalog (38 items across weapon, armor, tool, consumable, material, and other types)
+
 ### Phase 3: MCP Integration (Pending)
 - [ ] MCP server for Claude/AI integration
 - [ ] AI-powered NPC dialogue via MCPAgent
@@ -441,14 +461,14 @@ This project is actively developing toward v2.0, an AI-native RPG platform.
 - [ ] Graceful fallback to LocalAgent
 
 ### Phase 4: Command Architecture (Complete)
-- [x] Unified command registry (52 commands)
+- [x] Unified command registry (56 commands)
 - [x] In-game console with autocomplete
 - [x] Keybind system
 - [x] Access control (PUBLIC, CONSOLE, CHEAT, DEV)
 - [x] MCP tool generation from commands
 - [ ] Script execution for modding (planned)
 
-See [plan.md](plan.md) for the complete development plan.
+See [Legacy/plan.md](Legacy/plan.md) for the original development plan (historical reference).
 
 For the latest audit of still-disconnected runtime/FFI features, see
 [`docs/remediation_report.md`](docs/remediation_report.md).

@@ -15,7 +15,8 @@ procengine/                 # Core Python package
 ├── world/                  # World generation
 │   ├── terrain.py          # Heightmap, biomes, erosion
 │   ├── chunk.py            # ChunkManager, ChunkedHeightField
-│   ├── props.py            # Rock, tree, building generators
+│   ├── props.py            # Rock, tree, building, creature generators
+│   ├── creature_templates.py # Species template system (8 built-in templates)
 │   ├── materials.py        # Material graph DSL
 │   └── world.py            # Multi-chunk assembly
 ├── physics/                # Physics system
@@ -24,11 +25,12 @@ procengine/                 # Core Python package
 │   └── heightfield.py      # HeightField, HeightField2D
 ├── game/                   # Game layer
 │   ├── game_api.py         # GameWorld, Entity, Events
-│   ├── behavior_tree.py    # NPC behavior trees
+│   ├── behavior_tree.py    # NPC and creature behavior trees
 │   ├── player_controller.py # Input & camera system
 │   ├── data_loader.py      # JSON data loading
 │   ├── game_runner.py      # Main game loop, chunk orchestration
-│   └── ui_system.py        # Dear ImGui UI (HUD, dialogue, inventory, console)
+│   ├── harvesting.py       # Resource harvesting with drop tables
+│   └── ui_system.py        # Dear ImGui UI (HUD, dialogue, inventory, crafting, console)
 ├── commands/               # Command system
 │   ├── commands.py         # Command registry
 │   ├── console.py          # In-game console

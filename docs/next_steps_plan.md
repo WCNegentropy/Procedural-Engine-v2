@@ -376,6 +376,10 @@ Moderate C++ work in `cpp/props.cpp`. Prong 1 (geometry tweaks) is straightforwa
 
 ## Issue 5: Creature System — Game Loop Integration
 
+> **Status: Resolved** — Phases 1–4 below were implemented in PRs #80–#92.
+> Creatures are now `Character` subclasses with species templates, biome-specific
+> spawning, vision cones, behavior trees, and metaball mesh generation.
+
 ### Current State
 
 The creature skeleton + metaball system is **implemented end-to-end** through the FFI:
@@ -567,7 +571,7 @@ Priority 2 (Prop Polish — Medium Effort)
 │   └── Prong 2: Procedural noise mask
 └── Issue 3: Y-Offset constant map refactor
 
-Priority 3 (Creature System — Larger Effort)
+Priority 3 (Creature System — ✅ Resolved in PRs #80–#92)
 ├── Issue 5 Phase 1: Validate creature spawn + render
 ├── Issue 5 Phase 2: Creature entity class
 ├── Issue 5 Phase 3: Basic movement + behavior tree
