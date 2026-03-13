@@ -22,6 +22,7 @@ Procedural-Engine-v2/
 │   │   ├── terrain.py           # FBM + erosion heightmaps
 │   │   ├── chunk.py             # ChunkManager, ChunkedHeightField
 │   │   ├── props.py             # Rock/tree/building/creature descriptors
+│   │   ├── creature_templates.py # Species template system (8 built-in templates)
 │   │   ├── materials.py         # Material graph generation
 │   │   └── world.py             # World orchestration
 │   ├── physics/                 # Pure-Python 3D physics
@@ -33,15 +34,16 @@ Procedural-Engine-v2/
 │   │   ├── game_runner.py       # Main loop, menu flow, chunk orchestration, rendering
 │   │   ├── player_controller.py # Camera, player input
 │   │   ├── behavior_tree.py     # BT nodes (Selector, Sequence, etc.)
-│   │   ├── data_loader.py       # JSON content loader (NPCs, quests, items)
-│   │   └── ui_system.py         # Dear ImGui UI (main menu, world creation, save/load, HUD, dialogue, inventory, console, debug)
+│   │   ├── data_loader.py       # JSON content loader (NPCs, quests, items, recipes, drop tables)
+│   │   ├── harvesting.py        # Resource harvesting with drop tables
+│   │   └── ui_system.py         # Dear ImGui UI (main menu, world creation, save/load, HUD, dialogue, inventory, crafting, console, debug)
 │   ├── managers/                # Runtime bridges for C++ scheduling/streaming
 │   │   └── game_manager.py      # GameManagerBridge, ManagerConfig, FrameDirective
 │   ├── graphics/                # Rendering abstraction
 │   │   └── graphics_bridge.py   # Mesh upload, draw calls, camera, lighting
 │   ├── agents/                  # NPC AI framework (LocalAgent → MCP)
 │   ├── commands/                # Command system
-│   │   ├── commands.py          # Command registry (52 registered commands)
+│   │   ├── commands.py          # Command registry (56 registered commands)
 │   │   ├── console.py           # In-game console with autocomplete
 │   │   └── handlers/            # Game command implementations
 │   │       └── game_commands.py
@@ -59,7 +61,7 @@ Procedural-Engine-v2/
 ├── data/                        # Game content JSON files
 │   ├── npcs/                    # NPC definitions (6 village NPCs)
 │   ├── quests/                  # Quest definitions (6 quests)
-│   └── items/                   # Item definitions (18 items)
+│   └── items/                   # Item definitions (38 items), crafting recipes (17), resource drop tables (10 prop types)
 ├── Legacy/                      # Pre-restructure code (DO NOT import from)
 └── .github/workflows/ci.yml     # Cross-platform CI/CD
 ```
@@ -267,6 +269,7 @@ Defined in `ENTITY_COLORS` dict in `graphics_bridge.py`:
 |------------|-----|-------------|
 | `player` | (0.85, 0.65, 0.55) | Skin tone |
 | `npc` | (0.75, 0.60, 0.50) | Darker skin tone |
+| `creature` | (0.55, 0.70, 0.45) | Organic greenish |
 | `rock` | (0.55, 0.50, 0.45) | Gray rock |
 | `tree` | (0.45, 0.35, 0.25) | Brown bark |
 | `building` | (0.70, 0.65, 0.60) | Stone |
@@ -508,7 +511,7 @@ from procengine.physics import Vec3  # MUST use full path
 
 ### Hierarchy
 
-`Entity` -> `Character` -> `Player`, `NPC`; `Entity` -> `Prop`, `Item`
+`Entity` -> `Character` -> `Player`, `NPC`, `Creature`; `Entity` -> `Prop`, `Item`
 
 ### Prop Entity
 
@@ -537,7 +540,7 @@ keybinds, and future MCP integration.
 
 | Component | File | Description |
 |-----------|------|-------------|
-| `CommandRegistry` | commands.py | 52 registered commands with typed params, validation, access control |
+| `CommandRegistry` | commands.py | 56 registered commands with typed params, validation, access control |
 | `Console` | console.py | In-game console with history and autocomplete |
 | `game_commands` | handlers/game_commands.py | Game-specific command implementations |
 
@@ -587,6 +590,7 @@ The UI system uses Dear ImGui with an abstraction layer for testing:
 | HUD | Health bar, quest tracker, interaction prompts |
 | DialogueBox | NPC conversation with response options |
 | InventoryPanel | Player inventory with use/drop actions |
+| CraftingPanel | Recipe-based crafting with ingredient validation |
 | QuestLog | Active and completed quest tracking |
 | PauseMenu | Resume, save, load, settings, quit to main menu |
 | SettingsPanel | Debug overlay toggle, VSync toggle |
@@ -633,11 +637,21 @@ adding a single `rng.random()` call) will change all downstream results.
 - `Mesh` -- vertices, normals, colors, indices + validate/ensure/set_uniform_color
 - `RockDescriptor` -- position, radius, noise_seed, noise_scale
 - `TreeDescriptor` -- lsystem (LSystemRules), angle, iterations
+- `CreatureDescriptor` -- skeleton, metaballs, limbs for marching cubes extraction
 - `LSystemRules` -- axiom (string), rules (dict<char, string>)
 
 **Mesh generators**:
 - `generate_rock_mesh(desc, segments=16, rings=12)` -> Mesh
 - `generate_tree_mesh(desc, segments_per_ring=8)` -> Mesh
+- `generate_creature_mesh(desc, grid_resolution=32, threshold=1.0)` -> Mesh
+- `generate_bush_mesh(desc)` -> Mesh
+- `generate_pine_tree_mesh(desc)` -> Mesh
+- `generate_dead_tree_mesh(desc)` -> Mesh
+- `generate_fallen_log_mesh(desc)` -> Mesh
+- `generate_boulder_cluster_mesh(desc)` -> Mesh
+- `generate_flower_patch_mesh(desc)` -> Mesh
+- `generate_mushroom_mesh(desc)` -> Mesh
+- `generate_cactus_mesh(desc)` -> Mesh
 - `generate_capsule_mesh(radius, height, segments, rings)` -> Mesh
 - `generate_cylinder_mesh(radius, height, segments)` -> Mesh
 - `generate_box_mesh(size, center)` -> Mesh
