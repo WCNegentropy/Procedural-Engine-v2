@@ -16,7 +16,10 @@ readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
 authors = [
-    {name = "Procedural Engine Team"}
+    {name = "Mikeal Clark"},
+    {name = "Caleb Cannon"},
+    {name = "WCNEGENTROPY HOLDINGS LLC"},
+    {name = "CannonF0rge"},
 ]
 keywords = [
     "procedural-generation",
